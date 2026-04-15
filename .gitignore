@@ -1,0 +1,15 @@
+# --- PYTHON TRASH ---
+python-ai-worker/env/
+python-ai-worker/__pycache__/
+*.pyc
+*.jpg
+*.png
+
+# --- JAVA TRASH ---
+java-api-gateway/target/
+java-api-gateway/.idea/
+java-api-gateway/*.iml
+
+# --- OS TRASH ---
+.DS_Store
+Thumbs.db
