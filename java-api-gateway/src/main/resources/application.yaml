@@ -1,3 +1,15 @@
 spring:
   application:
-    name: demo
+    name: java-api-gateway
+  datasource:
+    url: jdbc:postgresql://localhost:5433/manga_os # <-- Đổi 5432 thành 5433 ở đây
+    username: postgres
+    password: password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
