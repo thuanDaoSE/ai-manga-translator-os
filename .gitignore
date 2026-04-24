@@ -4,6 +4,9 @@ python-ai-worker/__pycache__/
 *.pyc
 *.jpg
 *.png
+*.ttf
+*.log
+.env
 
 # --- JAVA TRASH ---
 java-api-gateway/target/

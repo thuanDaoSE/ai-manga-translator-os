@@ -34,10 +34,9 @@ public class MangaGatewayApplication implements CommandLineRunner {
 
         // 1. Khởi tạo công cụ gọi HTTP
         RestTemplate restTemplate = new RestTemplate();
-        String pythonApiUrl = "http://127.0.0.1:8000/api/ocr";
 
         // 2. Trỏ đường dẫn đến file ảnh crop
-        String imagePath = "D:\\Workspaces\\VSCode-workspace\\AI_Manga_Translator\\python-ai-worker\\crop.jpg";
+        String imagePath = "D:\\Workspaces\\VSCode-workspace\\AI_Manga_Translator\\python-ai-worker\\test.jpg";
         FileSystemResource file = new FileSystemResource(imagePath);
 
         // 3. Đóng gói file thành dạng Multipart Form-Data
@@ -50,33 +49,47 @@ public class MangaGatewayApplication implements CommandLineRunner {
         HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
 
         // 4. Bắn Request sang Python và nhận kết quả
+        // 4. Bắn Request sang Python và nhận kết quả
         try {
+            // Lưu ý: Đổi URL API thành đường link mới của Python
+            String pythonApiUrl = "http://127.0.0.1:8000/api/translate-page";
+
             ResponseEntity<String> response = restTemplate.postForEntity(pythonApiUrl, requestEntity, String.class);
             String jsonResponse = response.getBody();
 
-            System.out.println("✅ Kết quả JSON từ Python trả về:");
-            System.out.println(jsonResponse);
+            System.out.println("✅ Kết quả JSON từ Python trả về thành công!");
 
-            // --- ĐÂY LÀ PHẦN MỚI CỦA BƯỚC 3 ---
-            // 5. Bóc tách JSON và Lưu vào PostgreSQL
-            JSONObject obj = new JSONObject(jsonResponse);
-            String extractedText = obj.getString("text");
-            String fileName = obj.getString("filename");
+            // 5. Bóc tách JSON Mảng và Lưu vào PostgreSQL
+            org.json.JSONObject obj = new org.json.JSONObject(jsonResponse);
+            org.json.JSONArray dataArray = obj.getJSONArray("data");
+            String fileName = obj.getString("file_name");
 
-            TranslationRecord record = new TranslationRecord();
-            record.setOriginalFileName(fileName);
-            record.setJapaneseText(extractedText);
-            record.setTranslatedText("Đang chờ dịch..."); // Tạm để đây chờ LLM
+            System.out.println("📌 Bắt đầu lưu " + dataArray.length() + " khung thoại vào Database...");
 
-            // Lệnh này tương đương với câu SQL: INSERT INTO translation_records...
-            repository.save(record);
+            // Dùng vòng lặp để duyệt qua 13 khung thoại
+            for (int i = 0; i < dataArray.length(); i++) {
+                org.json.JSONObject bubble = dataArray.getJSONObject(i);
 
-            System.out.println("✅ Đã lưu kết quả vào Database PostgreSQL thành công!");
-            System.out.println("📌 Mã bản ghi vừa lưu (ID): " + record.getId());
+                String originalText = bubble.getString("japanese");
+                String translatedText = bubble.getString("vietnamese");
+
+                // Lấy tọa độ (Bạn có thể thêm cột tọa độ vào Database sau này nếu thích)
+                // org.json.JSONObject coords = bubble.getJSONObject("box_coordinates");
+
+                TranslationRecord record = new TranslationRecord();
+                record.setOriginalFileName(fileName);
+                record.setJapaneseText(originalText);
+                record.setTranslatedText(translatedText);
+
+                repository.save(record);
+            }
+
+            System.out.println("✅ Đã lưu toàn bộ trang truyện vào Database PostgreSQL thành công!");
 
         } catch (Exception e) {
             System.err.println("❌ Lỗi kết nối hoặc lỗi Database!");
             System.err.println("Chi tiết lỗi: " + e.getMessage());
+            e.printStackTrace();
         }
         System.out.println("=========================================");
     }

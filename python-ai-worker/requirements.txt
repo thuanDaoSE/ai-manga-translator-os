@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-multipart
+opencv-python-headless
+numpy
+Pillow
+pydantic
+ultralytics
+manga_ocr
+simple_lama_inpainting
+openai

@@ -1,0 +1,1606 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Manga AI - Web Editor v6.0 (Chapter Manager & Pro UI)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Anton&family=Bangers&family=Comic+Neue:ital,wght@0,400;0,700;1,700&family=Creepster&family=Kalam:wght@400;700&family=Pangolin&family=Patrick+Hand&family=Permanent+Marker&family=Rampart+One&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+      body {
+        font-family: "Segoe UI", sans-serif;
+        background: #121212;
+        color: white;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      /* THANH CÔNG CỤ TỔNG */
+      .top-navbar {
+        background: #1e1e1e;
+        padding: 15px 25px;
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        border-bottom: 1px solid #333;
+        z-index: 10;
+        flex-shrink: 0;
+        flex-wrap: wrap;
+      }
+      .toolbar-group {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        border-right: 1px solid #444;
+        padding-right: 15px;
+      }
+      .toolbar-group:last-child {
+        border-right: none;
+      }
+
+      button {
+        padding: 6px 12px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: 0.2s;
+      }
+      .btn-primary {
+        background: #4caf50;
+        color: white;
+      }
+      .btn-secondary {
+        background: #2196f3;
+        color: white;
+      }
+      .btn-danger {
+        background: #f44336;
+        color: white;
+      }
+      .btn-scan {
+        background: #9c27b0;
+        color: white;
+      }
+      .btn-danger.active,
+      .btn-scan.active {
+        background: #ffeb3b;
+        color: black;
+        box-shadow: 0 0 10px #ffeb3b;
+      }
+
+      input[type="number"],
+      input[type="color"],
+      select {
+        background: #333;
+        color: white;
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 3px;
+      }
+
+      /* BỐ CỤC CHÍNH (Chia 2 cột) */
+      #main-layout {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      /* CỘT DANH SÁCH TRANG (SIDEBAR) */
+      #sidebar {
+        width: 250px;
+        background: #1a1a1a;
+        border-right: 1px solid #333;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+      }
+      .page-item {
+        padding: 12px 15px;
+        cursor: pointer;
+        border-bottom: 1px solid #2a2a2a;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        transition: 0.2s;
+        color: #aaa;
+      }
+      .page-item:hover {
+        background: #2a2a2a;
+        color: white;
+      }
+      .page-item.active {
+        background: #2196f3;
+        color: white;
+        font-weight: bold;
+        border-left: 4px solid #fff;
+      }
+      .page-status {
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #444;
+      }
+      .status-done {
+        background: #4caf50;
+      }
+
+      /* KHU VỰC CHỈNH SỬA CHÍNH */
+      #workspace {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        overflow: auto;
+        padding: 20px;
+        background: #0a0a0a;
+      }
+      #editor-wrapper {
+        position: relative;
+        display: inline-block;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+      }
+      #editor-container {
+        position: relative;
+        border: 2px solid #333;
+        background: #000;
+        display: block;
+        user-select: none;
+        overflow: hidden;
+      }
+      #manga-bg {
+        display: block;
+        height: auto;
+        pointer-events: none;
+      }
+      #draw-layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        z-index: 40;
+      }
+
+      /* BONG BÓNG & CẦN GẠT XOAY (Từ UI của bạn) */
+      .text-bubble {
+        position: absolute;
+        border: 2px dashed rgba(255, 255, 255, 0.4);
+        display: flex;
+        background: rgba(255, 255, 255, 0.02);
+        min-width: 40px;
+        min-height: 40px;
+        transform-origin: center center;
+        cursor: move;
+      }
+      /* Trạng thái ẩn bong bóng chữ */
+      #editor-container.hide-text .text-bubble {
+        opacity: 0;
+        pointer-events: none; /* Khóa luôn click để không bấm nhầm khi đang ẩn */
+        transition: opacity 0.2s ease-in-out; /* Hiệu ứng mờ dần cho sang trọng */
+      }
+      .text-bubble.selected {
+        border: 2px solid #00ff00 !important;
+        box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+        z-index: 100;
+        background: rgba(0, 255, 0, 0.05);
+      }
+      .resize-handle {
+        position: absolute;
+        bottom: -6px;
+        right: -6px;
+        width: 14px;
+        height: 14px;
+        background: #00ff00; /* Dấu chấm xanh lục tiệp màu viền */
+        border: 2px solid #000;
+        border-radius: 50%;
+        cursor: nwse-resize; /* Trỏ chuột kéo chéo */
+        display: none;
+        z-index: 51;
+      }
+      .text-bubble.selected .resize-handle {
+        display: block;
+      }
+
+      .editable-text {
+        font-family: "Comic Neue", cursive;
+        text-align: center;
+        color: black;
+        outline: none;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1.1;
+        text-shadow:
+          2px 2px 0 #fff,
+          -2px -2px 0 #fff,
+          2px -2px 0 #fff,
+          -2px 2px 0 #fff,
+          0px 0px 4px rgba(255, 255, 255, 0.8);
+        pointer-events: none; /* Khóa gõ chữ khi chưa bấm đúp để dễ kéo thả */
+      }
+
+      /* UI MỚI: Bấm đúp mới cho gõ chữ */
+      .text-bubble.is-editing .editable-text {
+        pointer-events: auto;
+        cursor: text;
+        user-select: text;
+      }
+
+      /* UI MỚI: CẦN GẠT XOAY GÓC PHẢI MÀU VÀNG */
+      /* UI MỚI: NÚM XOAY CHUẨN CANVA (Nằm giữa cạnh trên, có icon mũi tên cong) */
+      .rotate-handle {
+        position: absolute;
+        top: -35px; /* Đẩy lồi hẳn lên trên khung chữ */
+        left: 50%;
+        transform: translateX(-50%); /* Căn ra chính giữa cạnh trên */
+        width: 24px;
+        height: 24px;
+        background-color: #ffffff;
+        /* Mã SVG vẽ icon mũi tên cong */
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 2v6h-6'/%3E%3Cpath d='M21 13a9 9 0 1 1-3-7.7L21 8'/%3E%3C/svg%3E");
+        background-position: center;
+        background-repeat: no-repeat;
+        border: 1px solid #ccc;
+        border-radius: 50%;
+        cursor: grab;
+        display: none;
+        z-index: 50;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      }
+
+      /* Vẽ một đường thẳng mỏng nối từ núm xoay xuống khung chữ */
+      .rotate-handle::after {
+        content: "";
+        position: absolute;
+        width: 1px;
+        height: 12px;
+        background: #00ff00; /* Cùng màu với viền selected */
+        top: 22px;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      .text-bubble.selected .rotate-handle {
+        display: block;
+      }
+
+      /* POPUP QUÉT DỊCH */
+      #scan-popup {
+        display: none;
+        position: absolute;
+        background: #222;
+        border: 1px solid #555;
+        padding: 12px;
+        border-radius: 8px;
+        z-index: 1000;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.8);
+        width: 260px;
+      }
+      .popup-title {
+        font-size: 11px;
+        color: #aaa;
+        margin-bottom: 5px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .popup-input {
+        width: 100%;
+        box-sizing: border-box;
+        background: #111;
+        color: #fff;
+        border: 1px solid #444;
+        padding: 8px;
+        margin-bottom: 12px;
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: 14px;
+        resize: vertical;
+      }
+      .popup-input:focus {
+        border-color: #9c27b0;
+        outline: none;
+      }
+      .popup-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .loading {
+        display: none;
+        color: #ffeb3b;
+        font-weight: bold;
+        animation: pulse 1s infinite;
+      }
+      @keyframes pulse {
+        0% {
+          opacity: 0.5;
+        }
+        50% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0.5;
+        }
+      }
+      /* UX MỚI CHO TOOLBAR */
+      .custom-control-group {
+        display: flex;
+        align-items: center;
+        background: #333;
+        border-radius: 4px;
+        border: 1px solid #555;
+        overflow: hidden;
+      }
+      .custom-control-group input {
+        border: none;
+        border-left: 1px solid #555;
+        border-right: 1px solid #555;
+        border-radius: 0;
+        height: 26px;
+      }
+      .custom-control-group input::-webkit-outer-spin-button,
+      .custom-control-group input::-webkit-inner-spin-button {
+        -webkit-appearance: none; /* Giấu luôn cái mũi tên lên xuống mặc định xấu xí */
+        margin: 0;
+      }
+      .btn-icon {
+        background: transparent;
+        color: white;
+        border: none;
+        padding: 4px 8px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      .btn-icon:hover {
+        background: #555;
+      }
+
+      .quick-colors {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        background: #2a2a2a;
+        padding: 4px 8px;
+        border-radius: 20px;
+        border: 1px solid #444;
+      }
+      .swatch {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        border: 1px solid #777;
+        cursor: pointer;
+        transition: transform 0.1s;
+      }
+      .swatch:hover {
+        transform: scale(1.2);
+      }
+      /* Hiệu ứng SFX 1: Hành động mạnh (Viền đen, bóng đỏ, nghiêng) */
+      .sfx-power {
+        color: #ffffff !important;
+        -webkit-text-stroke: 2px #000000;
+        text-shadow: 4px 4px 0px #ff0000;
+        transform: skewX(-15deg);
+        font-family: "Bangers", cursive !important;
+      }
+
+      /* Hiệu ứng SFX 2: Kinh dị/Rùng rợn (Viền trắng, bóng tím, rung rinh) */
+      .sfx-horror {
+        color: #ff0000 !important;
+        -webkit-text-stroke: 1px #ffffff;
+        text-shadow: 0px 0px 10px #9c27b0;
+        font-family: "Creepster", cursive !important;
+      }
+
+      /* Hiệu ứng SFX 3: Đánh đấm/Va chạm (Chữ vàng, viền đen dày, khối 3D) */
+      .sfx-impact {
+        color: #ffeb3b !important;
+        -webkit-text-stroke: 3px #000000;
+        text-shadow:
+          3px 3px 0px #000,
+          6px 6px 0px rgba(0, 0, 0, 0.2);
+        font-family: "Anton", sans-serif !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="top-navbar">
+      <div class="toolbar-group">
+        <input
+          type="file"
+          id="fileInput"
+          accept="image/*"
+          multiple
+          style="width: 200px"
+        />
+      </div>
+      <div class="toolbar-group">
+        <button class="btn-primary" onclick="processCurrentImage()">
+          ⚡ Dịch Trang Này
+        </button>
+      </div>
+      <div class="toolbar-group">
+        <button class="btn-secondary" onclick="addFreeText()">
+          + Chữ Tự Do
+        </button>
+        <div class="custom-control-group">
+          <button
+            class="btn-icon"
+            onclick="adjustFontSize(-2)"
+            title="Thu nhỏ chữ"
+          >
+            A-
+          </button>
+          <input
+            type="number"
+            id="fontSize"
+            value="18"
+            style="width: 40px; text-align: center; font-weight: bold"
+            onchange="updateStyles()"
+          />
+          <button
+            class="btn-icon"
+            onclick="adjustFontSize(2)"
+            title="Phóng to chữ"
+          >
+            A+
+          </button>
+        </div>
+
+        <select
+          id="fontFamily"
+          onchange="updateStyles()"
+          style="width: 150px; font-weight: bold"
+        >
+          <optgroup label="Thoại Thường (An Toàn)">
+            <option
+              value="'Comic Neue', cursive"
+              style="font-family: &quot;Comic Neue&quot;"
+            >
+              Comic Neue
+            </option>
+            <option
+              value="'Pangolin', cursive"
+              style="font-family: &quot;Pangolin&quot;"
+            >
+              Pangolin (Bo tròn)
+            </option>
+            <option
+              value="'Kalam', cursive"
+              style="font-family: &quot;Kalam&quot;"
+            >
+              Kalam (Tự nhiên)
+            </option>
+            <option
+              value="'Patrick Hand', cursive"
+              style="font-family: &quot;Patrick Hand&quot;"
+            >
+              Patrick Hand (Viết tay)
+            </option>
+          </optgroup>
+
+          <optgroup label="SFX & La Hét (Hành động)">
+            <option
+              value="'Anton', sans-serif"
+              style="font-family: &quot;Anton&quot;"
+            >
+              Anton (Đậm, Cao)
+            </option>
+            <option
+              value="'Bangers', cursive"
+              style="font-family: &quot;Bangers&quot;"
+            >
+              Bangers (Siêu anh hùng)
+            </option>
+            <option
+              value="'Permanent Marker', cursive"
+              style="font-family: &quot;Permanent Marker&quot;"
+            >
+              Permanent Marker
+            </option>
+          </optgroup>
+
+          <optgroup label="Nội Tâm & Kinh Dị">
+            <option
+              value="'Rampart One', cursive"
+              style="font-family: &quot;Rampart One&quot;"
+            >
+              Rampart One (Bóng đổ 3D)
+            </option>
+            <option
+              value="'Creepster', cursive"
+              style="font-family: &quot;Creepster&quot;"
+            >
+              Creepster (Ma quái)
+            </option>
+          </optgroup>
+        </select>
+
+        <div class="quick-colors">
+          <div
+            class="swatch"
+            style="background: #000000; border-color: #fff"
+            onclick="quickColor('#000000')"
+          ></div>
+          <div
+            class="swatch"
+            style="background: #ffffff"
+            onclick="quickColor('#ffffff')"
+          ></div>
+          <div
+            class="swatch"
+            style="background: #f44336"
+            onclick="quickColor('#f44336')"
+          ></div>
+          <div
+            class="swatch"
+            style="background: #ffeb3b"
+            onclick="quickColor('#ffeb3b')"
+          ></div>
+          <input
+            type="color"
+            id="fontColor"
+            value="#000000"
+            onchange="updateStyles()"
+            title="Màu tùy chỉnh"
+            style="
+              width: 25px;
+              height: 25px;
+              padding: 0;
+              border-radius: 50%;
+              border: 1px solid #555;
+              cursor: pointer;
+            "
+          />
+        </div>
+      </div>
+      <div class="toolbar-group">
+        <button
+          class="btn-icon"
+          onclick="deleteActiveBubble()"
+          title="Xóa ô chữ (Phím Delete)"
+          style="color: #f44336; margin-left: 10px; font-size: 16px"
+        >
+          🗑️
+        </button>
+      </div>
+      <div class="toolbar-group">
+        <span style="font-size: 11px; color: #888">SFX PRESETS:</span>
+        <button
+          class="btn-icon"
+          onclick="applySFX('sfx-power')"
+          title="Mạnh mẽ"
+        >
+          💥
+        </button>
+        <button
+          class="btn-icon"
+          onclick="applySFX('sfx-impact')"
+          title="Va chạm"
+        >
+          👊
+        </button>
+        <button
+          class="btn-icon"
+          onclick="applySFX('sfx-horror')"
+          title="Kinh dị"
+        >
+          👻
+        </button>
+        <button
+          class="btn-icon"
+          onclick="applySFX('')"
+          title="Xóa hiệu ứng"
+          style="color: #f44336"
+        >
+          🔄
+        </button>
+      </div>
+      <div class="toolbar-group">
+        <button class="btn-scan" id="btn-scan" onclick="toggleScanMode()">
+          🔍 Lens Dịch
+        </button>
+        <button class="btn-danger" id="btn-erase" onclick="toggleEraseMode()">
+          🖌️ Cọ Xóa Nền
+        </button>
+
+        <div
+          class="custom-control-group"
+          id="brush-control"
+          style="display: none; margin-left: 10px"
+        >
+          <span style="font-size: 11px; color: #aaa; padding-left: 8px"
+            >CỠ CỌ:</span
+          >
+          <input
+            type="range"
+            id="brushSize"
+            min="5"
+            max="100"
+            value="25"
+            style="width: 80px; margin: 0 8px"
+          />
+
+          <button
+            class="btn-primary"
+            id="btn-apply-erase"
+            onclick="applyErase()"
+            style="
+              border-radius: 0 4px 4px 0;
+              background: #ff9800;
+              border-left: 1px solid #555;
+            "
+          >
+            ✅ Thực thi Xóa
+          </button>
+        </div>
+        <div class="loading" id="status">🤖 Đang xử lý...</div>
+      </div>
+      <div class="toolbar-group">
+        <button onclick="changeZoom(-0.1)">➖</button>
+        <span
+          id="zoomLevel"
+          style="
+            font-size: 13px;
+            font-weight: bold;
+            width: 45px;
+            text-align: center;
+          "
+          >100%</span
+        >
+        <button onclick="changeZoom(0.1)">➕</button>
+        <button
+          class="btn-secondary"
+          style="background: #555"
+          onclick="fitToScreen()"
+        >
+          🖥️ Vừa màn hình
+        </button>
+      </div>
+      <div class="toolbar-group" style="margin-right: auto">
+        <button
+          id="btn-toggle-text"
+          class="btn-secondary"
+          style="background: #41b9b1"
+          onclick="toggleTextVisibility()"
+        >
+          👁️ Ẩn/Hiện Chữ
+        </button>
+      </div>
+      <div class="toolbar-group" style="margin-left: auto">
+        <button
+          onclick="downloadManga()"
+          style="background: #e91e63; color: white; padding: 8px 16px"
+        >
+          💾 Tải Xuất Trang
+        </button>
+      </div>
+    </div>
+
+    <div id="main-layout">
+      <div id="sidebar">
+        <div
+          style="
+            padding: 15px;
+            font-weight: bold;
+            border-bottom: 1px solid #333;
+            color: #fff;
+          "
+        >
+          📁 Danh Sách Trang (<span id="pageCount">0</span>)
+        </div>
+        <div id="file-list">
+          <div style="padding: 15px; color: #666; font-size: 13px">
+            Hãy chọn các ảnh Raw để bắt đầu...
+          </div>
+        </div>
+      </div>
+
+      <div id="workspace">
+        <div id="editor-wrapper" style="display: none">
+          <div id="editor-container">
+            <img
+              id="manga-bg"
+              crossorigin="anonymous"
+              src=""
+              alt="Manga Page"
+            />
+            <canvas id="draw-layer"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="scan-popup">
+      <div class="popup-title">🇯🇵 Nguyên bản (Có thể sửa)</div>
+      <textarea id="scan-jap" class="popup-input" rows="2"></textarea>
+      <div class="popup-title">🇻🇳 Bản dịch</div>
+      <textarea id="scan-vie" class="popup-input" rows="3"></textarea>
+      <div class="popup-actions">
+        <button
+          class="btn-secondary"
+          style="background: #555"
+          onclick="closeScanPopup()"
+        >
+          Hủy
+        </button>
+        <button class="btn-primary" onclick="applyScanResult()">
+          ✨ Áp dụng
+        </button>
+      </div>
+    </div>
+
+    <script>
+      // ==========================================
+      // BẢO VỆ CHỐNG BẤM NHẦM F5 MẤT DỮ LIỆU
+      // ==========================================
+      window.onbeforeunload = function (e) {
+        if (fileQueue.length > 0 || undoStack.length > 0) {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      };
+
+      const API_URL = "http://127.0.0.1:8000/api";
+      const container = document.getElementById("editor-container");
+      const bgImg = document.getElementById("manga-bg");
+      const drawLayer = document.getElementById("draw-layer");
+      const ctx = drawLayer.getContext("2d");
+
+      let activeBubble = null;
+      let undoStack = [],
+        redoStack = [];
+      const MAX_HISTORY = 30;
+
+      // --- TÍNH NĂNG QUẢN LÝ DANH SÁCH FILE ---
+      let fileQueue = [];
+      let currentIndex = -1;
+
+      document
+        .getElementById("fileInput")
+        .addEventListener("change", function (e) {
+          fileQueue = Array.from(e.target.files).sort((a, b) =>
+            a.name.localeCompare(b.name),
+          );
+          document.getElementById("pageCount").innerText = fileQueue.length;
+          renderSidebar();
+          if (fileQueue.length > 0) loadPage(0);
+        });
+
+      function renderSidebar() {
+        const listDiv = document.getElementById("file-list");
+        listDiv.innerHTML = "";
+        fileQueue.forEach((file, index) => {
+          const item = document.createElement("div");
+          item.className = `page-item ${index === currentIndex ? "active" : ""}`;
+          item.innerHTML = `<span class="page-status">RAW</span><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${file.name}</span>`;
+          item.onclick = () => loadPage(index);
+          listDiv.appendChild(item);
+        });
+      }
+
+      function loadPage(index) {
+        if (index < 0 || index >= fileQueue.length) return;
+        currentIndex = index;
+        renderSidebar();
+
+        document.querySelectorAll(".text-bubble").forEach((el) => el.remove());
+        undoStack = [];
+        redoStack = [];
+        resetModes();
+
+        const file = fileQueue[index];
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          bgImg.src = e.target.result;
+          document.getElementById("editor-wrapper").style.display =
+            "inline-block";
+        };
+        reader.readAsDataURL(file);
+
+        uploadRawBackground(file);
+      }
+
+      async function uploadRawBackground(file) {
+        // Hiện thông báo nhỏ góc màn hình (nếu muốn)
+        document.getElementById("status").innerText = "⏳ Đang đồng bộ...";
+        document.getElementById("status").style.display = "block";
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+          await fetch(`${API_URL}/upload-raw`, {
+            method: "POST",
+            body: formData,
+          });
+          console.log("✅ Đã upload ngầm thành công: " + file.name);
+          document.getElementById("status").style.display = "none";
+          document.getElementById("status").innerText = "🤖 Đang xử lý...";
+        } catch (error) {
+          console.error("Lỗi upload ngầm", error);
+          document.getElementById("status").style.display = "none";
+        }
+      }
+
+      // ==========================================
+      // HỆ THỐNG ZOOM & AUTO-FIT (CAMERA)
+      // ==========================================
+      let currentZoom = 1.0;
+
+      function setZoom(zoom) {
+        currentZoom = Math.max(0.1, Math.min(zoom, 5.0)); // Giới hạn zoom từ 10% đến 500%
+        document.getElementById("zoomLevel").innerText =
+          Math.round(currentZoom * 100) + "%";
+
+        // Phóng to/thu nhỏ toàn bộ container chứa ảnh, canvas và bong bóng
+        container.style.transform = `scale(${currentZoom})`;
+        container.style.transformOrigin = "top left";
+
+        // Chỉnh lại kích thước cái khung bên ngoài để thanh cuộn (scrollbar) cập nhật cho đúng
+        const wrapper = document.getElementById("editor-wrapper");
+        wrapper.style.width = bgImg.naturalWidth * currentZoom + "px";
+        wrapper.style.height = bgImg.naturalHeight * currentZoom + "px";
+      }
+
+      function changeZoom(delta) {
+        setZoom(currentZoom + delta);
+      }
+
+      function fitToScreen() {
+        if (!bgImg.naturalWidth) return;
+        const workspace = document.getElementById("workspace");
+        // Trừ đi 40px padding để ảnh không sát mép màn hình
+        const scaleX = (workspace.clientWidth - 40) / bgImg.naturalWidth;
+        const scaleY = (workspace.clientHeight - 40) / bgImg.naturalHeight;
+        // Lấy tỷ lệ nhỏ hơn để đảm bảo ảnh nằm gọn trong màn hình, và không zoom quá 100%
+        const fitScale = Math.min(scaleX, scaleY, 1.0);
+        setZoom(fitScale);
+      }
+
+      // KHI TẢI ẢNH MỚI LÊN: Đặt khung gốc về 100% rồi tự động bóp Vừa màn hình
+      bgImg.onload = function () {
+        // Bắt buộc set cứng container ở kích thước gốc (100%)
+        container.style.width = bgImg.naturalWidth + "px";
+        container.style.height = bgImg.naturalHeight + "px";
+        drawLayer.width = bgImg.naturalWidth;
+        drawLayer.height = bgImg.naturalHeight;
+
+        // Sau đó mới dùng Camera thu nhỏ lại cho vừa mắt người dùng
+        fitToScreen();
+      };
+
+      // --- GỌI API DỊCH TRANG HIỆN TẠI ---
+      async function processCurrentImage() {
+        if (currentIndex === -1)
+          return alert("Hãy chọn một trang từ danh sách!");
+        document.getElementById("status").style.display = "block";
+        const file = fileQueue[currentIndex];
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+          const response = await fetch(`${API_URL}/translate-page`, {
+            method: "POST",
+            body: formData,
+          });
+          const result = await response.json();
+          bgImg.src = `http://127.0.0.1:8000/static/Clean_${result.file_name}?t=${Date.now()}`;
+          document
+            .querySelectorAll(".text-bubble")
+            .forEach((el) => el.remove());
+          undoStack = [];
+          redoStack = [];
+
+          result.data.forEach((item) => {
+            createBubble(
+              item.box_coordinates.x1,
+              item.box_coordinates.y1,
+              item.box_coordinates.x2 - item.box_coordinates.x1,
+              item.box_coordinates.y2 - item.box_coordinates.y1,
+              item.vietnamese,
+            );
+          });
+
+          // Đổi trạng thái trên Sidebar thành "DONE"
+          const sidebarItems = document.querySelectorAll(".page-item");
+          const statusBadge =
+            sidebarItems[currentIndex].querySelector(".page-status");
+          statusBadge.innerText = "DONE";
+          statusBadge.classList.add("status-done");
+        } catch (error) {
+          alert("Lỗi kết nối Server AI!");
+        }
+        document.getElementById("status").style.display = "none";
+      }
+
+      // --- CỖ MÁY THỜI GIAN (BẢN PRO: LƯU CẢ NỀN LẪN CHỮ) ---
+      function getSnapshot() {
+        const bubbles = document.querySelectorAll(".text-bubble");
+        const state = [];
+        bubbles.forEach((b) => {
+          const textNode = b.querySelector(".editable-text");
+          state.push({
+            x: b.style.left,
+            y: b.style.top,
+            w: b.style.width,
+            h: b.style.height,
+            text: textNode.innerText,
+            fontSize: textNode.style.fontSize,
+            color: textNode.style.color,
+            fontFamily: textNode.style.fontFamily,
+            rotation: b.dataset.rotation,
+          });
+        });
+
+        // GÓI CẢ HÌNH NỀN VÀO LỊCH SỬ
+        return JSON.stringify({
+          background: bgImg.src,
+          bubbles: state,
+          // BỔ SUNG: Nhớ luôn tên file hiện tại để sau này khôi phục
+          filename:
+            currentIndex !== -1
+              ? fileQueue[currentIndex].name
+              : "recovered_image.jpg",
+        });
+      }
+
+      function restoreSnapshot(stateString) {
+        if (!stateString) return;
+        const parsedState = JSON.parse(stateString);
+
+        // 1. Phục hồi hình nền
+        bgImg.src = parsedState.background;
+
+        // 2. Phục hồi chữ
+        document.querySelectorAll(".text-bubble").forEach((el) => el.remove());
+        if (activeBubble) activeBubble = null;
+
+        parsedState.bubbles.forEach((data) => {
+          createBubble(
+            parseInt(data.x),
+            parseInt(data.y),
+            parseInt(data.w),
+            parseInt(data.h),
+            data.text,
+            data,
+          );
+        });
+      }
+
+      // TÌM ĐOẠN NÀY TRONG CODE CỦA BẠN VÀ THAY THẾ/BỔ SUNG:
+      document.addEventListener("keydown", function (e) {
+        // 1. Logic Ctrl+Z và Ctrl+Y (Giữ nguyên của bạn)
+        if (
+          e.target.classList.contains("editable-text") &&
+          e.key !== "z" &&
+          e.key !== "y" &&
+          e.key !== "Delete" &&
+          e.key !== "Backspace"
+        )
+          return;
+
+        if (e.ctrlKey && e.key === "z") {
+          e.preventDefault();
+          if (undoStack.length === 0) return;
+          redoStack.push(getSnapshot());
+          restoreSnapshot(undoStack.pop());
+        }
+        if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "Z"))) {
+          e.preventDefault();
+          if (redoStack.length === 0) return;
+          undoStack.push(getSnapshot());
+          restoreSnapshot(redoStack.pop());
+        }
+
+        // 2. LOGIC MỚI: XÓA Ô CHỮ BẰNG PHÍM DELETE / BACKSPACE
+        if (e.key === "Delete" || e.key === "Backspace") {
+          // ĐIỀU KIỆN SỐNG CÒN: Chỉ xóa BUBBLE khi đang CHỌN, và KHÔNG PHẢI ĐANG GÕ CHỮ (is-editing)
+          if (activeBubble && !activeBubble.classList.contains("is-editing")) {
+            e.preventDefault(); // Ngăn trình duyệt back lại trang trước (đối với phím Backspace)
+            deleteActiveBubble();
+          }
+        }
+      });
+
+      // --- CÁC TRẠNG THÁI CHUỘT ---
+      let isEraseMode = false,
+        isScanMode = false,
+        isDrawing = false;
+      let strokePoints = [],
+        scanStartX,
+        scanStartY,
+        scanEndX,
+        scanEndY;
+
+      function resetModes() {
+        isEraseMode = false;
+        isScanMode = false;
+        document.getElementById("btn-erase").classList.remove("active");
+        document.getElementById("btn-scan").classList.remove("active");
+        drawLayer.style.pointerEvents = "none";
+        document
+          .querySelectorAll(".text-bubble")
+          .forEach((el) => (el.style.pointerEvents = "auto"));
+        closeScanPopup();
+        document.getElementById("brush-control").style.display = "none";
+        ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
+      }
+
+      function toggleEraseMode() {
+        if (currentIndex === -1) return alert("Vui lòng chọn ảnh!");
+        const wasActive = isEraseMode;
+        resetModes();
+        if (!wasActive) {
+          isEraseMode = true;
+          document.getElementById("btn-erase").classList.add("active");
+          drawLayer.style.pointerEvents = "auto";
+          drawLayer.style.cursor = "crosshair";
+          document
+            .querySelectorAll(".text-bubble")
+            .forEach((el) => (el.style.pointerEvents = "none"));
+
+          document.getElementById("brush-control").style.display = "flex";
+        }
+      }
+
+      function toggleScanMode() {
+        if (currentIndex === -1) return alert("Vui lòng chọn ảnh!");
+        const wasActive = isScanMode;
+        resetModes();
+        if (!wasActive) {
+          isScanMode = true;
+          document.getElementById("btn-scan").classList.add("active");
+          drawLayer.style.pointerEvents = "auto";
+          drawLayer.style.cursor = "crosshair";
+          document
+            .querySelectorAll(".text-bubble")
+            .forEach((el) => (el.style.pointerEvents = "none"));
+        }
+      }
+
+      drawLayer.addEventListener("mousedown", (e) => {
+        if (!isEraseMode && !isScanMode) return;
+        isDrawing = true;
+        const rect = drawLayer.getBoundingClientRect();
+
+        // BÙ TRỪ ZOOM CỐT LÕI: Tìm tọa độ thực tế trên ảnh gốc 100%
+        const x = (e.clientX - rect.left) / currentZoom;
+        const y = (e.clientY - rect.top) / currentZoom;
+
+        if (isEraseMode) {
+          strokePoints = [];
+          // ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
+          ctx.beginPath();
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          // ctx.lineWidth = 20
+          ctx.lineWidth = parseInt(document.getElementById("brushSize").value);
+          ctx.strokeStyle = "rgba(255, 0, 0, 0.5)";
+          ctx.moveTo(x, y);
+        } else if (isScanMode) {
+          scanStartX = x;
+          scanStartY = y;
+        }
+      });
+
+      drawLayer.addEventListener("mousemove", (e) => {
+        if (!isDrawing) return;
+        const rect = drawLayer.getBoundingClientRect();
+
+        // BÙ TRỪ ZOOM
+        const x = (e.clientX - rect.left) / currentZoom;
+        const y = (e.clientY - rect.top) / currentZoom;
+
+        if (isEraseMode) {
+          ctx.lineTo(x, y);
+          ctx.stroke();
+          // Lưu thẳng tọa độ x, y đã bù trừ vào mảng cho Python (bỏ vụ scaleX, scaleY cũ đi)
+          strokePoints.push({ x: Math.floor(x), y: Math.floor(y) });
+        } else if (isScanMode) {
+          ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
+          ctx.setLineDash([5, 5]);
+          ctx.strokeStyle = "#00BFFF";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(
+            scanStartX,
+            scanStartY,
+            x - scanStartX,
+            y - scanStartY,
+          );
+        }
+      });
+
+      // 1. Sửa sự kiện mouseup: Chỉ dừng vẽ, không gọi API nữa
+      drawLayer.addEventListener("mouseup", (e) => {
+        if (!isDrawing) return;
+        isDrawing = false;
+        // Không làm gì cả, để vệt đỏ nằm yên trên canvas cho user xem
+      });
+
+      // 2. Hàm thực thi gửi toàn bộ Mask lên Server
+      async function applyErase() {
+        if (currentIndex === -1) return;
+
+        const imageData = ctx.getImageData(
+          0,
+          0,
+          drawLayer.width,
+          drawLayer.height,
+        );
+        let paintedPixels = 0;
+        for (let i = 3; i < imageData.data.length; i += 4) {
+          if (imageData.data[i] > 0) paintedPixels++;
+        }
+
+        const totalArea = drawLayer.width * drawLayer.height;
+        if (paintedPixels > totalArea * 0.25) {
+          alert("⚠️ Vùng chọn quá lớn! Hãy chia nhỏ ra xóa từng phần.");
+          return;
+        }
+
+        // ĐÃ XÓA DÒNG CONFIRM() Ở ĐÂY!!!
+
+        // LƯU LỊCH SỬ TRƯỚC KHI XÓA ĐỂ CÓ THỂ CTRL+Z
+        saveState();
+        let currentFilename = "";
+        if (bgImg.src.startsWith("data:")) {
+          // Nếu ảnh chưa bị sửa (đang là base64), dùng bản Clean_ đã upload ngầm
+          currentFilename = "Clean_" + fileQueue[currentIndex].name;
+        } else {
+          // Nếu ảnh đã qua tay AI (có URL server), lấy tên file phiên bản đó
+          currentFilename = bgImg.src.split("/").pop().split("?")[0];
+        }
+
+        const maskBase64 = drawLayer.toDataURL("image/png");
+
+        try {
+          const response = await fetch(`${API_URL}/erase-mask`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              filename: currentFilename, // Gửi tên phiên bản hiện tại lên
+              mask_base64: maskBase64,
+            }),
+          });
+
+          const result = await response.json();
+          if (result.status === "success") {
+            // Cập nhật ảnh bằng phiên bản mới mà Server vừa trả về
+            bgImg.src = `${API_URL.replace("/api", "")}/static/${result.new_filename}`;
+            ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
+            resetModes();
+          } else {
+            // 🛑 BỔ SUNG DÒNG NÀY ĐỂ BẮT LỖI TỪ SERVER
+            alert("Lỗi từ Server: " + result.message);
+          }
+        } catch (error) {
+          alert("Lỗi kết nối Server!");
+        }
+      }
+
+      function closeScanPopup() {
+        document.getElementById("scan-popup").style.display = "none";
+        if (isScanMode) toggleScanMode();
+      }
+
+      // Thay thế toàn bộ hàm applyScanResult() cũ bằng đoạn code này:
+      function applyScanResult() {
+        const text = document.getElementById("scan-vie").value.trim();
+
+        // 1. Kiểm tra rỗng HOẶC chứa các từ khóa báo lỗi/đang tải
+        if (
+          text === "" ||
+          text === "Đang dịch..." ||
+          text === "Đang quét OCR..." ||
+          text.includes("Lỗi kết nối") ||
+          text.includes("Lỗi dịch thuật")
+        ) {
+          // Tùy chọn: Hiện một cảnh báo nhỏ để người dùng biết tại sao bấm không ăn
+          // alert("Vui lòng đợi quá trình dịch hoàn tất!");
+          return;
+        }
+
+        // 2. Nếu đã có kết quả chuẩn, tiếp tục lưu lịch sử và tạo khung thoại
+        saveState();
+        createBubble(
+          Math.min(scanStartX, scanEndX),
+          Math.min(scanStartY, scanEndY),
+          Math.max(Math.abs(scanEndX - scanStartX), 80),
+          Math.max(Math.abs(scanEndY - scanStartY), 40),
+          text,
+        );
+        closeScanPopup();
+      }
+
+      // --- CÁC HÀM CỦA BONG BÓNG CHỮ ---
+      function addFreeText() {
+        saveState();
+        createBubble(50, 50, 150, 60, "Nhập chữ...");
+      }
+
+      function createBubble(x, y, w, h, text, savedStyles = null) {
+        const bubble = document.createElement("div");
+        bubble.className = "text-bubble";
+        bubble.style.left = x + "px";
+        bubble.style.top = y + "px";
+        bubble.style.width = w + "px";
+        bubble.style.height = h + "px";
+        bubble.dataset.rotation = 0;
+
+        // UI BẠN LÀM: CẦN GẠT GÓC PHẢI
+        const rotHandle = document.createElement("div");
+        rotHandle.className = "rotate-handle";
+
+        rotHandle.onmousedown = function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          selectBubble(bubble);
+          document.body.style.cursor = "grabbing";
+          saveState();
+          const rect = bubble.getBoundingClientRect();
+          const centerX = rect.left + rect.width / 2;
+          const centerY = rect.top + rect.height / 2;
+          function onMouseMove(e) {
+            const angleRad = Math.atan2(
+              e.clientY - centerY,
+              e.clientX - centerX,
+            );
+            const angleDeg = (angleRad * 180) / Math.PI + 90;
+            bubble.dataset.rotation = angleDeg;
+            bubble.style.transform = `rotate(${angleDeg}deg)`;
+          }
+          document.addEventListener("mousemove", onMouseMove);
+          document.onmouseup = function () {
+            document.removeEventListener("mousemove", onMouseMove);
+            document.body.style.cursor = "default";
+            document.onmouseup = null;
+          };
+        };
+
+        const resizeHandle = document.createElement("div");
+        resizeHandle.className = "resize-handle";
+
+        resizeHandle.onmousedown = function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          selectBubble(bubble);
+          saveState();
+
+          const startX = e.clientX;
+          const startY = e.clientY;
+          // Lấy width/height thực tế hiện tại
+          const startW = parseFloat(bubble.style.width) || bubble.offsetWidth;
+          const startH = parseFloat(bubble.style.height) || bubble.offsetHeight;
+
+          function onMouseMove(e) {
+            // CÔNG THỨC ĂN TIỀN: Chia cho currentZoom để bù trừ sai số khi zoom ảnh
+            const dx = (e.clientX - startX) / currentZoom;
+            const dy = (e.clientY - startY) / currentZoom;
+
+            bubble.style.width = Math.max(40, startW + dx) + "px";
+            bubble.style.height = Math.max(40, startH + dy) + "px";
+          }
+
+          document.addEventListener("mousemove", onMouseMove);
+          document.onmouseup = function () {
+            document.removeEventListener("mousemove", onMouseMove);
+            document.onmouseup = null;
+          };
+        };
+
+        // LOGIC KÉO THẢ (Đã nâng cấp toán học bù trừ Zoom)
+        // LOGIC KÉO THẢ (Phương pháp Delta - Tuyệt đối không giật)
+        bubble.onmousedown = function (e) {
+          e.stopPropagation();
+          selectBubble(bubble);
+
+          if (
+            e.target.classList.contains("rotate-handle") ||
+            e.target.classList.contains("resize-handle") ||
+            bubble.classList.contains("is-editing")
+          )
+            return;
+
+          saveState();
+
+          // 1. Ghi nhận vị trí CHUỘT lúc bắt đầu bấm
+          let startMouseX = e.clientX;
+          let startMouseY = e.clientY;
+
+          // 2. Ghi nhận vị trí CSS (left/top) HIỆN TẠI của ô chữ
+          let startLeft = parseFloat(bubble.style.left) || 0;
+          let startTop = parseFloat(bubble.style.top) || 0;
+
+          function onMouseMove(e) {
+            // Phòng thủ thép: Chống dính chuột
+            if (e.buttons === 0) {
+              document.removeEventListener("mousemove", onMouseMove);
+              return;
+            }
+
+            // 3. Tính độ lệch (Delta) của chuột, có bù trừ Zoom
+            let dx = (e.clientX - startMouseX) / currentZoom;
+            let dy = (e.clientY - startMouseY) / currentZoom;
+
+            // 4. Cộng thẳng độ lệch vào vị trí ban đầu
+            bubble.style.left = startLeft + dx + "px";
+            bubble.style.top = startTop + dy + "px";
+          }
+
+          document.addEventListener("mousemove", onMouseMove);
+          document.onmouseup = function () {
+            document.removeEventListener("mousemove", onMouseMove);
+            document.onmouseup = null;
+          };
+        };
+
+        const textNode = document.createElement("div");
+        textNode.contentEditable = "true";
+        textNode.innerText = text;
+        textNode.className = "editable-text";
+
+        // BẤM ĐÚP ĐỂ GÕ (UI BẠN LÀM)
+        bubble.ondblclick = function (e) {
+          e.stopPropagation();
+          bubble.classList.add("is-editing");
+          textNode.focus();
+        };
+
+        if (savedStyles) {
+          textNode.style.fontSize = savedStyles.fontSize;
+          textNode.style.color = savedStyles.color;
+          textNode.style.fontFamily = savedStyles.fontFamily;
+          bubble.dataset.rotation = savedStyles.rotation;
+          bubble.style.transform = `rotate(${savedStyles.rotation}deg)`;
+        } else {
+          textNode.style.fontSize = "18px";
+          textNode.style.color = "#000000";
+          textNode.style.fontFamily = "'Comic Neue', cursive";
+          bubble.dataset.rotation = 0;
+        }
+
+        textNode.onfocus = function () {
+          saveState();
+        };
+
+        bubble.appendChild(rotHandle);
+        bubble.appendChild(resizeHandle);
+        bubble.appendChild(textNode);
+        container.appendChild(bubble);
+        selectBubble(bubble);
+      }
+
+      function selectBubble(el) {
+        // CHỈ XÓA trạng thái nếu người dùng click sang một ô chữ KHÁC
+        if (activeBubble && activeBubble !== el) {
+          activeBubble.classList.remove("selected");
+          activeBubble.classList.remove("is-editing"); // Hủy gõ chữ ô cũ
+        }
+
+        activeBubble = el;
+        activeBubble.classList.add("selected");
+
+        const textNode = activeBubble.querySelector(".editable-text");
+        document.getElementById("fontSize").value =
+          parseInt(textNode.style.fontSize) || 18;
+        document.getElementById("fontColor").value = rgbToHex(
+          textNode.style.color,
+        );
+        const currentFont =
+          textNode.style.fontFamily || "'Comic Neue', cursive";
+        document.getElementById("fontFamily").value = currentFont.replace(
+          /"/g,
+          "'",
+        );
+      }
+
+      function updateStyles() {
+        if (!activeBubble) return;
+        saveState();
+        const size = document.getElementById("fontSize").value + "px";
+        const color = document.getElementById("fontColor").value;
+        const font = document.getElementById("fontFamily").value;
+        const textNode = activeBubble.querySelector(".editable-text");
+        textNode.style.fontSize = size;
+        textNode.style.color = color;
+        textNode.style.fontFamily = font;
+      }
+
+      function rgbToHex(rgb) {
+        if (!rgb) return "#000000";
+        if (rgb.startsWith("#")) return rgb;
+        const rgbValues = rgb.match(/\d+/g);
+        if (!rgbValues) return "#000000";
+        return (
+          "#" +
+          rgbValues
+            .map((x) => {
+              const hex = parseInt(x).toString(16);
+              return hex.length === 1 ? "0" + hex : hex;
+            })
+            .slice(0, 3)
+            .join("")
+        );
+      }
+
+      // CLICK RA NGOÀI ĐỂ BỎ CHỌN
+      container.onclick = function (e) {
+        if (
+          e.target === container ||
+          e.target === bgImg ||
+          e.target === drawLayer
+        ) {
+          if (activeBubble) {
+            activeBubble.classList.remove("selected");
+            activeBubble.classList.remove("is-editing");
+            activeBubble = null;
+          }
+        }
+      };
+
+      // --- XUẤT ẢNH ---
+      async function downloadManga() {
+        if (currentIndex === -1 || !bgImg.getAttribute("src"))
+          return alert("Chưa có ảnh!");
+        if (activeBubble) {
+          activeBubble.classList.remove("selected");
+          activeBubble.classList.remove("is-editing");
+          activeBubble = null;
+        }
+
+        document.getElementById("status").innerText = "📸 Đang xuất...";
+        document.getElementById("status").style.display = "block";
+        try {
+          const canvas = await html2canvas(container, {
+            useCORS: true,
+            scale: 2,
+          });
+          const link = document.createElement("a");
+          link.download = "Translated_" + fileQueue[currentIndex].name;
+          link.href = canvas.toDataURL("image/jpeg", 0.9);
+          link.click();
+        } catch (error) {
+          alert("Lỗi khi xuất ảnh!");
+        }
+        document.getElementById("status").style.display = "none";
+        document.getElementById("status").innerText = "🤖 Đang xử lý...";
+      }
+
+      function toggleTextVisibility() {
+        const container = document.getElementById("editor-container");
+        const btn = document.getElementById("btn-toggle-text");
+
+        // Bật/tắt class hide-text
+        container.classList.toggle("hide-text");
+
+        // Đổi giao diện nút cho trực quan
+        if (container.classList.contains("hide-text")) {
+          btn.innerText = "🙈 Đang ẩn chữ";
+          btn.style.background = "#757575"; // Đổi màu xám
+          if (activeBubble) {
+            activeBubble.classList.remove("selected");
+            activeBubble.classList.remove("is-editing");
+            activeBubble = null;
+          }
+        } else {
+          btn.innerText = "👁️ Ẩn/Hiện Chữ";
+          btn.style.background = "#41b9b1"; // Trả lại màu cam
+        }
+      }
+
+      // HÀM TĂNG/GIẢM CỠ CHỮ NHANH
+      function adjustFontSize(delta) {
+        const input = document.getElementById("fontSize");
+        let newSize = parseInt(input.value) + delta;
+        if (newSize < 8) newSize = 8; // Giới hạn cỡ chữ nhỏ nhất
+        if (newSize > 150) newSize = 150; // Giới hạn to nhất
+        input.value = newSize;
+        updateStyles(); // Cập nhật ngay lập tức vào ô chữ đang chọn
+      }
+
+      // HÀM CHỌN MÀU NHANH
+      function quickColor(hexCode) {
+        const input = document.getElementById("fontColor");
+        input.value = hexCode; // Cập nhật cái input color ẩn
+        updateStyles(); // Áp dụng màu
+      }
+
+      function applySFX(styleClass) {
+        if (!activeBubble) return alert("Hãy chọn một ô chữ trước!");
+
+        saveState(); // Lưu lại trạng thái để có thể Ctrl+Z
+        const textNode = activeBubble.querySelector(".editable-text");
+
+        // Xóa sạch các class SFX cũ trước khi thêm mới
+        textNode.classList.remove("sfx-power", "sfx-horror", "sfx-impact");
+
+        if (styleClass) {
+          textNode.classList.add(styleClass);
+        } else {
+          // Nếu chọn xóa hiệu ứng, trả về style mặc định
+          textNode.style.textShadow = "none";
+          textNode.style.webkitTextStroke = "0px";
+          activeBubble.style.transform = `rotate(${activeBubble.dataset.rotation || 0}deg)`;
+        }
+      }
+
+      // HÀM XÓA BUBBLE CHUẨN
+      function deleteActiveBubble() {
+        if (!activeBubble) return; // Nếu không chọn gì thì bỏ qua
+
+        saveState(); // LƯU Ý BẮT BUỘC: Lưu trạng thái để người dùng có thể Ctrl+Z khôi phục lại
+
+        activeBubble.remove(); // Xóa thẻ div khỏi giao diện
+        activeBubble = null; // Giải phóng biến
+      }
+
+      // 1. HÀM GHI DỮ LIỆU VÀO TRÌNH DUYỆT
+      function autoSave() {
+        const state = getSnapshot(); // Lấy toàn bộ ảnh và chữ hiện tại
+        localStorage.setItem("manga_editor_autosave", state);
+        console.log("💾 Đã tự động lưu vào LocalStorage");
+      }
+
+      // 2. HÀM KHÔI PHỤC DỮ LIỆU KHI MỞ LẠI TRANG
+      function loadAutoSave() {
+        const savedState = localStorage.getItem("manga_editor_autosave");
+        if (savedState) {
+          if (
+            confirm(
+              "Phát hiện bản lưu cũ từ phiên làm việc trước. Bạn có muốn khôi phục không?",
+            )
+          ) {
+            const state = JSON.parse(savedState);
+
+            // ==========================================
+            // FIX LỖI "VUI LÒNG CHỌN ẢNH": TẠO FILE QUEUE ẢO
+            // ==========================================
+            let recoveredName = state.filename || "recovered_image.jpg";
+            // Nếu ảnh cũ đã qua tay AI (chứa URL server), ráng bóc tên file gốc ra
+            if (state.background && !state.background.startsWith("data:")) {
+              recoveredName = state.background.split("/").pop().split("?")[0];
+            }
+
+            // Ép hệ thống nhận diện file này đang được chọn
+            fileQueue = [{ name: recoveredName }];
+            currentIndex = 0;
+            renderSidebar(); // Hiện tên file lên cột danh sách bên trái
+            // ==========================================
+
+            restoreSnapshot(savedState);
+            if (state.background) {
+              document.getElementById("editor-wrapper").style.display =
+                "inline-block";
+            }
+          }
+        }
+      }
+
+      // 3. CẬP NHẬT HÀM saveState ĐỂ KÍCH HOẠT AUTO-SAVE
+      function saveState() {
+        undoStack.push(getSnapshot());
+        if (undoStack.length > MAX_HISTORY) undoStack.shift();
+        redoStack = [];
+
+        // MỖI KHI CÓ THAY ĐỔI (Vẽ cọ, gõ chữ, kéo thả) -> TỰ ĐỘNG LƯU NGAY
+        autoSave();
+      }
+
+      // 4. KÍCH HOẠT KHI TRANG WEB VỪA LOAD XONG
+      window.addEventListener("DOMContentLoaded", loadAutoSave);
+    </script>
+  </body>
+</html>
