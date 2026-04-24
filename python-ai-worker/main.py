@@ -340,14 +340,33 @@ def erase_mask(payload: MaskPayload):
         crop_image = image[y1:y2, x1:x2]
         crop_mask = mask[y1:y2, x1:x2]
 
-        # Chạy LaMa
+        # 1. LẤY KÍCH THƯỚC GỐC CỦA MẨU CẮT
+        h_crop, w_crop = crop_image.shape[:2]
+
+        # 2. TÍNH TOÁN PHẦN BÙ (Để đảm bảo chia hết cho 8)
+        pad_bottom = (8 - (h_crop % 8)) % 8
+        pad_right = (8 - (w_crop % 8)) % 8
+
+        # 3. CHỦ ĐỘNG MỞ RỘNG (PADDING) BẰNG OPENCV
+        if pad_bottom > 0 or pad_right > 0:
+            # Replicate: Kéo dài các pixel ở mép ra để AI không bị viền đen
+            crop_image = cv2.copyMakeBorder(crop_image, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+            crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+
+        # 4. CHẠY LAMA (Lúc này LaMa sẽ ngoan ngoãn xử lý vì ảnh đã chuẩn size)
         crop_pil = Image.fromarray(cv2.cvtColor(crop_image, cv2.COLOR_BGR2RGB))
         mask_pil = Image.fromarray(crop_mask)
         clean_crop_pil = lama(crop_pil, mask_pil)
         clean_crop = cv2.cvtColor(np.array(clean_crop_pil), cv2.COLOR_RGB2BGR)
-        
-        # Resize và Dán trả lại
-        clean_crop = cv2.resize(clean_crop, (crop_image.shape[1], crop_image.shape[0]))
+
+        # ==========================================
+        # 🚀 XÓA BỎ LỆNH CV2.RESIZE CŨ VÀ THAY BẰNG LỆNH CẮT GỌT NÀY
+        # ==========================================
+        # 5. CẮT BỎ CHÍNH XÁC PHẦN BÙ ĐỂ LẤY LẠI KÍCH THƯỚC GỐC
+        clean_crop = clean_crop[0:h_crop, 0:w_crop]
+        crop_mask = crop_mask[0:h_crop, 0:w_crop] # Trả mask về gốc để dán
+
+        # 6. DÁN LẠI VÀO ẢNH CHÍNH (Hoàn hảo từng pixel)
         clean_image = image.copy()
         mask_bool = crop_mask > 0
         clean_image[y1:y2, x1:x2][mask_bool] = clean_crop[mask_bool]
