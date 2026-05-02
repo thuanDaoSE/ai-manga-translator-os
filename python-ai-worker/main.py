@@ -1,33 +1,35 @@
 import os
 import cv2
 import json
-import textwrap
-import numpy as np
-import shutil
 import time
-import threading
-
-# 1. IMPORT TẤT CẢ THƯ VIỆN LÊN TRÊN CÙNG
+import shutil
+import base64
+import numpy as np
+import urllib.request
 from typing import List
 from pydantic import BaseModel
-from PIL import Image, ImageDraw, ImageFont
-from fastapi import FastAPI, UploadFile, File
+from PIL import Image
+from fastapi import FastAPI, UploadFile, File,Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from manga_ocr import MangaOcr
-from ultralytics import YOLO
-from simple_lama_inpainting import SimpleLama
-from openai import OpenAI 
 
+import torch
+import onnxruntime as ort
+from transformers import AutoProcessor, AutoModelForCausalLM
+from openai import OpenAI 
+from dotenv import load_dotenv
+
+# ==========================================
+# KHAI BÁO CLASS DỮ LIỆU (PYDANTIC)
+# ==========================================
 class Point(BaseModel):
     x: int
     y: int
 
-# 2. ĐỊNH NGHĨA CLASS DỮ LIỆU SAU KHI ĐÃ IMPORT
 class ErasePayload(BaseModel):
     filename: str
     points: List[Point]
-    brush_size: int = 25 # Độ to mặc định của cọ là 25 pixel
+    brush_size: int = 25 
 
 class QuickScanPayload(BaseModel):
     filename: str
@@ -36,66 +38,82 @@ class QuickScanPayload(BaseModel):
     x2: int
     y2: int
 
+    
+class MaskPayload(BaseModel):
+    filename: str
+    mask_base64: str
+
 print("🚀 Đang khởi động hệ thống AI Manga Translator OS (Bản Full Web API)...")
 
-# 3. CẤU HÌNH API DEEPSEEK
-
-import os
-from dotenv import load_dotenv
-
-# Tải biến môi trường từ file .env lên RAM
+# ==========================================
+# CẤU HÌNH API DEEPSEEK
+# ==========================================
 load_dotenv()
-
-# Lấy Key ra (Nếu không có file .env, nó sẽ báo lỗi ngay)
 api_key = os.getenv("DEEPSEEK_API_KEY")
 if not api_key:
     raise ValueError("🚨 Thiếu DEEPSEEK_API_KEY trong file .env!")
 client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
 
-# 4. KHỞI TẠO CÁC AI LOCAL
-print("👁️ Đang nạp Đôi mắt YOLO...")
-yolo_model = YOLO("comic-speech-bubble-detector.pt")
+# ==========================================
+# NẠP CÁC AI LOCAL (CTD & LAMA ONNX)
+# ==========================================
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "comic_text_detector"))
 
-print("🧠 Đang nạp Bộ não MangaOCR...")
-mocr = MangaOcr()
+from manga_ocr import MangaOcr
+from comic_text_detector.inference import TextDetector
 
-print("🪄 Đang nạp Họa sĩ LaMa...")
-lama = SimpleLama()
+print("🧠 Đang nạp Bộ não MangaOCR (Đọc chữ)...")
+mocr = MangaOcr() 
 
-app = FastAPI(title="Manga AI Worker")
+def extract_text_manga_ocr(crop_bgr):
+    image_pil = Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB))
+    text = mocr(image_pil)
+    return text.strip()
 
-def garbage_collector():
-    while True:
-        # 1. Xác định thư mục chứa ảnh (ở đây là thư mục gốc của project)
-        folder_path = "." 
-        current_time = time.time()
+print("👁️ Đang nạp Đôi mắt Thần thánh Comic-Text-Detector...")
+device = "cuda" if torch.cuda.is_available() else "cpu"
+ctd_model_path = os.path.join(os.path.dirname(__file__), "comic_text_detector", "data", "comictextdetector.pt")
+text_detector = TextDetector(model_path=ctd_model_path, device=device)
+
+print("🎨 Đang nạp Họa sĩ LaMa (Bản Manga ONNX Tối thượng - lama-manga.onnx)...")
+try:
+    lama_model_path = os.path.join(os.path.dirname(__file__), "lama-manga.onnx")
+    
+    if not os.path.exists(lama_model_path):
+        print("   -> Đang tải file lama-manga.onnx (khoảng 207MB) từ HuggingFace...")
         
-        # 2. Quét toàn bộ file trong thư mục
-        for filename in os.listdir(folder_path):
-            # Chỉ tìm những file do hệ thống tự sinh ra (bắt đầu bằng Clean_ hoặc v)
-            if filename.startswith("Clean_") or filename.startswith("v"):
-                file_path = os.path.join(folder_path, filename)
-                
-                # 3. Kiểm tra tuổi đời của file
-                file_age = current_time - os.path.getmtime(file_path)
-                
-                # 4. Nếu file CŨ HƠN 3 GIỜ (3 * 60 * 60 giây) -> XÓA KHÔNG THƯƠNG TIẾC
-                if file_age > 10800: 
-                    try:
-                        os.remove(file_path)
-                        print(f"🗑️ Đã dọn rác: {filename}")
-                    except Exception as e:
-                        pass
+        # Link xịn 100% từ đúng kho của tác giả mayocream
+        url = "https://huggingface.co/mayocream/lama-manga-onnx/resolve/main/lama-manga.onnx"
         
-        # Ngủ 1 tiếng rồi dậy dọn tiếp
-        time.sleep(3600)
+        # NGỤY TRANG: Đóng giả làm trình duyệt Chrome để HuggingFace không chặn 401/403
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+        )
+        
+        # Mở luồng tải và lưu file
+        with urllib.request.urlopen(req) as response, open(lama_model_path, 'wb') as out_file:
+            shutil.copyfileobj(response, out_file)
+            
+        print("   -> ✅ Đã tải xong file lama-manga.onnx!")
+    else:
+        print("   -> Đã tìm thấy file lama-manga.onnx sẵn có trong máy.")
 
-# Khởi chạy "Người dọn rác" ở một luồng (thread) chạy ngầm riêng biệt
-# để không làm kẹt luồng xử lý API chính của FastAPI
-gc_thread = threading.Thread(target=garbage_collector, daemon=True)
-gc_thread.start()
-
-# ... [GIỮ NGUYÊN TOÀN BỘ PHẦN CODE BÊN DƯỚI TỪ app.add_middleware TRỞ ĐI] ...
+    # Khởi tạo ONNX Runtime
+    device_providers = ['CUDAExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
+    lama_session = ort.InferenceSession(lama_model_path, providers=device_providers)
+    print("✅ KHỞI TẠO LAMA MANGA ONNX THÀNH CÔNG!")
+    
+except Exception as e:
+    print(f"❌ LỖI KHỞI TẠO LAMA: {e}")
+    print("💡 HƯỚNG DẪN TẢI THỦ CÔNG (Nếu mạng vẫn chặn):")
+    print("1. Vào trình duyệt, dán link này để tải: https://huggingface.co/mayocream/lama-manga-onnx/resolve/main/lama-manga.onnx")
+    print("2. Đợi tải xong file (khoảng 207MB), để file vào cùng thư mục với main.py")
+# ==========================================
+# KHỞI TẠO MÁY CHỦ FASTAPI
+# ==========================================
+app = FastAPI()
 
 # 1. Cho phép Web UI gọi API
 app.add_middleware(
@@ -124,74 +142,82 @@ async def upload_raw(file: UploadFile = File(...)):
 
 
 @app.post("/api/translate-page")
-async def translate_full_page(file: UploadFile = File(...)):
+async def translate_full_page(
+    file: UploadFile = File(...),
+    genre: str = Form("Truyện tranh chung"),
+    tone: str = Form("Tự nhiên"),
+    pronouns: str = Form("Linh hoạt"),
+    glossary: str = Form("")
+):
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     
-    results = yolo_model(image)
+    
+    # 1. CTD QUÉT TOÀN TRANG ĐỂ LẤY MẶT NẠ HOÀN HẢO
+    print("🎯 CTD đang dò quét và tạo mặt nạ Pixel-Perfect...")
+    result = text_detector(image)
+    
+    # Ép kiểu mặt nạ về chuẩn trắng đen của OpenCV (0 - 255)
+    ctd_mask = result[0] if isinstance(result, tuple) else result
+    if ctd_mask.max() <= 1.0:
+        ctd_mask = (ctd_mask * 255).astype(np.uint8)
+    else:
+        ctd_mask = ctd_mask.astype(np.uint8)
+
+    # ==========================================
+    # 👇 BẢN VÁ TỐI THƯỢNG: SMART MASKING (DIỆT VIỀN TRẮNG) 👇
+    # ==========================================
+    # 1. Ép mask của CTD về Trắng/Đen tuyệt đối
+    _, ctd_mask = cv2.threshold(ctd_mask, 127, 255, cv2.THRESH_BINARY)
+    
+    # 2. Tạo mặt nạ "Béo" (Cố tình phình to cực đại để nuốt trọn viền trắng)
+    kernel_fat = np.ones((7, 7), np.uint8)
+    fat_mask = cv2.dilate(ctd_mask, kernel_fat, iterations=2)
+    
+    # 3. Quét ảnh gốc để tìm những vùng màu TRẮNG SÁNG (chính là cái viền halo)
+    gray_img = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, white_regions = cv2.threshold(gray_img, 200, 255, cv2.THRESH_BINARY)
+    
+    # 4. Xác định vùng an toàn: "Được phép xóa nếu nó là nét chữ HOẶC là nền màu trắng"
+    allowed_to_erase = cv2.bitwise_or(ctd_mask, white_regions)
+    
+    # 5. Toán học tập hợp: Ép mặt nạ béo bị cắt xén bởi vùng an toàn
+    # Lúc này mặt nạ sẽ ăn sạch viền trắng, nhưng KHÔNG THỂ cắn vào ngón tay đen hay vân lưới xám!
+    smart_mask = cv2.bitwise_and(fat_mask, allowed_to_erase)
+    
+    # 6. Phình to thêm đúng 1 pixel nhẹ cuối cùng để làm mượt cạnh cắt, giúp LaMa dễ vẽ bù
+    kernel_smooth = np.ones((3, 3), np.uint8)
+    smart_mask = cv2.dilate(smart_mask, kernel_smooth, iterations=1)
+    
+    # Đưa mặt nạ thông minh này làm mặt nạ tổng
+    mask = smart_mask.copy()
+    # ==========================================
+
+    # 2. TÌM TỌA ĐỘ BONG BÓNG TỪ MẶT NẠ ĐỂ GỌI MANGA-OCR
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     extracted_data = []
     ocr_batch_payload = []
     count = 1
     
-    mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    
-    # --- TRẠM 1: TẠO MẶT NẠ THÔNG MINH (BẢN CHỐNG BÓNG MA "WHITE GHOST") ---
-    for box in results[0].boxes.xyxy:
-        x1, y1, x2, y2 = map(int, box.tolist())
+    h_img, w_img = image.shape[:2]
+    clean_image = image.copy()
+
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
         
-        if (x2 - x1) < 15 or (y2 - y1) < 15:
+        # Lọc rác li ti (CTD rất xịn nên hiếm khi có rác, nhưng cứ để bảo vệ)
+        if w < 10 or h < 10:
             continue
             
-        # 1. Cắt nguyên bản khung YOLO
+        x1, y1, x2, y2 = x, y, x + w, y + h
+        
+        # Cắt mẩu ảnh để MangaOCR đọc chữ
         cropped_image = image[y1:y2, x1:x2]
-        gray_crop = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
         
-        # 2. Ngưỡng Otsu bắt chữ đen và viền đen
-        _, thresh = cv2.threshold(gray_crop, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        
-        # =======================================================
-        # 3. THUẬT TOÁN ĐỔ MỰC (Lọc riêng chữ và viền)
-        # =======================================================
-        h_crop, w_crop = thresh.shape
-        mask_flood = np.zeros((h_crop + 2, w_crop + 2), np.uint8) 
-        text_only_mask = thresh.copy()
-        
-        for i in range(w_crop):
-            if text_only_mask[0, i] == 255: cv2.floodFill(text_only_mask, mask_flood, (i, 0), 0)
-            if text_only_mask[h_crop-1, i] == 255: cv2.floodFill(text_only_mask, mask_flood, (i, h_crop-1), 0)
-        for i in range(h_crop):
-            if text_only_mask[i, 0] == 255: cv2.floodFill(text_only_mask, mask_flood, (0, i), 0)
-            if text_only_mask[i, w_crop-1] == 255: cv2.floodFill(text_only_mask, mask_flood, (w_crop-1, i), 0)
-            
-        # =======================================================
-        # 4. KHIÊN BẢO VỆ VIỀN VÀ CÚ ĐẤM XUYÊN BÓNG MA
-        # =======================================================
-        # Lấy Viền (Bằng cách lấy tổng trừ đi chữ)
-        border_mask = cv2.bitwise_xor(thresh, text_only_mask)
-        
-        # Tạo Khiên: Làm béo cái viền lên 1 chút để tạo vùng an toàn
-        kernel_small = np.ones((3, 3), np.uint8)
-        fat_border = cv2.dilate(border_mask, kernel_small, iterations=1)
-        
-        # Cú Đấm: Làm béo mặt nạ chữ CỰC MẠNH (Dùng kernel 5x5, tô 2 lần) 
-        # Việc này đảm bảo nuốt trọn mọi quầng sáng trắng, nhiễu ảnh xung quanh chữ gốc
-        kernel_big = np.ones((5, 5), np.uint8)
-        fat_text = cv2.dilate(text_only_mask, kernel_big, iterations=2)
-        
-        # Kết Hợp Ma Trận: Lấy "Chữ béo" TRỪ ĐI "Khiên bảo vệ".
-        # Kết quả: Mặt nạ chữ được phình to hết cỡ, nhưng hễ chạm vào gần viền là bị gọt phẳng!
-        final_clean_mask = cv2.bitwise_and(fat_text, cv2.bitwise_not(fat_border))
-        
-        # 5. Đắp mặt nạ hoàn hảo vào hệ thống
-        mask[y1:y2, x1:x2] = cv2.bitwise_or(mask[y1:y2, x1:x2], final_clean_mask)
-        
-        # 6. Phần OCR (Giữ nguyên)
-        temp_crop_path = f"temp_crop_{count}.jpg"
-        cv2.imwrite(temp_crop_path, cropped_image)
-        japanese_text = mocr(temp_crop_path)
-        os.remove(temp_crop_path)
+        print(f"🔎 OCR đang đọc khối chữ {count}...")
+        japanese_text = extract_text_manga_ocr(cropped_image)
         
         extracted_data.append({
             "id": count,
@@ -207,27 +233,141 @@ async def translate_full_page(file: UploadFile = File(...)):
         count += 1
         
     # ==========================================
-    # TRẠM 4: DEEPSEEK API (DỊCH HÀNG LOẠT)
+    # TRẠM INPAINTING NÂNG CAO (KỸ THUẬT SOFT INPAINTING & DYNAMIC PADDING)
+    # ==========================================
+    print("🎨 LaMa đang dùng phép thuật vẽ bù hậu cảnh...")
+    clean_image = image.copy()
+    
+    # Tìm các cụm chữ đã được gộp lại trên mặt nạ toàn trang
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
+        
+        if w < 10 or h < 10: 
+            continue
+            
+        # 1. Tính toán Padding Động (Context Area)
+        # Cho LaMa nhìn thấy bối cảnh xung quanh gấp rưỡi kích thước chữ để nó hiểu đường nét hàng rào/cửa
+        pad_x = int(w * 0.5) 
+        pad_y = int(h * 0.5)
+        # Giới hạn an toàn, tránh padding quá nhỏ hoặc vượt qua biên ảnh
+        pad_x = max(40, min(pad_x, 150))
+        pad_y = max(40, min(pad_y, 150))
+        
+        x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
+        x2_pad, y2_pad = min(w_img, x + w + pad_x), min(h_img, y + h + pad_y)
+        
+        crop_img = clean_image[y1_pad:y2_pad, x1_pad:x2_pad]
+        crop_mask = mask[y1_pad:y2_pad, x1_pad:x2_pad]
+        
+        # Bỏ qua nếu vùng mask trống (do quá trình tính toán viền lân cận)
+        if cv2.countNonZero(crop_mask) == 0:
+            continue
+
+        # ... (Phần 1. Tính toán Padding Động giữ nguyên)
+
+        # ==========================================
+        # 2. XỬ LÝ ẢNH CHUẨN KÍCH THƯỚC 512x512 CHO ONNX
+        # ==========================================
+        h_crop, w_crop = crop_img.shape[:2]
+        
+        # Lưu lại mask gốc nguyên thủy để lát dán
+        original_crop_mask = crop_mask.copy()
+        
+        # Thu nhỏ nếu ảnh to hơn 512
+        scale = 1.0
+        if h_crop > 512 or w_crop > 512:
+            scale = 512.0 / max(h_crop, w_crop)
+            new_w = int(w_crop * scale)
+            new_h = int(h_crop * scale)
+            crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+        else:
+            new_w, new_h = w_crop, h_crop
+
+        # Bù thêm pixel (Padding) để đạt đúng 512x512
+        pad_bottom = 512 - new_h
+        pad_right = 512 - new_w
+
+        if pad_bottom > 0 or pad_right > 0:
+            crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+            crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+
+        # ==========================================
+        # 3. CHẠY LAMA MANGA ONNX (BẢN GỐC CHÂN ÁI)
+        # ==========================================
+        img_t = cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        mask_t = (crop_mask > 0).astype(np.float32)[:, :, np.newaxis]
+        
+        # TUYỆT ĐỐI KHÔNG làm đen ảnh. Cứ để ONNX tự nhìn và xử lý.
+        img_t = np.transpose(img_t, (2, 0, 1))[np.newaxis, ...]
+        mask_t = np.transpose(mask_t, (2, 0, 1))[np.newaxis, ...]
+
+        ort_inputs = {
+            lama_session.get_inputs()[0].name: img_t,
+            lama_session.get_inputs()[1].name: mask_t
+        }
+        ort_outs = lama_session.run(None, ort_inputs)
+        
+        out_img = ort_outs[0][0] 
+        out_img = np.transpose(out_img, (1, 2, 0)) 
+        out_img = (out_img * 255).clip(0, 255).astype(np.uint8)
+        clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)
+
+        # ==========================================
+        # 4. GỌT LẠI KÍCH THƯỚC GỐC
+        # ==========================================
+        clean_crop = clean_crop[0:new_h, 0:new_w]
+        
+        if scale != 1.0:
+            clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+
+        # ==========================================
+        # 5. HARD PASTE (KHÔNG TRỘN VIỀN, BẢO TOÀN VÂN LƯỚI)
+        # ==========================================
+        mask_bool = original_crop_mask > 0
+        clean_image[y1_pad:y2_pad, x1_pad:x2_pad][mask_bool] = clean_crop[mask_bool]
+
+    # ... [Phần gọi DeepSeek API giữ nguyên] ...
+        
+    # ==========================================
+    # TÌM ĐẾN TRẠM 4: DEEPSEEK API VÀ SỬA LẠI PROMPT NHƯ SAU
     # ==========================================
     try:
-        # Tích hợp "Bộ bối cảnh OCR" vào yêu cầu JSON
-        prompt = """
-        Bạn là dịch giả truyện tranh chuyên nghiệp. Dưới đây là mảng JSON chứa các câu thoại tiếng Nhật được trích xuất tự động bằng phần mềm quét chữ (OCR).
+        # Xử lý Glossary để định hướng AI mạnh mẽ hơn
+        glossary_instruction = ""
+        if glossary.strip():
+            glossary_instruction = f"""
+        5. TỪ ĐIỂN BẮT BUỘC (GLOSSARY): 
+        Bạn PHẢI tuân thủ tuyệt đối tên riêng và cách xưng hô của các nhân vật sau đây:
+        {glossary}
+            """
+
+        # Tích hợp Ngữ cảnh vào Prompt
+        prompt = f"""
+        Bạn là dịch giả truyện tranh chuyên nghiệp. Dưới đây là mảng JSON chứa các câu thoại tiếng Nhật.
+
+        📖 BỐI CẢNH DỰ ÁN (HÃY DỊCH THEO HƯỚNG NÀY):
+        - Thể loại truyện: {genre}
+        - Văn phong yêu cầu: {tone}
+        - Quy tắc xưng hô chung (nếu không có trong từ điển): {pronouns}
 
         ĐẶC ĐIỂM DỮ LIỆU & QUY TẮC DỊCH:
-        1. LỖI OCR: Dữ liệu này RẤT DỄ CHỨA LỖI chính tả do nền truyện tranh bị nhiễu (ví dụ: nhìn nhầm Kanji, dính ký tự rác, hoặc bị cụt mất chữ đầu/cuối).
-        2. TỰ CHỮA LỖI: Trước khi dịch, hãy dùng logic và ngữ cảnh của toàn bộ các câu thoại để đoán xem từ gốc tiếng Nhật thực sự là gì. Bỏ qua các ký tự rác vô nghĩa.
-        3. SFX: Nếu phát hiện từ tượng thanh (tiếng động), hãy dịch thành âm thanh tiếng Việt tương ứng (VD: Rầm, Bùm, Xào xạc).
-        4. VĂN PHONG: Ưu tiên ngôn từ tự nhiên, đời thường, đậm chất truyện tranh.
+        1. LỖI OCR: Dữ liệu này RẤT DỄ CHỨA LỖI chính tả do nền truyện tranh bị nhiễu.
+        2. TỰ CHỮA LỖI: Hãy dùng logic và BỐI CẢNH DỰ ÁN bên trên để đoán từ gốc tiếng Nhật.
+        3. SFX: Dịch từ tượng thanh sang tiếng Việt (VD: Rầm, Bùm, Xào xạc).
+        4. VĂN PHONG: Ưu tiên ngôn từ tự nhiên, đúng với 'Văn phong yêu cầu' đã nêu.{glossary_instruction}
 
         NHIỆM VỤ BẮT BUỘC:
         Dịch mảng JSON tiếng Nhật sau sang tiếng Việt. TUYỆT ĐỐI trả về một đối tượng JSON có key là "translations" chứa mảng kết quả, không giải thích gì thêm.
-        Ví dụ định dạng: {"translations": [{"id": 1, "vietnamese": "Này, cậu làm được không đấy?"}]}
+        Ví dụ: {{"translations": [{{"id": 1, "vietnamese": "Này, cậu làm được không đấy?"}}]}}
         
         Dữ liệu cần dịch:
-        """ + json.dumps(ocr_batch_payload, ensure_ascii=False)
+        {json.dumps(ocr_batch_payload, ensure_ascii=False)}
+        """
         
-        print("🧠 Đang gửi yêu cầu dịch thuật và tự sửa lỗi cho DeepSeek...")
+        print("🧠 Đang gửi yêu cầu dịch thuật (Có ngữ cảnh) cho DeepSeek...")
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[
@@ -237,7 +377,7 @@ async def translate_full_page(file: UploadFile = File(...)):
             response_format={'type': 'json_object'} # Giữ nguyên cơ chế ép JSON của API
         )
         
-        # Bóc tách kết quả từ DeepSeek
+       # Bóc tách kết quả từ DeepSeek
         result_content = response.choices[0].message.content
         parsed_json = json.loads(result_content)
         translated_array = parsed_json.get("translations", [])
@@ -245,50 +385,13 @@ async def translate_full_page(file: UploadFile = File(...)):
         # Ghép bản dịch vào dữ liệu gốc
         for item in extracted_data:
             for trans in translated_array:
-                if trans["id"] == item["id"]:
-                    item["vietnamese"] = trans["vietnamese"]
+                if trans.get("id") == item["id"]:
+                    # Dùng .get để nếu AI không trả về chữ vietnamese thì dùng chữ "Lỗi dịch"
+                    item["vietnamese"] = trans.get("vietnamese", "Lỗi dịch thuật (API)")
                     break
     except Exception as e:
         print(f"❌ Lỗi gọi API DeepSeek: {e}")
 
-    # ==========================================
-    # TRẠM 2 ĐẶC BIỆT: LAMA INPAINTING (TÁI CẤU TRÚC - CHIA ĐỂ TRỊ)
-    # ==========================================
-    print("🎨 LaMa đang dùng phép thuật vẽ bù hậu cảnh (Chế độ Cắt mẩu tối ưu CPU)...")
-    clean_image = image.copy()
-    
-    # TÌM CÁC CỤM CHỮ: Biến mặt nạ toàn trang thành danh sách các vùng chữ cục bộ
-    # Việc này giúp gộp các khung YOLO bị đè lên nhau thành 1 vùng duy nhất để tránh LaMa chạy đè
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    pad = 80 # Vùng đệm lân cận để AI hiểu bối cảnh (giống hệ thống Cọ xóa)
-    h_img, w_img = clean_image.shape[:2]
-    
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        
-        # Bỏ qua các mẩu nhiễu quá nhỏ
-        if w < 10 or h < 10: 
-            continue
-            
-        # 1. Tính toán tọa độ mở rộng (Padding) an toàn, không bị tràn viền
-        x1, y1 = max(0, x - pad), max(0, y - pad)
-        x2, y2 = min(w_img, x + w + pad), min(h_img, y + h + pad)
-        
-        # 2. Cắt mẩu ảnh và mẩu mask
-        crop_img = clean_image[y1:y2, x1:x2]
-        crop_mask = mask[y1:y2, x1:x2]
-        
-        # 3. Chạy AI LaMa cho RIÊNG mẩu nhỏ này (Nhanh gấp chục lần, không tốn RAM)
-        crop_pil = Image.fromarray(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB))
-        mask_pil = Image.fromarray(crop_mask)
-        clean_crop_pil = lama(crop_pil, mask_pil)
-        clean_crop = cv2.cvtColor(np.array(clean_crop_pil), cv2.COLOR_RGB2BGR)
-        
-        # 4. Ép kích thước chuẩn và dán trả lại vào ảnh gốc
-        clean_crop = cv2.resize(clean_crop, (crop_img.shape[1], crop_img.shape[0]))
-        mask_bool = crop_mask > 0
-        clean_image[y1:y2, x1:x2][mask_bool] = clean_crop[mask_bool]
         
     # Lưu lại file kết quả cuối cùng xuống ổ cứng (Lót đường cho Cọ Xóa làm việc tiếp)
     clean_path = f"Clean_{file.filename}"
@@ -310,10 +413,11 @@ class MaskPayload(BaseModel):
     filename: str
     mask_base64: str
 
+# ==========================================
+# SỬA LỖI 1: CỌ XÓA NỀN (ÉP KÍCH THƯỚC ĐÚNG 512x512 CHO ONNX)
+# ==========================================
 @app.post("/api/erase-mask")
 def erase_mask(payload: MaskPayload):
-    # Lấy tên file gốc mà người dùng đang hiển thị trên màn hình
-    # Thay vì dùng f"Clean_{payload.filename}", hãy dùng trực tiếp tên file gửi từ Frontend
     base_image_path = payload.filename 
     
     if not os.path.exists(base_image_path):
@@ -321,18 +425,18 @@ def erase_mask(payload: MaskPayload):
 
     image = cv2.imread(base_image_path)
     
-    # 1. Giải mã Mask từ Base64
+    # Giải mã Mask từ Base64
     encoded_data = payload.mask_base64.split(',')[1]
     nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
     mask_rgba = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
     
-    # Lấy kênh Alpha (kênh minh họa vùng đỏ) làm Mask trắng đen
+    # Lấy kênh Alpha làm Mask trắng đen
     mask = mask_rgba[:, :, 3] 
 
-    # 2. Thuật toán Cắt mẩu (Crop) tối ưu như cũ
+    # Thuật toán Cắt mẩu (Crop)
     x, y, w, h = cv2.boundingRect(mask)
     if w > 0 and h > 0:
-        pad = 80 # Ngữ cảnh cho LaMa
+        pad = 80 
         h_img, w_img = image.shape[:2]
         x1, y1 = max(0, x-pad), max(0, y-pad)
         x2, y2 = min(w_img, x+w+pad), min(h_img, y+h+pad)
@@ -340,55 +444,78 @@ def erase_mask(payload: MaskPayload):
         crop_image = image[y1:y2, x1:x2]
         crop_mask = mask[y1:y2, x1:x2]
 
-        # 1. LẤY KÍCH THƯỚC GỐC CỦA MẨU CẮT
         h_crop, w_crop = crop_image.shape[:2]
+        
+        # 🚀 SỬA LỖI ONNX: Bắt buộc Scale/Pad thành 512x512
+        scale = 1.0
+        if h_crop > 512 or w_crop > 512:
+            # Nếu ảnh to hơn 512, thu nhỏ nó lại sao cho cạnh dài nhất bằng 512
+            scale = 512.0 / max(h_crop, w_crop)
+            new_w = int(w_crop * scale)
+            new_h = int(h_crop * scale)
+            crop_image = cv2.resize(crop_image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+        else:
+            new_w, new_h = w_crop, h_crop
 
-        # 2. TÍNH TOÁN PHẦN BÙ (Để đảm bảo chia hết cho 8)
-        pad_bottom = (8 - (h_crop % 8)) % 8
-        pad_right = (8 - (w_crop % 8)) % 8
+        # Bù thêm pixel (Padding) để đạt ĐÚNG 512x512
+        pad_bottom = 512 - new_h
+        pad_right = 512 - new_w
 
-        # 3. CHỦ ĐỘNG MỞ RỘNG (PADDING) BẰNG OPENCV
         if pad_bottom > 0 or pad_right > 0:
-            # Replicate: Kéo dài các pixel ở mép ra để AI không bị viền đen
             crop_image = cv2.copyMakeBorder(crop_image, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
             crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
 
-        # 4. CHẠY LAMA (Lúc này LaMa sẽ ngoan ngoãn xử lý vì ảnh đã chuẩn size)
-        crop_pil = Image.fromarray(cv2.cvtColor(crop_image, cv2.COLOR_BGR2RGB))
-        mask_pil = Image.fromarray(crop_mask)
-        clean_crop_pil = lama(crop_pil, mask_pil)
-        clean_crop = cv2.cvtColor(np.array(clean_crop_pil), cv2.COLOR_RGB2BGR)
-
-        # ==========================================
-        # 🚀 XÓA BỎ LỆNH CV2.RESIZE CŨ VÀ THAY BẰNG LỆNH CẮT GỌT NÀY
-        # ==========================================
-        # 5. CẮT BỎ CHÍNH XÁC PHẦN BÙ ĐỂ LẤY LẠI KÍCH THƯỚC GỐC
-        clean_crop = clean_crop[0:h_crop, 0:w_crop]
-        crop_mask = crop_mask[0:h_crop, 0:w_crop] # Trả mask về gốc để dán
-
-        # 6. DÁN LẠI VÀO ẢNH CHÍNH (Hoàn hảo từng pixel)
-        clean_image = image.copy()
-        mask_bool = crop_mask > 0
-        clean_image[y1:y2, x1:x2][mask_bool] = clean_crop[mask_bool]
+        # 🚀 CHẠY LAMA MANGA ONNX
+        img_t = cv2.cvtColor(crop_image, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        mask_t = (crop_mask > 0).astype(np.float32)[:, :, np.newaxis]
         
-        # CHÚ Ý THỤT LỀ: 3 dòng này phải nằm BÊN TRONG khối if (cùng cấp với clean_image)
+        img_t = np.transpose(img_t, (2, 0, 1))[np.newaxis, ...]
+        mask_t = np.transpose(mask_t, (2, 0, 1))[np.newaxis, ...]
+
+        ort_inputs = {
+            lama_session.get_inputs()[0].name: img_t,
+            lama_session.get_inputs()[1].name: mask_t
+        }
+        ort_outs = lama_session.run(None, ort_inputs)
+        
+        out_img = ort_outs[0][0] 
+        out_img = np.transpose(out_img, (1, 2, 0)) 
+        out_img = (out_img * 255).clip(0, 255).astype(np.uint8)
+        clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)
+
+        # Cắt bỏ chính xác phần bù (Padding)
+        clean_crop = clean_crop[0:new_h, 0:new_w]
+        crop_mask = crop_mask[0:new_h, 0:new_w] 
+
+        # 🚀 Nếu lúc nãy thu nhỏ, giờ phải phóng to lại cho vừa ảnh gốc
+        if scale != 1.0:
+            clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+            crop_mask = cv2.resize(crop_mask, (w_crop, h_crop), interpolation=cv2.INTER_NEAREST)
+
+        # Dán lại vào ảnh chính
+        mask_bool = crop_mask > 0
+        image[y1:y2, x1:x2][mask_bool] = clean_crop[mask_bool]
+        
         new_filename = f"v{int(time.time())}_{payload.filename.split('_')[-1]}"
-        cv2.imwrite(new_filename, clean_image)
+        cv2.imwrite(new_filename, image)
         return {"status": "success", "new_filename": new_filename}
     
-    # NẾU USER KHÔNG VẼ GÌ, trả về lỗi rỗng (Lùi ra bằng cấp với chữ if)
     return {"status": "error", "message": "Mask rỗng"}
-
+# ==========================================
+# SỬA LỖI 2: LENS DỊCH (SỬA LỖI ĐƯỜNG DẪN FILE)
+# ==========================================
 @app.post("/api/quick-scan")
 async def quick_scan(payload: QuickScanPayload):
     vietnamese_text = "⚠️ Lỗi dịch thuật (Vui lòng thử lại)"
-    clean_path = f"Clean_{payload.filename}"
+    
+    # 🚀 SỬA LỖI Ở ĐÂY: Lấy thẳng tên file do Frontend gửi, không chèn thêm "Clean_"
+    clean_path = payload.filename
     if not os.path.exists(clean_path):
-        return {"status": "error", "message": "File không tồn tại"}
+        return {"status": "error", "message": f"File không tồn tại: {clean_path}"}
     
     image = cv2.imread(clean_path)
     
-    # 1. Chốt tọa độ an toàn (Tránh user quét ngược từ dưới lên hoặc quét ra ngoài ảnh)
     h, w = image.shape[:2]
     x1, x2 = sorted([max(0, min(payload.x1, w)), max(0, min(payload.x2, w))])
     y1, y2 = sorted([max(0, min(payload.y1, h)), max(0, min(payload.y2, h))])
@@ -396,36 +523,19 @@ async def quick_scan(payload: QuickScanPayload):
     if x2 - x1 < 10 or y2 - y1 < 10:
         return {"status": "error", "message": "Vùng quét quá nhỏ"}
         
-    # 2. Cắt mẩu ảnh
     crop = image[y1:y2, x1:x2]
     crop_upscaled = cv2.resize(crop, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-    temp_path = f"temp_scan_{payload.filename}.jpg"
-    cv2.imwrite(temp_path, crop_upscaled)
-    
-    print(f"🔍 Đang quét OCR một vùng siêu nhỏ...")
-    japanese_text = mocr(temp_path)
-    os.remove(temp_path)
+    japanese_text = extract_text_manga_ocr(crop_upscaled)
     
     if not japanese_text.strip():
         return {"status": "success", "japanese": "", "vietnamese": "Không đọc được chữ"}
         
-    # 3. Dịch siêu tốc bằng DeepSeek (Không cần ép JSON cho trường hợp câu đơn này)
     print(f"🧠 Đang dịch nhanh câu: {japanese_text}")
     try:
        response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[
-                {"role": "system", "content": """Bạn là dịch giả truyện tranh chuyên nghiệp.
-                
-                ĐẦU VÀO ĐẶC BIỆT: 
-                Đoạn text tiếng Nhật dưới đây được trích xuất bằng phần mềm nhận diện hình ảnh (OCR) từ một khung truyện tranh do người dùng tự khoanh vùng. 
-                Nó RẤT DỄ CHỨA LỖI: sai Kanji do nét chữ giống nhau, dính ký tự rác do nền nhiễu, hoặc bị cụt mất chữ đầu/cuối do người dùng khoanh thiếu.
-                
-                NHIỆM VỤ:
-                1. TỰ CHỮA LỖI: Hãy dùng logic và ngữ cảnh để đoán xem từ gốc tiếng Nhật thực sự là gì trước khi dịch. Bỏ qua các ký tự rác vô nghĩa (như 'わよ' lơ lửng, v.v.).
-                2. DỊCH THUẬT: Chỉ trả về kết quả tiếng Việt, TUYỆT ĐỐI không giải thích quá trình sửa lỗi.
-                3. SFX: Nếu là từ tượng thanh (tiếng động, hiệu ứng), hãy dịch thoát nghĩa sang âm thanh truyện tranh tiếng Việt (VD: Rầm, Bùm, Lạch cạch).
-                4. VĂN PHONG: Ưu tiên câu cú tự nhiên, đời thường, đậm chất truyện tranh."""},
+                {"role": "system", "content": "Bạn là dịch giả truyện tranh. Dịch text tiếng Nhật sau sang tiếng Việt, sửa các lỗi OCR (nếu có). Chỉ trả về kết quả tiếng Việt, không giải thích gì thêm."},
                 {"role": "user", "content": japanese_text}
             ]
         )

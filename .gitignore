@@ -7,6 +7,8 @@ python-ai-worker/__pycache__/
 *.ttf
 *.log
 .env
+*.pt
+*.onnx
 
 # --- JAVA TRASH ---
 java-api-gateway/target/

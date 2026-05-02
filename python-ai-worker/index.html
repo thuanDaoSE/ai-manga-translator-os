@@ -430,6 +430,13 @@
         <button class="btn-primary" onclick="processCurrentImage()">
           ⚡ Dịch Trang Này
         </button>
+        <button
+          class="btn-secondary"
+          style="background: #607d8b"
+          onclick="openTransSettings()"
+        >
+          ⚙️ Cài đặt Ngữ cảnh
+        </button>
       </div>
       <div class="toolbar-group">
         <button class="btn-secondary" onclick="addFreeText()">
@@ -720,6 +727,127 @@
             <canvas id="draw-layer"></canvas>
           </div>
         </div>
+      </div>
+    </div>
+    <!-- POPUP CÀI ĐẶT DỊCH THUẬT -->
+    <div
+      id="trans-settings-popup"
+      style="
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #1e1e1e;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #555;
+        z-index: 2000;
+        width: 450px;
+        box-shadow: 0 15px 40px rgba(0, 0, 0, 0.8);
+      "
+    >
+      <h3 style="margin-top: 0; color: #4caf50">⚙️ Cấu hình AI DeepSeek</h3>
+
+      <div style="display: flex; gap: 10px; margin-bottom: 10px">
+        <div style="flex: 1">
+          <label style="font-size: 11px; color: #aaa">THỂ LOẠI</label>
+          <select
+            id="setting-genre"
+            class="popup-input"
+            style="margin-bottom: 0"
+            onchange="checkCustom('genre')"
+          >
+            <option value="Shounen (Hành động, nhiệt huyết)">
+              Shounen (Hành động)
+            </option>
+            <option value="Shoujo (Lãng mạn, tình cảm)">
+              Shoujo (Lãng mạn)
+            </option>
+            <option value="Isekai (Xuyên không, phép thuật)">
+              Isekai (Xuyên không)
+            </option>
+            <option value="custom">✍️ Tự nhập...</option>
+          </select>
+          <input
+            type="text"
+            id="custom-genre"
+            class="popup-input"
+            style="display: none; margin-top: 5px"
+            placeholder="Nhập thể loại..."
+          />
+        </div>
+
+        <div style="flex: 1">
+          <label style="font-size: 11px; color: #aaa">VĂN PHONG</label>
+          <select
+            id="setting-tone"
+            class="popup-input"
+            style="margin-bottom: 0"
+            onchange="checkCustom('tone')"
+          >
+            <option value="Tự nhiên, đời thường, ngôn ngữ mạng">
+              Đời thường / Hiện đại
+            </option>
+            <option value="Trang trọng, cổ trang, kiếm hiệp">
+              Cổ trang / Nghiêm túc
+            </option>
+            <option value="Hài hước, lầy lội">Hài hước / Lầy lội</option>
+            <option value="custom">✍️ Tự nhập...</option>
+          </select>
+          <input
+            type="text"
+            id="custom-tone"
+            class="popup-input"
+            style="display: none; margin-top: 5px"
+            placeholder="Nhập văn phong..."
+          />
+        </div>
+      </div>
+
+      <label style="font-size: 11px; color: #aaa">XƯNG HÔ CHUNG</label>
+      <select
+        id="setting-pronoun"
+        class="popup-input"
+        onchange="checkCustom('pronoun')"
+      >
+        <option value="Tôi - Cậu (Bạn bè ngang hàng)">
+          Tôi - Cậu (Bạn bè)
+        </option>
+        <option value="Anh - Em (Nam lớn tuổi hơn nữ)">Anh - Em</option>
+        <option value="Ta - Ngươi (Kẻ thù, cổ trang)">Ta - Ngươi</option>
+        <option value="Mày - Tao (Kẻ thù, giang hồ)">Mày - Tao (Gắt)</option>
+        <option value="custom">✍️ Tự nhập...</option>
+      </select>
+      <input
+        type="text"
+        id="custom-pronoun"
+        class="popup-input"
+        style="display: none"
+        placeholder="Ví dụ: Lão phu - Tiểu tử..."
+      />
+
+      <label style="font-size: 11px; color: #aaa"
+        >📚 TỪ ĐIỂN NHÂN VẬT (GLOSSARY)</label
+      >
+      <textarea
+        id="setting-glossary"
+        class="popup-input"
+        rows="3"
+        placeholder="Nhập theo mẫu:&#10;Naruto = Naruto (Xưng: Tớ - Cậu)&#10;Sasuke = Sasuke (Xưng: Tôi - Cậu)"
+      ></textarea>
+
+      <div class="popup-actions" style="margin-top: 15px">
+        <button
+          class="btn-secondary"
+          style="background: #555"
+          onclick="closeTransSettings()"
+        >
+          Đóng
+        </button>
+        <button class="btn-primary" onclick="closeTransSettings()">
+          💾 Lưu Cấu Hình
+        </button>
       </div>
     </div>
 
@@ -1018,7 +1146,8 @@
       // --- CÁC TRẠNG THÁI CHUỘT ---
       let isEraseMode = false,
         isScanMode = false,
-        isDrawing = false;
+        isTestLamaMode = false;
+      isDrawing = false;
       let strokePoints = [],
         scanStartX,
         scanStartY,
@@ -1028,6 +1157,7 @@
       function resetModes() {
         isEraseMode = false;
         isScanMode = false;
+        isTestLamaMode = false;
         document.getElementById("btn-erase").classList.remove("active");
         document.getElementById("btn-scan").classList.remove("active");
         drawLayer.style.pointerEvents = "none";
@@ -1072,7 +1202,9 @@
       }
 
       drawLayer.addEventListener("mousedown", (e) => {
+        // 1. Cho phép chế độ Test LaMa được chạy qua cửa ải này
         if (!isEraseMode && !isScanMode) return;
+
         isDrawing = true;
         const rect = drawLayer.getBoundingClientRect();
 
@@ -1082,15 +1214,14 @@
 
         if (isEraseMode) {
           strokePoints = [];
-          // ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
           ctx.beginPath();
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
-          // ctx.lineWidth = 20
           ctx.lineWidth = parseInt(document.getElementById("brushSize").value);
           ctx.strokeStyle = "rgba(255, 0, 0, 0.5)";
           ctx.moveTo(x, y);
         } else if (isScanMode) {
+          // 2. Ghi nhận tọa độ góc trên cùng bên trái của khung
           scanStartX = x;
           scanStartY = y;
         }
@@ -1112,6 +1243,8 @@
         } else if (isScanMode) {
           ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
           ctx.setLineDash([5, 5]);
+
+          // Lens Dịch có màu Xanh, Khung Xóa LaMa có màu Cam
           ctx.strokeStyle = "#00BFFF";
           ctx.lineWidth = 2;
           ctx.strokeRect(
@@ -1123,12 +1256,74 @@
         }
       });
 
-      // 1. Sửa sự kiện mouseup: Chỉ dừng vẽ, không gọi API nữa
+      // ==========================================
+      // BẮT SỰ KIỆN NHẢ CHUỘT
+      // ==========================================
       drawLayer.addEventListener("mouseup", (e) => {
         if (!isDrawing) return;
         isDrawing = false;
-        // Không làm gì cả, để vệt đỏ nằm yên trên canvas cho user xem
+
+        // Lấy tọa độ điểm dừng
+        const rect = drawLayer.getBoundingClientRect();
+        scanEndX = (e.clientX - rect.left) / currentZoom;
+        scanEndY = (e.clientY - rect.top) / currentZoom;
+
+        // Nếu là chế độ Khung Xóa LaMa thì bắn API LaMa
+        if (isScanMode) {
+          applyQuickScan();
+        }
       });
+
+      // ==========================================
+      // THÊM HÀM NÀY ĐỂ XỬ LÝ LENS DỊCH
+      // ==========================================
+      async function applyQuickScan() {
+        let currentFilename = bgImg.src.startsWith("data:")
+          ? "Clean_" + fileQueue[currentIndex].name
+          : bgImg.src.split("/").pop().split("?")[0];
+
+        document.getElementById("status").style.display = "block";
+        document.getElementById("status").innerText = "🔍 Đang quét chữ...";
+
+        // Hiện popup với trạng thái Loading
+        document.getElementById("scan-popup").style.display = "block";
+        document.getElementById("scan-jap").value = "Đang quét OCR...";
+        document.getElementById("scan-vie").value = "Đang dịch...";
+
+        try {
+          const response = await fetch(`${API_URL}/quick-scan`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              filename: currentFilename,
+              x1: Math.floor(scanStartX),
+              y1: Math.floor(scanStartY),
+              x2: Math.floor(scanEndX),
+              y2: Math.floor(scanEndY),
+            }),
+          });
+          const result = await response.json();
+          if (result.status === "success") {
+            // Đổ kết quả thật vào Popup
+            document.getElementById("scan-jap").value = result.japanese;
+            document.getElementById("scan-vie").value = result.vietnamese;
+
+            // Định vị popup nằm ngay cạnh chỗ vừa quét cho trực quan
+            const popup = document.getElementById("scan-popup");
+            const rect = drawLayer.getBoundingClientRect();
+            popup.style.left = rect.left + scanEndX * currentZoom + "px";
+            popup.style.top = rect.top + scanEndY * currentZoom + "px";
+          } else {
+            alert("Lỗi từ Server: " + result.message);
+            closeScanPopup();
+          }
+        } catch (error) {
+          alert("Lỗi kết nối Server!");
+          closeScanPopup();
+        }
+        document.getElementById("status").style.display = "none";
+        document.getElementById("status").innerText = "🤖 Đang xử lý...";
+      }
 
       // 2. Hàm thực thi gửi toàn bộ Mask lên Server
       async function applyErase() {
@@ -1601,6 +1796,58 @@
 
       // 4. KÍCH HOẠT KHI TRANG WEB VỪA LOAD XONG
       window.addEventListener("DOMContentLoaded", loadAutoSave);
+
+      // --- LOGIC POPUP CÀI ĐẶT DỊCH ---
+      function openTransSettings() {
+        document.getElementById("trans-settings-popup").style.display = "block";
+      }
+      function closeTransSettings() {
+        document.getElementById("trans-settings-popup").style.display = "none";
+      }
+
+      function checkCustom(type) {
+        const select = document.getElementById(`setting-${type}`);
+        const customInput = document.getElementById(`custom-${type}`);
+        if (select.value === "custom") {
+          customInput.style.display = "block";
+          customInput.focus();
+        } else {
+          customInput.style.display = "none";
+        }
+      }
+
+      function getTranslationConfig() {
+        let genre = document.getElementById("setting-genre").value;
+        if (genre === "custom")
+          genre = document.getElementById("custom-genre").value;
+
+        let tone = document.getElementById("setting-tone").value;
+        if (tone === "custom")
+          tone = document.getElementById("custom-tone").value;
+
+        let pronoun = document.getElementById("setting-pronoun").value;
+        if (pronoun === "custom")
+          pronoun = document.getElementById("custom-pronoun").value;
+
+        return {
+          genre: genre || "Truyện tranh chung",
+          tone: tone || "Tự nhiên",
+          pronouns: pronoun || "Linh hoạt",
+          glossary: document.getElementById("setting-glossary").value.trim(),
+        };
+      }
+
+      // --- TÌM HÀM processCurrentImage() CŨ VÀ SỬA LẠI ĐOẠN GỬI FORM DATA NHƯ SAU ---
+      // (Thay thế đoạn khai báo formData cũ)
+      const formData = new FormData();
+      formData.append("file", file);
+
+      // Bơm thêm Cấu hình ngữ cảnh vào API
+      const config = getTranslationConfig();
+      formData.append("genre", config.genre);
+      formData.append("tone", config.tone);
+      formData.append("pronouns", config.pronouns);
+      formData.append("glossary", config.glossary);
     </script>
   </body>
 </html>
