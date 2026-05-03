@@ -180,6 +180,7 @@
         min-height: 40px;
         transform-origin: center center;
         cursor: move;
+        z-index: 50;
       }
       /* Trạng thái ẩn bong bóng chữ */
       #editor-container.hide-text .text-bubble {
@@ -465,7 +466,24 @@
             A+
           </button>
         </div>
-
+        <label
+          class="btn-secondary"
+          style="
+            background: #8e44ad;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+          "
+          title="Tải font .ttf / .otf của bạn lên"
+        >
+          ⬆️ Font
+          <input
+            type="file"
+            id="fontUploadInput"
+            accept=".ttf,.otf,.woff,.woff2"
+            style="display: none"
+          />
+        </label>
         <select
           id="fontFamily"
           onchange="updateStyles()"
@@ -622,6 +640,14 @@
         <button class="btn-danger" id="btn-erase" onclick="toggleEraseMode()">
           🖌️ Cọ Xóa Nền
         </button>
+        <button
+          class="btn-primary"
+          id="btn-restore"
+          style="background: #00bcd4"
+          onclick="toggleRestoreMode()"
+        >
+          🩹 Cọ Phục Hồi
+        </button>
 
         <div
           class="custom-control-group"
@@ -651,6 +677,14 @@
             "
           >
             ✅ Thực thi Xóa
+          </button>
+          <button
+            id="btn-toggle-restore"
+            class="btn-secondary"
+            style="margin-left: 10px; background: #00bcd4; display: none"
+            onclick="toggleRestoreType()"
+          >
+            Chế độ: Mực Gốc (Raw)
           </button>
         </div>
         <div class="loading" id="status">🤖 Đang xử lý...</div>
@@ -724,6 +758,9 @@
               src=""
               alt="Manga Page"
             />
+            <canvas id="raw-canvas" style="display: none"></canvas>
+            <canvas id="clean-canvas" style="display: none"></canvas>
+            <!-- Thêm dòng này -->
             <canvas id="draw-layer"></canvas>
           </div>
         </div>
@@ -827,13 +864,42 @@
         placeholder="Ví dụ: Lão phu - Tiểu tử..."
       />
 
-      <label style="font-size: 11px; color: #aaa"
-        >📚 TỪ ĐIỂN NHÂN VẬT (GLOSSARY)</label
+      <div
+        style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 10px;
+        "
       >
+        <label style="font-size: 11px; color: #aaa"
+          >📚 TỪ ĐIỂN NHÂN VẬT (GLOSSARY)</label
+        >
+
+        <label
+          class="btn-secondary"
+          style="
+            background: #2196f3;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+          "
+          title="Tải file .txt hoặc .json chứa thuật ngữ lên"
+        >
+          📂 Nhập từ File (.txt, .json)
+          <input
+            type="file"
+            id="import-config-file"
+            accept=".txt,.json"
+            style="display: none"
+          />
+        </label>
+      </div>
+
       <textarea
         id="setting-glossary"
         class="popup-input"
-        rows="3"
+        rows="4"
         placeholder="Nhập theo mẫu:&#10;Naruto = Naruto (Xưng: Tớ - Cậu)&#10;Sasuke = Sasuke (Xưng: Tôi - Cậu)"
       ></textarea>
 
@@ -845,7 +911,7 @@
         >
           Đóng
         </button>
-        <button class="btn-primary" onclick="closeTransSettings()">
+        <button class="btn-primary" onclick="saveTranslationConfig()">
           💾 Lưu Cấu Hình
         </button>
       </div>
@@ -935,6 +1001,21 @@
           bgImg.src = e.target.result;
           document.getElementById("editor-wrapper").style.display =
             "inline-block";
+
+          // 🔥 BÍ QUYẾT: Chỉ ghi nhận bản gốc ĐÚNG 1 LẦN khi user bấm chọn file
+          const img = new Image();
+          img.onload = () => {
+            rawCanvas.width = img.naturalWidth;
+            rawCanvas.height = img.naturalHeight;
+            rawCtx.drawImage(img, 0, 0);
+
+            cleanCanvas.width = img.naturalWidth;
+            cleanCanvas.height = img.naturalHeight;
+            cleanCanvas.getContext("2d").drawImage(img, 0, 0);
+
+            fitToScreen();
+          };
+          img.src = e.target.result;
         };
         reader.readAsDataURL(file);
 
@@ -998,16 +1079,12 @@
         setZoom(fitScale);
       }
 
-      // KHI TẢI ẢNH MỚI LÊN: Đặt khung gốc về 100% rồi tự động bóp Vừa màn hình
+      // TRỌNG TÂM 1: CẬP NHẬT KÍCH THƯỚC (Đã xóa logic lưu Raw gây lỗi)
       bgImg.onload = function () {
-        // Bắt buộc set cứng container ở kích thước gốc (100%)
         container.style.width = bgImg.naturalWidth + "px";
         container.style.height = bgImg.naturalHeight + "px";
         drawLayer.width = bgImg.naturalWidth;
         drawLayer.height = bgImg.naturalHeight;
-
-        // Sau đó mới dùng Camera thu nhỏ lại cho vừa mắt người dùng
-        fitToScreen();
       };
 
       // --- GỌI API DỊCH TRANG HIỆN TẠI ---
@@ -1016,7 +1093,18 @@
           return alert("Hãy chọn một trang từ danh sách!");
         document.getElementById("status").style.display = "block";
         const file = fileQueue[currentIndex];
+
+        // --- TÌM HÀM processCurrentImage() CŨ VÀ SỬA LẠI ĐOẠN GỬI FORM DATA NHƯ SAU ---
+        // (Thay thế đoạn khai báo formData cũ)
         const formData = new FormData();
+        formData.append("file", file);
+
+        // Bơm thêm Cấu hình ngữ cảnh vào API
+        const config = getTranslationConfig();
+        formData.append("genre", config.genre);
+        formData.append("tone", config.tone);
+        formData.append("pronouns", config.pronouns);
+        formData.append("glossary", config.glossary);
         formData.append("file", file);
 
         try {
@@ -1025,7 +1113,20 @@
             body: formData,
           });
           const result = await response.json();
-          bgImg.src = `http://127.0.0.1:8000/static/Clean_${result.file_name}?t=${Date.now()}`;
+          const cleanUrl = `http://127.0.0.1:8000/static/Clean_${result.file_name}?t=${Date.now()}`;
+
+          // 🚀 LƯU BẢN CLEAN LÀM MỰC TẨY
+          const cleanImg = new Image();
+          cleanImg.crossOrigin = "anonymous";
+          cleanImg.onload = () => {
+            const cleanCanvas = document.getElementById("clean-canvas");
+            cleanCanvas.width = cleanImg.naturalWidth;
+            cleanCanvas.height = cleanImg.naturalHeight;
+            cleanCanvas.getContext("2d").drawImage(cleanImg, 0, 0);
+          };
+          cleanImg.src = cleanUrl;
+
+          bgImg.src = cleanUrl; // Cập nhật ảnh nền
           document
             .querySelectorAll(".text-bubble")
             .forEach((el) => el.remove());
@@ -1054,7 +1155,8 @@
         document.getElementById("status").style.display = "none";
       }
 
-      // --- CỖ MÁY THỜI GIAN (BẢN PRO: LƯU CẢ NỀN LẪN CHỮ) ---
+      // --- CỖ MÁY THỜI GIAN (BẢN PRO: LƯU CẢ NỀN, BẢN GỐC LẪN CHỮ) ---
+      // --- CỖ MÁY THỜI GIAN (BẢN PRO: LƯU CẢ NỀN, BẢN GỐC VÀ BẢN SẠCH) ---
       function getSnapshot() {
         const bubbles = document.querySelectorAll(".text-bubble");
         const state = [];
@@ -1073,11 +1175,11 @@
           });
         });
 
-        // GÓI CẢ HÌNH NỀN VÀO LỊCH SỬ
         return JSON.stringify({
           background: bgImg.src,
+          rawBackground: rawCanvas.toDataURL("image/jpeg", 0.5), // Nén ảnh gốc
+          cleanBackground: cleanCanvas.toDataURL("image/jpeg", 0.5), // 🚀 BỔ SUNG: Nén ảnh sạch làm cục tẩy
           bubbles: state,
-          // BỔ SUNG: Nhớ luôn tên file hiện tại để sau này khôi phục
           filename:
             currentIndex !== -1
               ? fileQueue[currentIndex].name
@@ -1092,7 +1194,29 @@
         // 1. Phục hồi hình nền
         bgImg.src = parsedState.background;
 
-        // 2. Phục hồi chữ
+        // 2. Phục hồi Mực in gốc (Raw) cho Cọ Phục Hồi
+        if (parsedState.rawBackground) {
+          const img = new Image();
+          img.onload = () => {
+            rawCanvas.width = img.width;
+            rawCanvas.height = img.height;
+            rawCtx.drawImage(img, 0, 0);
+          };
+          img.src = parsedState.rawBackground;
+        }
+
+        // 🚀 3. Phục hồi Mực Tẩy (Clean) cho Chế độ Cục Tẩy
+        if (parsedState.cleanBackground) {
+          const cImg = new Image();
+          cImg.onload = () => {
+            cleanCanvas.width = cImg.width;
+            cleanCanvas.height = cImg.height;
+            cleanCanvas.getContext("2d").drawImage(cImg, 0, 0);
+          };
+          cImg.src = parsedState.cleanBackground;
+        }
+
+        // 4. Phục hồi chữ
         document.querySelectorAll(".text-bubble").forEach((el) => el.remove());
         if (activeBubble) activeBubble = null;
 
@@ -1143,30 +1267,65 @@
         }
       });
 
-      // --- CÁC TRẠNG THÁI CHUỘT ---
       let isEraseMode = false,
         isScanMode = false,
-        isTestLamaMode = false;
-      isDrawing = false;
+        isRestoreMode = false,
+        isUnrestoreMode = false;
+      let isDrawing = false;
+      let lastX = 0,
+        lastY = 0; // Lưu tọa độ cũ để vẽ nét mượt
+
+      const rawCanvas = document.getElementById("raw-canvas");
+      const rawCtx = rawCanvas.getContext("2d");
+      const cleanCanvas = document.getElementById("clean-canvas");
       let strokePoints = [],
         scanStartX,
         scanStartY,
         scanEndX,
         scanEndY;
 
+      function toggleRestoreType() {
+        isUnrestoreMode = !isUnrestoreMode;
+        const btn = document.getElementById("btn-toggle-restore");
+        if (isUnrestoreMode) {
+          btn.innerText = "Chế độ: Cục Tẩy (Clean)";
+          btn.style.background = "#e91e63"; // Màu hồng
+        } else {
+          btn.innerText = "Chế độ: Mực Gốc (Raw)";
+          btn.style.background = "#00bcd4"; // Màu xanh
+        }
+      }
+
       function resetModes() {
-        isEraseMode = false;
-        isScanMode = false;
-        isTestLamaMode = false;
+        isEraseMode = isScanMode = isRestoreMode = false;
         document.getElementById("btn-erase").classList.remove("active");
         document.getElementById("btn-scan").classList.remove("active");
+        document.getElementById("btn-restore").classList.remove("active");
         drawLayer.style.pointerEvents = "none";
         document
           .querySelectorAll(".text-bubble")
           .forEach((el) => (el.style.pointerEvents = "auto"));
         closeScanPopup();
         document.getElementById("brush-control").style.display = "none";
+        document.getElementById("btn-apply-erase").style.display = "none";
+        document.getElementById("btn-toggle-restore").style.display = "none";
         ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
+      }
+
+      function toggleRestoreMode() {
+        const wasActive = isRestoreMode;
+        resetModes();
+        if (!wasActive) {
+          isRestoreMode = true;
+          document.getElementById("btn-restore").classList.add("active");
+          drawLayer.style.pointerEvents = "auto";
+          document
+            .querySelectorAll(".text-bubble")
+            .forEach((el) => (el.style.pointerEvents = "none"));
+          document.getElementById("brush-control").style.display = "flex";
+          document.getElementById("btn-toggle-restore").style.display = "block"; // Hiện nút đổi mực
+          updateBrushCursor();
+        }
       }
 
       function toggleEraseMode() {
@@ -1181,8 +1340,8 @@
           document
             .querySelectorAll(".text-bubble")
             .forEach((el) => (el.style.pointerEvents = "none"));
-
           document.getElementById("brush-control").style.display = "flex";
+          document.getElementById("btn-apply-erase").style.display = "block"; // Đảm bảo nút này hiện ra
         }
       }
 
@@ -1202,26 +1361,26 @@
       }
 
       drawLayer.addEventListener("mousedown", (e) => {
-        // 1. Cho phép chế độ Test LaMa được chạy qua cửa ải này
-        if (!isEraseMode && !isScanMode) return;
-
+        if (!isEraseMode && !isScanMode && !isRestoreMode) return;
         isDrawing = true;
         const rect = drawLayer.getBoundingClientRect();
-
-        // BÙ TRỪ ZOOM CỐT LÕI: Tìm tọa độ thực tế trên ảnh gốc 100%
         const x = (e.clientX - rect.left) / currentZoom;
         const y = (e.clientY - rect.top) / currentZoom;
 
+        ctx.beginPath();
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.lineWidth = parseInt(document.getElementById("brushSize").value);
+
         if (isEraseMode) {
           strokePoints = [];
-          ctx.beginPath();
-          ctx.lineCap = "round";
-          ctx.lineJoin = "round";
-          ctx.lineWidth = parseInt(document.getElementById("brushSize").value);
           ctx.strokeStyle = "rgba(255, 0, 0, 0.5)";
           ctx.moveTo(x, y);
+        } else if (isRestoreMode) {
+          lastX = x;
+          lastY = y;
+          applyRestoreStroke(x, y); // Chấm nét đầu tiên
         } else if (isScanMode) {
-          // 2. Ghi nhận tọa độ góc trên cùng bên trái của khung
           scanStartX = x;
           scanStartY = y;
         }
@@ -1230,21 +1389,36 @@
       drawLayer.addEventListener("mousemove", (e) => {
         if (!isDrawing) return;
         const rect = drawLayer.getBoundingClientRect();
-
-        // BÙ TRỪ ZOOM
         const x = (e.clientX - rect.left) / currentZoom;
         const y = (e.clientY - rect.top) / currentZoom;
 
+        // 1. Nếu là CỌ XÓA NỀN (Vẽ nét đỏ)
         if (isEraseMode) {
           ctx.lineTo(x, y);
           ctx.stroke();
-          // Lưu thẳng tọa độ x, y đã bù trừ vào mảng cho Python (bỏ vụ scaleX, scaleY cũ đi)
           strokePoints.push({ x: Math.floor(x), y: Math.floor(y) });
-        } else if (isScanMode) {
+        }
+        // 2. Nếu là CỌ PHỤC HỒI / CỤC TẨY (Thuật toán khoét lỗ liên tục)
+        else if (isRestoreMode) {
+          const brushSize = parseInt(
+            document.getElementById("brushSize").value,
+          );
+          // Tính toán khoảng cách chuột di chuyển quá nhanh để vẽ bù (Nội suy)
+          const dist = Math.hypot(x - lastX, y - lastY);
+          const steps = Math.max(1, Math.ceil(dist / (brushSize / 4)));
+
+          for (let i = 1; i <= steps; i++) {
+            const ix = lastX + (x - lastX) * (i / steps);
+            const iy = lastY + (y - lastY) * (i / steps);
+            applyRestoreStroke(ix, iy); // Gọi hàm khoét lỗ
+          }
+          lastX = x;
+          lastY = y;
+        }
+        // 3. Nếu là LENS DỊCH (Vẽ khung vuông đứt nét)
+        else if (isScanMode) {
           ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
           ctx.setLineDash([5, 5]);
-
-          // Lens Dịch có màu Xanh, Khung Xóa LaMa có màu Cam
           ctx.strokeStyle = "#00BFFF";
           ctx.lineWidth = 2;
           ctx.strokeRect(
@@ -1256,26 +1430,45 @@
         }
       });
 
-      // ==========================================
-      // BẮT SỰ KIỆN NHẢ CHUỘT
-      // ==========================================
       drawLayer.addEventListener("mouseup", (e) => {
         if (!isDrawing) return;
         isDrawing = false;
 
-        // Lấy tọa độ điểm dừng
-        const rect = drawLayer.getBoundingClientRect();
-        scanEndX = (e.clientX - rect.left) / currentZoom;
-        scanEndY = (e.clientY - rect.top) / currentZoom;
+        if (isRestoreMode) {
+          // 🚀 KHI NHẢ CHUỘT: KHÔNG CẬP NHẬT bgImg.src ĐỂ TRÁNH MẤT CHỮ DỊCH
+          // Chỉ cần đóng dấu cái drawLayer hiện tại lên bgImg thông qua Canvas
+          const tempCanvas = document.createElement("canvas");
+          tempCanvas.width = bgImg.naturalWidth;
+          tempCanvas.height = bgImg.naturalHeight;
+          const tCtx = tempCanvas.getContext("2d");
 
-        // Nếu là chế độ Khung Xóa LaMa thì bắn API LaMa
-        if (isScanMode) {
+          tCtx.drawImage(bgImg, 0, 0); // Vẽ ảnh lỗi
+          tCtx.drawImage(drawLayer, 0, 0); // Đắp phần cọ phục hồi lên
+
+          // Tạm thời tắt sự kiện onload để không bị reset giao diện
+          const oldOnload = bgImg.onload;
+          bgImg.onload = null;
+          bgImg.src = tempCanvas.toDataURL("image/png"); // Dùng PNG để không giảm chất lượng
+
+          // Phục hồi lại onload sau 100ms
+          setTimeout(() => {
+            bgImg.onload = oldOnload;
+          }, 100);
+
+          ctx.clearRect(0, 0, drawLayer.width, drawLayer.height); // Xóa cọ nháp
+        } else if (isScanMode) {
+          const rect = drawLayer.getBoundingClientRect();
+          scanEndX = (e.clientX - rect.left) / currentZoom;
+          scanEndY = (e.clientY - rect.top) / currentZoom;
           applyQuickScan();
         }
       });
 
       // ==========================================
       // THÊM HÀM NÀY ĐỂ XỬ LÝ LENS DỊCH
+      // ==========================================
+      // ==========================================
+      // CẬP NHẬT HÀM XỬ LÝ LENS DỊCH (GỬI KÈM CONTEXT)
       // ==========================================
       async function applyQuickScan() {
         let currentFilename = bgImg.src.startsWith("data:")
@@ -1285,10 +1478,12 @@
         document.getElementById("status").style.display = "block";
         document.getElementById("status").innerText = "🔍 Đang quét chữ...";
 
-        // Hiện popup với trạng thái Loading
         document.getElementById("scan-popup").style.display = "block";
         document.getElementById("scan-jap").value = "Đang quét OCR...";
         document.getElementById("scan-vie").value = "Đang dịch...";
+
+        // 🚀 LẤY CẤU HÌNH NGỮ CẢNH (Dùng chung hàm đã viết trước đó)
+        const config = getTranslationConfig();
 
         try {
           const response = await fetch(`${API_URL}/quick-scan`, {
@@ -1300,9 +1495,15 @@
               y1: Math.floor(scanStartY),
               x2: Math.floor(scanEndX),
               y2: Math.floor(scanEndY),
+              // Bơm thêm ngữ cảnh vào đây
+              genre: config.genre,
+              tone: config.tone,
+              pronouns: config.pronouns,
             }),
           });
+
           const result = await response.json();
+          // ... (Phần xử lý kết quả bên dưới giữ nguyên)
           if (result.status === "success") {
             // Đổ kết quả thật vào Popup
             document.getElementById("scan-jap").value = result.japanese;
@@ -1375,6 +1576,17 @@
           if (result.status === "success") {
             // Cập nhật ảnh bằng phiên bản mới mà Server vừa trả về
             bgImg.src = `${API_URL.replace("/api", "")}/static/${result.new_filename}`;
+
+            // 🚀 BỔ SUNG: CẬP NHẬT LẠI MỰC TẨY KHI VỪA XÓA NỀN THÀNH CÔNG
+            const cleanImg = new Image();
+            cleanImg.crossOrigin = "anonymous";
+            cleanImg.onload = () => {
+              cleanCanvas.width = cleanImg.naturalWidth;
+              cleanCanvas.height = cleanImg.naturalHeight;
+              cleanCanvas.getContext("2d").drawImage(cleanImg, 0, 0);
+            };
+            cleanImg.src = newUrl;
+            // ----------------------------------------------------
             ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
             resetModes();
           } else {
@@ -1795,7 +2007,10 @@
       }
 
       // 4. KÍCH HOẠT KHI TRANG WEB VỪA LOAD XONG
-      window.addEventListener("DOMContentLoaded", loadAutoSave);
+      window.addEventListener("DOMContentLoaded", () => {
+        loadAutoSave();
+        loadTranslationConfig(); // Bơm cấu hình dịch thuật cũ vào form
+      });
 
       // --- LOGIC POPUP CÀI ĐẶT DỊCH ---
       function openTransSettings() {
@@ -1813,6 +2028,115 @@
           customInput.focus();
         } else {
           customInput.style.display = "none";
+        }
+      }
+
+      // ==========================================
+      // 🚀 TÍNH NĂNG: TỰ ĐỘNG NHỚ CẤU HÌNH DỊCH THUẬT
+      // ==========================================
+
+      // Hàm 1: Lưu toàn bộ lựa chọn vào LocalStorage khi bấm "Lưu Cấu Hình"
+      function saveTranslationConfig() {
+        const config = {
+          genre: document.getElementById("setting-genre").value,
+          customGenre: document.getElementById("custom-genre").value,
+          tone: document.getElementById("setting-tone").value,
+          customTone: document.getElementById("custom-tone").value,
+          pronoun: document.getElementById("setting-pronoun").value,
+          customPronoun: document.getElementById("custom-pronoun").value,
+          glossary: document.getElementById("setting-glossary").value,
+        };
+
+        localStorage.setItem("manga_trans_settings", JSON.stringify(config));
+
+        // Hiện thông báo nhỏ và đóng Popup
+        alert("✅ Đã lưu cấu hình dịch thuật cho các trang tiếp theo!");
+        closeTransSettings();
+      }
+
+      // ==========================================
+      // 🚀 TÍNH NĂNG: IMPORT CẤU HÌNH / TỪ ĐIỂN TỪ FILE TEXT
+      // ==========================================
+      document
+        .getElementById("import-config-file")
+        .addEventListener("change", function (e) {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = function (event) {
+            const content = event.target.result;
+
+            // TH 1: Nếu user tải lên file .json (Đồng bộ toàn bộ Cấu hình)
+            if (file.name.endsWith(".json")) {
+              try {
+                const config = JSON.parse(content);
+                if (config.genre)
+                  document.getElementById("setting-genre").value = config.genre;
+                if (config.tone)
+                  document.getElementById("setting-tone").value = config.tone;
+                if (config.pronoun)
+                  document.getElementById("setting-pronoun").value =
+                    config.pronoun;
+                if (config.glossary)
+                  document.getElementById("setting-glossary").value =
+                    config.glossary;
+
+                checkCustom("genre");
+                checkCustom("tone");
+                checkCustom("pronoun");
+                alert("✅ Đã đồng bộ toàn bộ cấu hình từ file JSON!");
+              } catch (err) {
+                alert("❌ File JSON không đúng định dạng!");
+              }
+            }
+            // TH 2: Nếu user tải lên file .txt (Chỉ đồng bộ Từ điển nhân vật)
+            else if (file.name.endsWith(".txt")) {
+              const glossaryBox = document.getElementById("setting-glossary");
+              // Nối thêm nội dung file text vào từ điển hiện tại
+              if (glossaryBox.value.trim() !== "") {
+                glossaryBox.value += "\n\n" + content;
+              } else {
+                glossaryBox.value = content;
+              }
+              alert("✅ Đã đồng bộ từ điển nhân vật từ file Text!");
+            }
+          };
+
+          reader.readAsText(file); // Đọc file siêu tốc không cần server
+          e.target.value = ""; // Reset input
+        });
+
+      // Hàm 2: Tự động tải lại cấu hình cũ khi mở trang web
+      function loadTranslationConfig() {
+        const saved = localStorage.getItem("manga_trans_settings");
+        if (saved) {
+          const config = JSON.parse(saved);
+
+          // Khôi phục Thể loại
+          document.getElementById("setting-genre").value =
+            config.genre || "Shounen (Hành động, nhiệt huyết)";
+          document.getElementById("custom-genre").value =
+            config.customGenre || "";
+          checkCustom("genre"); // Kích hoạt ẩn/hiện ô Tự nhập
+
+          // Khôi phục Văn phong
+          document.getElementById("setting-tone").value =
+            config.tone || "Tự nhiên, đời thường, ngôn ngữ mạng";
+          document.getElementById("custom-tone").value =
+            config.customTone || "";
+          checkCustom("tone");
+
+          // Khôi phục Xưng hô
+          document.getElementById("setting-pronoun").value =
+            config.pronoun || "Tôi - Cậu (Bạn bè ngang hàng)";
+          document.getElementById("custom-pronoun").value =
+            config.customPronoun || "";
+          checkCustom("pronoun");
+
+          // Khôi phục Từ điển
+          document.getElementById("setting-glossary").value =
+            config.glossary || "";
         }
       }
 
@@ -1837,17 +2161,115 @@
         };
       }
 
-      // --- TÌM HÀM processCurrentImage() CŨ VÀ SỬA LẠI ĐOẠN GỬI FORM DATA NHƯ SAU ---
-      // (Thay thế đoạn khai báo formData cũ)
-      const formData = new FormData();
-      formData.append("file", file);
+      function applyRestoreStroke(x, y) {
+        const radius = parseInt(document.getElementById("brushSize").value) / 2;
+        const sourceCanvas = isUnrestoreMode ? cleanCanvas : rawCanvas;
 
-      // Bơm thêm Cấu hình ngữ cảnh vào API
-      const config = getTranslationConfig();
-      formData.append("genre", config.genre);
-      formData.append("tone", config.tone);
-      formData.append("pronouns", config.pronouns);
-      formData.append("glossary", config.glossary);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.clip(); // Khoét 1 lỗ tròn
+        ctx.drawImage(sourceCanvas, 0, 0); // In ảnh nguồn lên cái lỗ đó
+        ctx.restore();
+      }
+
+      // ==========================================
+      // 🚀 TẠO CON TRỎ CHUỘT HÌNH TRÒN CHO CỌ
+      // ==========================================
+      function updateBrushCursor() {
+        const size =
+          parseInt(document.getElementById("brushSize").value) * currentZoom;
+        // Tạo một mã SVG hình tròn để làm con trỏ chuột
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+                      <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2 - 1}" fill="none" stroke="black" stroke-width="1.5"/>
+                      <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2 - 2}" fill="none" stroke="white" stroke-width="1.5"/>
+                    </svg>`;
+        const cursorUrl = `data:image/svg+xml;base64,${btoa(svg)}`;
+        drawLayer.style.cursor = `url(${cursorUrl}) ${size / 2} ${size / 2}, crosshair`;
+      }
+
+      // Cập nhật lại con trỏ mỗi khi kéo thanh đổi size cọ
+      document.getElementById("brushSize").addEventListener("input", () => {
+        if (isEraseMode || isRestoreMode) updateBrushCursor();
+      });
+
+      // ==========================================
+      // 🚀 TÍNH NĂNG: UPLOAD VÀ SỬ DỤNG FONT TÙY CHỈNH
+      // ==========================================
+      document
+        .getElementById("fontUploadInput")
+        .addEventListener("change", async function (e) {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          // 1. Tạo một cái tên duy nhất cho Font này trong trình duyệt
+          const customFontFamilyName = "CustomFont_" + Date.now();
+
+          try {
+            // Hiển thị trạng thái
+            document.getElementById("status").style.display = "block";
+            document.getElementById("status").innerText =
+              "🔠 Đang xử lý Font...";
+
+            // 2. Load font trực tiếp vào Browser (Client-side)
+            // Biến file thành dạng ArrayBuffer để trình duyệt đọc
+            const arrayBuffer = await file.arrayBuffer();
+            const fontFace = new FontFace(customFontFamilyName, arrayBuffer);
+            const loadedFont = await fontFace.load();
+            document.fonts.add(loadedFont); // Bơm font vào hệ thống web
+
+            // 3. Thêm font mới vào danh sách Dropdown (Select)
+            const fontSelect = document.getElementById("fontFamily");
+
+            // Kiểm tra xem đã có nhóm "Font Của Bạn" chưa, chưa thì tạo mới
+            let customOptGroup = document.getElementById("optgroup-custom");
+            if (!customOptGroup) {
+              customOptGroup = document.createElement("optgroup");
+              customOptGroup.id = "optgroup-custom";
+              customOptGroup.label = "⭐ Font Của Bạn";
+              // Chèn nhóm này lên trên cùng của danh sách
+              fontSelect.insertBefore(customOptGroup, fontSelect.firstChild);
+            }
+
+            // Tạo thẻ option cho font vừa tải
+            const option = document.createElement("option");
+            option.value = `'${customFontFamilyName}', sans-serif`;
+            option.style.fontFamily = customFontFamilyName;
+            option.text = file.name.split(".")[0]; // Lấy tên file bỏ đuôi .ttf
+            customOptGroup.appendChild(option);
+
+            // 4. Tự động chọn font này trong Dropdown và áp dụng ngay vào ô chữ
+            fontSelect.value = option.value;
+            updateStyles();
+
+            document.getElementById("status").style.display = "none";
+            // alert(`Đã tải thành công font: ${file.name}`);
+
+            // ----------------------------------------------------
+            // 5. [TÙY CHỌN] UPLOAD NGẦM LÊN SERVER ĐỂ LƯU TRỮ/BẢO MẬT
+            // Nếu bạn đã làm hàm FastAPI /api/upload-font như thảo luận trước đó
+            // ----------------------------------------------------
+            /*
+          const formData = new FormData();
+          formData.append("file", file);
+          fetch(`${API_URL}/upload-font`, {
+            method: "POST",
+            body: formData
+          }).then(res => res.json()).then(data => {
+             console.log("Đã lưu font lên server an toàn:", data.font_id);
+          }).catch(err => console.error("Lỗi lưu font lên server"));
+          */
+          } catch (err) {
+            document.getElementById("status").style.display = "none";
+            alert(
+              "Lỗi khi tải font: File bị hỏng hoặc định dạng không được hỗ trợ.",
+            );
+            console.error(err);
+          }
+
+          // Reset input để lần sau chọn lại đúng file đó vẫn nhận sự kiện
+          e.target.value = "";
+        });
     </script>
   </body>
 </html>

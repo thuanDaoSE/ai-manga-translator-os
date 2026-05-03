@@ -31,12 +31,17 @@ class ErasePayload(BaseModel):
     points: List[Point]
     brush_size: int = 25 
 
+# 1. Cập nhật Payload để nhận thêm Ngữ cảnh (Context)
 class QuickScanPayload(BaseModel):
     filename: str
     x1: int
     y1: int
     x2: int
     y2: int
+    # Bổ sung các trường ngữ cảnh (cho phép rỗng để tương thích ngược)
+    genre: str = "Truyện tranh chung"
+    tone: str = "Tự nhiên"
+    pronouns: str = "Linh hoạt"
 
     
 class MaskPayload(BaseModel):
@@ -228,6 +233,7 @@ async def translate_full_page(
         
         ocr_batch_payload.append({
             "id": count,
+            "type": "Chưa phân loại", 
             "japanese": japanese_text
         })
         count += 1
@@ -356,12 +362,13 @@ async def translate_full_page(
         ĐẶC ĐIỂM DỮ LIỆU & QUY TẮC DỊCH:
         1. LỖI OCR: Dữ liệu này RẤT DỄ CHỨA LỖI chính tả do nền truyện tranh bị nhiễu.
         2. TỰ CHỮA LỖI: Hãy dùng logic và BỐI CẢNH DỰ ÁN bên trên để đoán từ gốc tiếng Nhật.
-        3. SFX: Dịch từ tượng thanh sang tiếng Việt (VD: Rầm, Bùm, Xào xạc).
+        3. PHÂN LOẠI CHỮ (QUAN TRỌNG): Mỗi câu có một trường "type". 
+           + Nếu type là "Thoại trong bong bóng": Hãy dịch thành lời nói có chủ ngữ/vị ngữ bình thường.
+           + Nếu type là "Từ tượng thanh (SFX) / Chữ tự do": Hãy dịch ngắn gọn thành các từ tượng thanh tiếng Việt (Ví dụ: Rầm, Bùm, Lạch cạch, Vút) hoặc các dòng suy nghĩ ngắn. TUYỆT ĐỐI không thêm chủ ngữ vào SFX.
         4. VĂN PHONG: Ưu tiên ngôn từ tự nhiên, đúng với 'Văn phong yêu cầu' đã nêu.{glossary_instruction}
 
         NHIỆM VỤ BẮT BUỘC:
         Dịch mảng JSON tiếng Nhật sau sang tiếng Việt. TUYỆT ĐỐI trả về một đối tượng JSON có key là "translations" chứa mảng kết quả, không giải thích gì thêm.
-        Ví dụ: {{"translations": [{{"id": 1, "vietnamese": "Này, cậu làm được không đấy?"}}]}}
         
         Dữ liệu cần dịch:
         {json.dumps(ocr_batch_payload, ensure_ascii=False)}
@@ -502,20 +509,16 @@ def erase_mask(payload: MaskPayload):
         return {"status": "success", "new_filename": new_filename}
     
     return {"status": "error", "message": "Mask rỗng"}
-# ==========================================
-# SỬA LỖI 2: LENS DỊCH (SỬA LỖI ĐƯỜNG DẪN FILE)
-# ==========================================
+# 2. Cập nhật hàm API Quick Scan
 @app.post("/api/quick-scan")
 async def quick_scan(payload: QuickScanPayload):
     vietnamese_text = "⚠️ Lỗi dịch thuật (Vui lòng thử lại)"
     
-    # 🚀 SỬA LỖI Ở ĐÂY: Lấy thẳng tên file do Frontend gửi, không chèn thêm "Clean_"
     clean_path = payload.filename
     if not os.path.exists(clean_path):
         return {"status": "error", "message": f"File không tồn tại: {clean_path}"}
     
     image = cv2.imread(clean_path)
-    
     h, w = image.shape[:2]
     x1, x2 = sorted([max(0, min(payload.x1, w)), max(0, min(payload.x2, w))])
     y1, y2 = sorted([max(0, min(payload.y1, h)), max(0, min(payload.y2, h))])
@@ -530,12 +533,28 @@ async def quick_scan(payload: QuickScanPayload):
     if not japanese_text.strip():
         return {"status": "success", "japanese": "", "vietnamese": "Không đọc được chữ"}
         
-    print(f"🧠 Đang dịch nhanh câu: {japanese_text}")
+    print(f"🧠 [LENS] Đang dịch nhanh câu: {japanese_text}")
+    
+    # 🚀 PROMPT MỚI: TỐI ƯU CHO CA KHÓ & CÓ NGỮ CẢNH
+    system_prompt = f"""
+    Bạn là dịch giả truyện tranh chuyên nghiệp. 
+    Bối cảnh truyện: Thể loại [{payload.genre}], Văn phong [{payload.tone}], Xưng hô [{payload.pronouns}].
+    
+    ĐẶC ĐIỂM DỮ LIỆU ĐẦU VÀO: 
+    Đoạn text tiếng Nhật dưới đây được người dùng khoanh vùng quét thủ công vì hệ thống tự động đã bỏ sót. Nó có khả năng rất cao là:
+    1. Chữ tượng thanh (SFX) vẽ tay nghệ thuật.
+    2. Một phần của câu bị đứt đoạn / bị che khuất.
+    3. Chữ chứa nhiều lỗi OCR (nhận diện sai ký tự do nền nhiễu).
+    
+    NHIỆM VỤ: Hãy dùng logic suy luận để ĐOÁN và SỬA LỖI OCR. Nếu nó là SFX, hãy dịch sang âm thanh tiếng Việt tương ứng (VD: Rầm, Vút, Bùm).
+    CHỈ trả về kết quả dịch tiếng Việt, tuyệt đối không giải thích gì thêm.
+    """
+
     try:
        response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[
-                {"role": "system", "content": "Bạn là dịch giả truyện tranh. Dịch text tiếng Nhật sau sang tiếng Việt, sửa các lỗi OCR (nếu có). Chỉ trả về kết quả tiếng Việt, không giải thích gì thêm."},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": japanese_text}
             ]
         )
