@@ -1,57 +1,69 @@
 @import "tailwindcss";
 
 @theme {
-  --color-dark: #121212;
-  --color-panel: #1e1e1e;
-  --color-sidebar: #1a1a1a;
-  --color-primary: #4caf50;
-  --color-secondary: #2196f3;
-  --color-danger: #f44336;
-  --color-accent: #9c27b0;
+  /* Bảng màu Slate chuyên nghiệp từ Research */
+  --color-background: #0f172a; /* Slate 950 - Nền sâu */
+  --color-panel: #1e293b;     /* Slate 800 - Các thanh công cụ */
+  --color-sidebar: #0f172a;
+  --color-border: #334155;    /* Slate 700 */
+  
+  /* Màu Accent duy nhất: Indigo (Xanh tím) */
+  --color-primary: #6366f1;   /* Indigo 500 */
+  --color-primary-hover: #4f46e5;
+  
+  --color-danger: #ef4444;    /* Rose 500 */
+  --color-accent: #8b5cf6;    /* Violet 500 */
+  --color-text-main: #f8fafc; /* Slate 50 */
+  --color-text-muted: #94a3b8; /* Slate 400 */
 }
 
-body {
-  background-color: var(--color-dark);
-  color: white;
-  margin: 0;
-  height: 100vh;
-  overflow: hidden;
-  font-family: sans-serif;
+@layer base {
+  body {
+    background-color: var(--color-background);
+    color: var(--color-text-main);
+    margin: 0;
+    height: 100vh;
+    overflow: hidden;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
 }
 
 @layer components {
-  .btn {
-    @apply px-3 py-1.5 rounded-md font-bold cursor-pointer transition-all duration-200 flex items-center gap-1;
+  /* Nút bấm thiết kế lại theo phong cách hiện đại */
+  .btn-base {
+    @apply px-4 py-2 rounded-md font-medium transition-all duration-200 flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
   }
   
-  .btn-primary { 
-    @apply px-3 py-1.5 rounded-md font-bold cursor-pointer transition-all duration-200 flex items-center gap-1 bg-primary text-white hover:bg-[#43a047]; 
+  .btn-primary {
+    @apply px-4 py-2 rounded-md font-medium transition-all duration-200 flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-primary text-white hover:bg-primary-hover shadow-sm shadow-indigo-500/20 active:scale-95;
   }
   
-  .btn-secondary { 
-    @apply px-3 py-1.5 rounded-md font-bold cursor-pointer transition-all duration-200 flex items-center gap-1 bg-secondary text-white hover:bg-[#1e88e5]; 
+  .btn-ghost {
+    @apply px-4 py-2 rounded-md font-medium transition-all duration-200 flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-transparent border border-border hover:bg-panel text-text-main;
   }
-  
-  .btn-icon { 
-    @apply p-1.5 rounded-md bg-transparent hover:bg-gray-700 text-white cursor-pointer; 
+
+  .btn-subtle {
+    @apply px-4 py-2 rounded-md font-medium transition-all duration-200 flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-panel border border-border/50 hover:border-primary/50 text-text-muted hover:text-text-main;
   }
 }
 
-@layer utilities {
-  .sfx-power {
-    -webkit-text-stroke: 2px #000000;
-    text-shadow: 4px 4px 0px #ff0000 !important;
-    transform: skewX(-15deg);
-    font-family: "Bangers", cursive !important;
-  }
-  .sfx-horror {
-    -webkit-text-stroke: 1px #ffffff;
-    text-shadow: 0px 0px 10px #9c27b0 !important;
-    font-family: "Creepster", cursive !important;
-  }
-  .sfx-impact {
-    -webkit-text-stroke: 3px #000000;
-    text-shadow: 3px 3px 0px #000, 6px 6px 0px rgba(0, 0, 0, 0.2) !important;
-    font-family: "Anton", sans-serif !important;
-  }
+/* Hiệu ứng kính mờ (Glassmorphism) cho Modal */
+.glass-panel {
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+
+/* Tầng phòng thủ số 1: Ngăn chặn thao tác vuốt cuộn, phóng to của trình duyệt trên iPad/Mobile */
+body {
+  overscroll-behavior-y: none; /* Chống kéo xuống để làm mới trang (Pull-to-refresh) */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+canvas {
+  touch-action: none; /* Trả lại toàn bộ quyền kiểm soát cử chỉ cho JavaScript PointerEvent */
+  -webkit-tap-highlight-color: transparent;
 }

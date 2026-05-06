@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { temporal } from 'zundo'; // 🚀 Nhập ma thuật Zundo
 
 export interface TextBubble {
   id: string;
@@ -12,6 +13,9 @@ export interface TextBubble {
   fontFamily: string;
   rotation: number;
   sfxClass?: string;
+  isHidden?: boolean;
+  isLocked?: boolean;
+  tailDirection?: 'none' | 'left' | 'right';
 }
 
 interface CanvasState {
@@ -22,22 +26,42 @@ interface CanvasState {
   removeBubble: (id: string) => void;
   setActiveBubble: (id: string | null) => void;
   clearBubbles: () => void;
+  setBubbles: (bubbles: TextBubble[]) => void; // 🚀 Thêm dòng này
 }
 
-export const useCanvasStore = create<CanvasState>((set) => ({
-  bubbles: [],
-  activeBubbleId: null,
-  addBubble: (bubble) => set((state) => ({ 
-    bubbles: [...state.bubbles, { ...bubble, id: Date.now().toString() }],
-    activeBubbleId: Date.now().toString() // Auto chọn khi vừa tạo
-  })),
-  updateBubble: (id, updates) => set((state) => ({
-    bubbles: state.bubbles.map(b => b.id === id ? { ...b, ...updates } : b)
-  })),
-  removeBubble: (id) => set((state) => ({
-    bubbles: state.bubbles.filter(b => b.id !== id),
-    activeBubbleId: state.activeBubbleId === id ? null : state.activeBubbleId
-  })),
-  setActiveBubble: (id) => set({ activeBubbleId: id }),
-  clearBubbles: () => set({ bubbles: [], activeBubbleId: null })
-}));
+// 🚀 Bọc toàn bộ logic cũ bằng temporal()
+export const useCanvasStore = create<CanvasState>()(
+  temporal(
+    (set) => ({
+      bubbles: [],
+      activeBubbleId: null,
+
+      addBubble: (bubble) => set((state) => ({
+        bubbles: [...state.bubbles, { ...bubble, id: Date.now().toString() }]
+      })),
+
+      updateBubble: (id, updates) => set((state) => ({
+        bubbles: state.bubbles.map((b) => (b.id === id ? { ...b, ...updates } : b))
+      })),
+
+      removeBubble: (id) => set((state) => ({
+        bubbles: state.bubbles.filter((b) => b.id !== id),
+        activeBubbleId: state.activeBubbleId === id ? null : state.activeBubbleId
+      })),
+
+      setActiveBubble: (id) => set({ activeBubbleId: id }),
+      setBubbles: (bubbles) => set({ bubbles, activeBubbleId: null }),
+
+      clearBubbles: () => set({ bubbles: [], activeBubbleId: null }),
+    }),
+    {
+      // 🚀 CẤU HÌNH THÔNG MINH CHO ZUNDO
+      // Tối đa lưu 50 bước để bảo vệ RAM tuyệt đối
+      limit: 50,
+      // Tính năng cực hay: Gom nhóm thao tác kéo thả (Throttle)
+      // Nếu user kéo chữ liên tục trong 1 giây, nó chỉ tính là 1 bước Undo!
+      partialize: (state) => ({ bubbles: state.bubbles }) 
+    }
+    
+  )
+);

@@ -1,5 +1,10 @@
 import { useState } from 'react';
-import { Settings, Image as ImageIcon, Download, Trash2, ZoomIn, ZoomOut, Maximize, Eye, EyeOff } from 'lucide-react';
+import { toJpeg } from 'html-to-image';
+import { Undo2, Redo2, PanelLeft, PanelRight } from 'lucide-react';
+import { Settings, Image as ImageIcon, Download, Trash2, ZoomIn, ZoomOut, Maximize, Eye, EyeOff,
+  Brush, Type, Wand2, Save, FolderOpen,
+   Search, Eraser, Paintbrush,
+  Sparkles } from 'lucide-react';
 import { useToolStore } from '../../store/useToolStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
@@ -8,13 +13,18 @@ import { mangaApi } from '../../services/api';
 import html2canvas from 'html2canvas';
 
 export default function Topbar() {
+  // 1. GỌI HOOKS ĐỂ KHỞI TẠO CÁC STORE TRƯỚC
   const toolStore = useToolStore();
   const projectStore = useProjectStore();
   const canvasStore = useCanvasStore();
   const configStore = useConfigStore();
+
+  // 2. SAU ĐÓ MỚI LẤY DỮ LIỆU TỪ STORE RA (DESTRUCTURING)
+  const { currentZoom, brushSize, setBrushSize, showLeftPanel, showRightPanel, toggleLeftPanel, toggleRightPanel } = toolStore;
+  const { undo, redo } = useCanvasStore.temporal.getState();
+  
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // 1. Hàm Upload File
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files).sort((a, b) => a.name.localeCompare(b.name));
@@ -24,11 +34,14 @@ export default function Topbar() {
     }
   };
 
-  // 2. Hàm Dịch Trang
   const handleTranslate = async () => {
     const file = projectStore.fileQueue[projectStore.currentIndex];
     if (!file) return alert("Vui lòng chọn trang!");
+    
     setIsProcessing(true);
+    // 🚀 Bổ sung dòng này để nháy đèn huy hiệu "Đang dịch"
+    projectStore.setPageStatus(projectStore.currentIndex, 'processing'); 
+
     try {
       const result = await mangaApi.translatePage(file, configStore);
       projectStore.setProcessedUrl(projectStore.currentIndex, result.cleanUrl);
@@ -48,12 +61,10 @@ export default function Topbar() {
     }
   };
 
-  // 🚀 3. HÀM GỌI API CỌ XÓA NỀN
   const handleErase = async () => {
     const drawCanvas = document.getElementById('draw-layer') as HTMLCanvasElement;
     if (!drawCanvas) return;
     
-    // Kiểm tra xem user có vẽ nét nào chưa
     const ctx = drawCanvas.getContext('2d');
     const imgData = ctx?.getImageData(0,0, drawCanvas.width, drawCanvas.height);
     const hasDrawn = imgData?.data.some((p, i) => i % 4 === 3 && p > 0);
@@ -72,8 +83,8 @@ export default function Topbar() {
       const newCleanUrl = await mangaApi.eraseMask(filename, maskBase64);
       projectStore.setProcessedUrl(projectStore.currentIndex, newCleanUrl);
       
-      ctx?.clearRect(0, 0, drawCanvas.width, drawCanvas.height); // Xóa nháp đỏ
-      toolStore.setActiveMode('none'); // Thoát cọ
+      ctx?.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      toolStore.setActiveMode('none');
     } catch (error: any) {
       alert(`Lỗi Xóa nền: ${error.message}`);
     } finally {
@@ -81,7 +92,6 @@ export default function Topbar() {
     }
   };
 
-  // 🚀 4. KHÔI PHỤC HÀM TẢI FONT
   const handleFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -124,131 +134,186 @@ export default function Topbar() {
     canvasStore.updateBubble(canvasStore.activeBubbleId, { sfxClass, fontColor: sfxClass ? '#ffffff' : '#000000' });
   };
 
-  // 🚀 5. SỬA LỖI TẢI ẢNH (Bỏ Zoom trước khi chụp)
   const handleExport = async () => {
+    // Chỉ lấy đúng cái div chứa ảnh gốc và text, bỏ qua các viền UI xung quanh
     const el = document.getElementById('workspace-container');
-    if (!el) return alert("Chưa có ảnh để xuất!");
+    const file = projectStore.fileQueue[projectStore.currentIndex];
     
-    // Tạm ẩn viền khung chữ đang chọn
+    if (!el || !file) return alert("Chưa có ảnh để xuất!");
+    
+    // Tạm thời bỏ chọn chữ để viền (border) của ô chữ biến mất trước khi chụp ảnh
     const activeId = canvasStore.activeBubbleId;
     if (activeId) canvasStore.setActiveBubble(null);
 
-    // XÓA HIỆU ỨNG ZOOM TẠM THỜI ĐỂ HTML2CANVAS KHÔNG BỊ LỖI
+    // Lưu lại trạng thái Zoom hiện tại
     const originalTransform = el.style.transform;
-    el.style.transform = 'none';
+    const originalOrigin = el.style.transformOrigin;
+    
+    // Trả Zoom về 100% để ảnh xuất ra đạt chất lượng cao nhất, không bị mờ
+    el.style.transform = 'scale(1)';
+    el.style.transformOrigin = 'top left';
 
     try {
-      const canvas = await html2canvas(el, { useCORS: true, scale: 2 });
+      setIsProcessing(true); // Tận dụng state loading để UI hiện "Đang xuất..."
+      
+      // Chụp ảnh bằng html-to-image (Chất lượng 95% để tối ưu dung lượng)
+      const dataUrl = await toJpeg(el, { 
+        quality: 0.95,
+        backgroundColor: '#ffffff', // Đảm bảo nền trắng
+        pixelRatio: 2 // Render nét gấp đôi chống vỡ font chữ
+      });
+      
+      // Tạo link ảo để tải file về máy
       const link = document.createElement('a');
-      link.download = `Translated_${Date.now()}.jpg`;
-      link.href = canvas.toDataURL('image/jpeg', 0.9);
+      link.download = `[MangaAI]_${file.name.replace(/\.[^/.]+$/, "")}.jpg`;
+      link.href = dataUrl;
       link.click();
+      
     } catch (error) {
-      alert("Lỗi xuất ảnh. Hãy đảm bảo bạn đã chạy: npm install html2canvas");
+      console.error("Lỗi xuất ảnh:", error);
+      alert("Lỗi xuất ảnh! Vui lòng thử lại.");
+    } finally {
+      // Phục hồi lại trạng thái Zoom và chọn chữ như cũ cho người dùng
+      el.style.transform = originalTransform;
+      el.style.transformOrigin = originalOrigin;
+      if (activeId) canvasStore.setActiveBubble(activeId);
+      setIsProcessing(false);
     }
-
-    // Khôi phục lại Zoom và vùng chọn
-    el.style.transform = originalTransform;
-    if (activeId) canvasStore.setActiveBubble(activeId);
+  };
+  // 🚀 HÀM LƯU FILE .MANGA (Tương tự lưu file PSD)
+  const handleSaveManga = () => {
+    const bubbles = canvasStore.bubbles;
+    if (bubbles.length === 0) return alert("Không có chữ nào để lưu!");
+    
+    // Đóng gói dữ liệu thành JSON
+    const data = { 
+      app: "MangaAI_Editor", 
+      version: "1.0", 
+      bubbles: bubbles 
+    };
+    
+    const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    // Lấy tên file gốc để đặt tên cho file .manga
+    const currentFile = projectStore.fileQueue[projectStore.currentIndex];
+    const filename = currentFile ? currentFile.name.replace(/\.[^/.]+$/, "") : "Project";
+    
+    link.download = `${filename}.manga`;
+    link.href = url;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
-  return (
-    <div className="bg-panel px-4 py-3 flex items-center gap-3 shadow-lg border-b border-gray-800 shrink-0 flex-wrap z-10 text-sm">
-      <div className="flex items-center gap-2 border-r border-gray-700 pr-3">
-        <label className="btn-secondary bg-gray-600 hover:bg-gray-500">
-          <ImageIcon size={16} /> Chọn RAW
-          <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileChange} />
-        </label>
-        <button onClick={handleTranslate} disabled={isProcessing} className={`btn-primary ${isProcessing ? 'opacity-50 cursor-wait' : ''}`}>
-          {isProcessing ? '⏳ Đang xử lý...' : '⚡ Dịch Trang Này'}
+  // 🚀 HÀM MỞ FILE .MANGA
+  const handleLoadManga = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (data.app === "MangaAI_Editor" && Array.isArray(data.bubbles)) {
+          canvasStore.setBubbles(data.bubbles);
+        } else {
+          alert("File không đúng định dạng .manga của hệ thống!");
+        }
+      } catch (error) {
+        alert("Lỗi đọc file! File có thể bị hỏng.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset input để có thể mở lại cùng 1 file
+  };
+
+
+      return (
+    // 🚀 Bỏ flex-wrap, thêm overflow-x-auto và ẩn thanh cuộn để đảm bảo LUÔN LÀ 1 DÒNG
+    <div className="bg-panel px-3 py-2 flex items-center gap-3 border-b border-border shrink-0 z-10 text-sm overflow-x-auto [&::-webkit-scrollbar]:hidden">
+      
+      {/* KHỐI 1: Logo & AI */}
+      <div className="flex items-center gap-2 border-r border-border pr-3 shrink-0">
+        
+        {/* 🚀 Nút Ẩn/Hiện Cột Trái */}
+        <button onClick={toggleLeftPanel} className={`p-1.5 rounded-md transition-colors ${!showLeftPanel ? 'text-text-muted hover:bg-border' : 'bg-primary/20 text-primary'}`} title="Ẩn/Hiện Sidebar (Quản lý Dự án)">
+          <PanelLeft size={16} />
         </button>
-        <button onClick={() => configStore.setModalOpen(true)} className="btn-secondary bg-slate-500 hover:bg-slate-600">
-          <Settings size={16} /> Ngữ cảnh
+
+        <div className="flex items-center gap-2 mr-1 select-none">
+          <div className="bg-primary/20 p-1.5 rounded-lg border border-primary/30"><Wand2 size={16} className="text-primary" /></div>
+          <span className="font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white to-text-muted hidden sm:block">MangaAI</span>
+        </div>
+        
+        <button onClick={handleTranslate} disabled={isProcessing} className="btn-primary py-1.5 px-3">
+          <Wand2 size={16} /> {isProcessing ? 'Đang dịch...' : 'Dịch Trang'}
         </button>
+        <button onClick={() => configStore.setModalOpen(true)} className="btn-ghost p-1.5" title="Cài đặt Ngữ cảnh"><Settings size={16} /></button>
       </div>
 
-      <div className="flex items-center gap-2 border-r border-gray-700 pr-3">
-        <button onClick={() => canvasStore.addBubble({ x: 50, y: 50, w: 150, h: 60, text: "Nhập chữ...", fontSize: toolStore.fontSize, fontColor: toolStore.fontColor, fontFamily: toolStore.fontFamily, rotation: 0, sfxClass: '' })} className="btn-secondary bg-blue-500 hover:bg-blue-600">
-          + Chữ Tự Do
+      {/* KHỐI 2: Text Tools (Chỉ dùng Icon) */}
+      <div className="flex items-center gap-1 border-r border-border pr-3 shrink-0">
+        <button onClick={() => canvasStore.addBubble({ x: 50, y: 50, w: 150, h: 60, text: "Nhập chữ...", fontSize: toolStore.fontSize, fontColor: toolStore.fontColor, fontFamily: toolStore.fontFamily, rotation: 0, sfxClass: '' })} className="btn-ghost p-1.5" title="Thêm ô chữ mới">
+          <Type size={16} />
         </button>
-        
-        <div className="flex items-center bg-[#333] rounded border border-gray-600 overflow-hidden h-[30px]">
-          <button className="px-2 hover:bg-gray-600 font-bold" onClick={() => handleFontSize(-2)}>A-</button>
-          <input type="number" value={toolStore.fontSize} readOnly className="w-10 text-center bg-transparent border-x border-gray-600 outline-none" />
-          <button className="px-2 hover:bg-gray-600 font-bold" onClick={() => handleFontSize(2)}>A+</button>
-        </div>
-
-        {/* 🚀 KHÔI PHỤC NÚT UPLOAD FONT */}
-        <label className="btn-secondary bg-[#8e44ad] hover:bg-purple-700 px-2 py-1 cursor-pointer text-[11px]" title="Tải font .ttf / .otf của bạn lên">
-          ⬆️ Font
+        <label className="btn-ghost p-1.5 cursor-pointer text-xs font-bold" title="Tải font chữ từ máy (.ttf / .otf)">
+          F+
           <input type="file" accept=".ttf,.otf,.woff,.woff2" className="hidden" onChange={handleFontUpload} />
         </label>
-
-        <select value={toolStore.fontFamily} onChange={(e) => handleFontFamily(e.target.value)} className="bg-[#333] border border-gray-600 rounded px-2 h-[30px] outline-none max-w-[120px] text-xs truncate">
-          {toolStore.customFonts.length > 0 && (
-            <optgroup label="⭐ Font Của Bạn">
-              {toolStore.customFonts.map((font, idx) => (
-                <option key={idx} value={font.value} style={{ fontFamily: font.value.replace(/'/g, "") }}>{font.name}</option>
-              ))}
-            </optgroup>
-          )}
-          <optgroup label="Mặc định">
-            <option value="'Comic Neue', cursive">Comic Neue</option>
-            <option value="'Anton', sans-serif">Anton</option>
-            <option value="'Creepster', cursive">Creepster</option>
-          </optgroup>
-        </select>
-
-        <div className="flex gap-1 items-center bg-[#2a2a2a] px-2 h-[30px] rounded-full border border-gray-700">
-          {['#000000', '#ffffff', '#f44336', '#ffeb3b'].map(c => (
-            <button key={c} onClick={() => handleFontColor(c)} className="w-4 h-4 rounded-full border border-gray-500 hover:scale-125 transition-transform" style={{ backgroundColor: c }} />
-          ))}
-          <input type="color" value={toolStore.fontColor} onChange={(e) => handleFontColor(e.target.value)} className="w-5 h-5 ml-1 p-0 border-0 rounded cursor-pointer bg-transparent" />
-        </div>
       </div>
 
-      <div className="flex items-center gap-2 border-r border-gray-700 pr-3">
-        <button onClick={() => { if(canvasStore.activeBubbleId) canvasStore.removeBubble(canvasStore.activeBubbleId) }} className="text-red-500 hover:text-red-400 hover:bg-gray-800 p-1.5 rounded"><Trash2 size={18} /></button>
-        <span className="text-[10px] text-gray-400 ml-2">SFX:</span>
-        <button onClick={() => applySFX('sfx-power')} className="hover:bg-gray-800 p-1 rounded" title="Mạnh mẽ">💥</button>
-        <button onClick={() => applySFX('sfx-impact')} className="hover:bg-gray-800 p-1 rounded" title="Va chạm">👊</button>
-        <button onClick={() => applySFX('sfx-horror')} className="hover:bg-gray-800 p-1 rounded" title="Kinh dị">👻</button>
-        <button onClick={() => applySFX('')} className="hover:bg-gray-800 p-1 rounded text-red-500" title="Bỏ hiệu ứng">✖</button>
-      </div>
+      {/* KHỐI 3: Canvas Tools (Chỉ dùng Icon) */}
+      <div className="flex items-center gap-1 border-r border-border pr-3 shrink-0">
+        <button onClick={() => toolStore.setActiveMode('scan')} className={`btn-base p-1.5 ${toolStore.activeMode === 'scan' ? 'bg-primary/20 text-primary border-primary/50' : 'btn-ghost'}`} title="Quét Lens dịch nhanh (Phím S)"><Search size={16} /></button>
+        <button onClick={() => toolStore.setActiveMode('erase')} className={`btn-base p-1.5 ${toolStore.activeMode === 'erase' ? 'bg-danger/20 text-danger border-danger/50' : 'btn-ghost'}`} title="Cọ Xóa nền (Phím E)"><Eraser size={16} /></button>
+        <button onClick={() => toolStore.setActiveMode('restore')} className={`btn-base p-1.5 ${toolStore.activeMode === 'restore' ? 'bg-accent/20 text-accent border-accent/50' : 'btn-ghost'}`} title="Cọ Phục hồi nét (Phím B)"><Paintbrush size={16} /></button>
+        <button onClick={() => toolStore.setActiveMode('redraw')} className={`btn-base p-1.5 ${toolStore.activeMode === 'redraw' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50' : 'btn-ghost'}`} title="Tái vẽ bằng AI Diffusion"><Sparkles size={16} /></button>
 
-      <div className="flex items-center gap-2 border-r border-gray-700 pr-3">
-        <button onClick={() => toolStore.setActiveMode('scan')} className={`btn ${toolStore.activeMode === 'scan' ? 'bg-yellow-400 text-black shadow-[0_0_10px_#ffeb3b]' : 'bg-accent text-white'}`}>🔍 Lens</button>
-        <button onClick={() => toolStore.setActiveMode('erase')} className={`btn ${toolStore.activeMode === 'erase' ? 'bg-yellow-400 text-black shadow-[0_0_10px_#ffeb3b]' : 'bg-danger text-white'}`}>🖌️ Xóa Nền</button>
-        <button onClick={() => toolStore.setActiveMode('restore')} className={`btn ${toolStore.activeMode === 'restore' ? 'bg-yellow-400 text-black shadow-[0_0_10px_#ffeb3b]' : 'bg-cyan-500 text-white'}`}>🩹 Phục Hồi</button>
-        
-        {(toolStore.activeMode === 'erase' || toolStore.activeMode === 'restore') && (
-          <div className="flex items-center bg-[#333] rounded border border-gray-600 ml-2 h-[30px] px-2 gap-2">
-            <span className="text-[10px] text-gray-400">CỠ:</span>
-            <input type="range" min="5" max="100" value={toolStore.brushSize} onChange={(e) => toolStore.setBrushSize(Number(e.target.value))} className="w-20" />
-            {toolStore.activeMode === 'erase' && (
-               <button onClick={handleErase} disabled={isProcessing} className="bg-orange-500 text-white px-2 py-0.5 rounded text-xs font-bold hover:bg-orange-600">{isProcessing ? '⏳' : '✅ Xóa'}</button>
-            )}
-            {toolStore.activeMode === 'restore' && (
-              <button onClick={toolStore.toggleRestoreType} className={`px-2 py-0.5 rounded text-xs font-bold text-white transition-colors ${toolStore.restoreType === 'raw' ? 'bg-cyan-500' : 'bg-pink-500'}`}>
-                {toolStore.restoreType === 'raw' ? 'Mực: Raw' : 'Mực: Clean'}
-              </button>
-            )}
+        {/* Thanh chỉnh cỡ cọ (Sẽ tự trượt ra mượt mà khi bấm vào các công cụ trên) */}
+        {(toolStore.activeMode === 'erase' || toolStore.activeMode === 'restore' || toolStore.activeMode === 'redraw') && (
+          <div className="flex items-center bg-background rounded-md border border-border ml-1 h-[30px] px-2 gap-2 animate-in fade-in slide-in-from-left-2">
+            <input type="range" min="5" max="100" value={toolStore.brushSize} onChange={(e) => toolStore.setBrushSize(Number(e.target.value))} className="w-16 accent-primary" title="Cỡ cọ" />
+            {toolStore.activeMode === 'erase' && (<button onClick={handleErase} disabled={isProcessing} className="bg-danger text-white px-2 py-0.5 rounded text-[10px] font-bold hover:bg-red-600 transition-colors">{isProcessing ? '⏳' : 'Xóa'}</button>)}
+            {toolStore.activeMode === 'restore' && (<button onClick={toolStore.toggleRestoreType} className="bg-accent text-white px-2 py-0.5 rounded text-[10px] font-bold hover:bg-purple-600 transition-colors">{toolStore.restoreType === 'raw' ? 'RAW' : 'SẠCH'}</button>)}
+            {toolStore.activeMode === 'redraw' && (<button className="bg-emerald-500 text-white px-2 py-0.5 rounded text-[10px] font-bold hover:bg-emerald-600 transition-colors">Vẽ</button>)}
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-2 ml-auto">
-        <button onClick={() => toolStore.setZoom(toolStore.currentZoom - 0.1)} className="btn-icon bg-gray-700"><ZoomOut size={16}/></button>
-        <span className="w-12 text-center font-bold text-xs">{Math.round(toolStore.currentZoom * 100)}%</span>
-        <button onClick={() => toolStore.setZoom(toolStore.currentZoom + 0.1)} className="btn-icon bg-gray-700"><ZoomIn size={16}/></button>
-        <button onClick={() => toolStore.setZoom(1.0)} className="btn-secondary bg-gray-600 hover:bg-gray-500"><Maximize size={16}/> Vừa MH</button>
+      {/* KHỐI 4: View, Lịch sử & Export */}
+      <div className="flex items-center gap-1 ml-auto shrink-0">
+        {/* Lịch sử Undo/Redo */}
+        <button onClick={() => undo()} className="p-1.5 text-text-muted hover:text-text-main hover:bg-border rounded-md transition-colors" title="Hoàn tác (Ctrl+Z)"><Undo2 size={16}/></button>
+        <button onClick={() => redo()} className="p-1.5 text-text-muted hover:text-text-main hover:bg-border rounded-md transition-colors" title="Làm lại (Ctrl+Y)"><Redo2 size={16}/></button>
         
-        <button onClick={() => toolStore.setShowText(!toolStore.showText)} className={`btn-secondary ml-2 ${!toolStore.showText ? 'bg-gray-500' : 'bg-teal-500'}`}>
-          {toolStore.showText ? <><Eye size={16}/> Ẩn Chữ</> : <><EyeOff size={16}/> Hiện Chữ</>}
+        <div className="w-px h-4 bg-border mx-1"></div>
+
+        {/* Zoom */}
+        <button onClick={() => toolStore.setZoom(toolStore.currentZoom - 0.1)} className="p-1.5 text-text-muted hover:text-text-main hover:bg-border rounded-md transition-colors" title="Thu nhỏ"><ZoomOut size={16}/></button>
+        <span className="w-10 text-center font-medium text-[11px] text-text-muted">{Math.round(toolStore.currentZoom * 100)}%</span>
+        <button onClick={() => toolStore.setZoom(toolStore.currentZoom + 0.1)} className="p-1.5 text-text-muted hover:text-text-main hover:bg-border rounded-md transition-colors" title="Phóng to"><ZoomIn size={16}/></button>
+        <button onClick={() => toolStore.setShowText(!toolStore.showText)} className={`p-1.5 rounded-md transition-colors ml-1 ${!toolStore.showText ? 'text-text-muted hover:bg-border' : 'bg-primary/20 text-primary'}`} title="Ẩn/Hiện Chữ">{toolStore.showText ? <Eye size={16}/> : <EyeOff size={16}/>}</button>
+        
+        <div className="w-px h-4 bg-border mx-1"></div>
+
+        {/* Mở / Lưu / Xuất */}
+        {/* Mở / Lưu / Xuất */}
+        <label className="btn-ghost p-1.5 cursor-pointer" title="Mở File Project (.manga)">
+          <FolderOpen size={16} />
+          <input type="file" accept=".manga,.json" className="hidden" onChange={handleLoadManga} />
+        </label>
+        <button onClick={handleSaveManga} className="btn-ghost p-1.5" title="Lưu Project (.manga)"><Save size={16} /></button>
+        
+        <div className="w-px h-4 bg-border mx-1"></div>
+
+        {/* 🚀 Nút Ẩn/Hiện Cột Phải */}
+        <button onClick={toggleRightPanel} className={`p-1.5 rounded-md transition-colors ${!showRightPanel ? 'text-text-muted hover:bg-border' : 'bg-primary/20 text-primary'}`} title="Ẩn/Hiện Layer Panel">
+          <PanelRight size={16} />
         </button>
 
-        <button onClick={handleExport} className="btn bg-pink-600 text-white hover:bg-pink-700 ml-4">
-          <Download size={16} /> Xuất Ảnh
+        <button onClick={handleExport} className="btn-subtle py-1.5 px-3 ml-1 hover:text-white hover:bg-primary hover:border-primary">
+          <Download size={16} className="mr-1 inline-block" /> Xuất
         </button>
       </div>
     </div>

@@ -18,3 +18,29 @@ java-api-gateway/*.iml
 # --- OS TRASH ---
 .DS_Store
 Thumbs.db
+
+
+# --- BỎ QUA MÔI TRƯỜNG PYTHON ---
+venv/
+env/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# --- BỎ QUA CÁC THƯ MỤC CHỨA MODEL AI ---
+CTD/
+models/
+weights/
+checkpoints/
+
+# --- BỎ QUA CÁC FILE MODEL NẶNG ---
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.bin
+*.h5
+
+# --- BỎ QUA LOGS CỦA JAVA/PYTHON ---
+*.log

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type AppMode = 'none' | 'erase' | 'scan' | 'restore';
+type AppMode = 'none' | 'erase' | 'scan' | 'restore' | 'redraw';
 type RestoreType = 'raw' | 'clean';
 
 interface ToolState {
@@ -33,6 +33,15 @@ interface ToolState {
 
   scanModal: { isOpen: boolean, jap: string, vie: string, coords: any } | null;
   setScanModal: (data: any) => void;
+
+  isZenMode: boolean;
+  toggleZenMode: () => void;
+
+  // ... (sau isZenMode)
+  showLeftPanel: boolean;
+  showRightPanel: boolean;
+  toggleLeftPanel: () => void;
+  toggleRightPanel: () => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
@@ -63,4 +72,12 @@ export const useToolStore = create<ToolState>((set) => ({
 
   scanModal: null,
   setScanModal: (data) => set({ scanModal: data }),
+
+  isZenMode: false,
+  toggleZenMode: () => set((state) => ({ isZenMode: !state.isZenMode })),
+  // ... (sau isZenMode: false)
+  showLeftPanel: true,
+  showRightPanel: true,
+  toggleLeftPanel: () => set((state) => ({ showLeftPanel: !state.showLeftPanel })),
+  toggleRightPanel: () => set((state) => ({ showRightPanel: !state.showRightPanel })),
 }));
