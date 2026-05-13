@@ -4,15 +4,10 @@ import { useCanvasStore } from '../../store/useCanvasStore';
 export default function LayerPanel() {
   const { bubbles, activeBubbleId, setActiveBubble, updateBubble } = useCanvasStore();
 
-  // 🚀 XÓA DÒNG: if (bubbles.length === 0) return null; 
-  // Để Panel luôn hiện diện, giữ vững cấu trúc 3 cột của ứng dụng.
-
   const reversedBubbles = [...bubbles].reverse();
 
   return (
     <div className="w-64 bg-sidebar border-l border-border flex flex-col h-full shadow-2xl z-20 shrink-0">
-      
-      {/* Header - Luôn hiển thị để người dùng biết đây là khu vực quản lý Layer */}
       <div className="p-4 border-b border-border bg-panel/50 backdrop-blur-md flex items-center justify-between">
         <h2 className="text-sm font-bold text-text-main flex items-center gap-2 uppercase tracking-tight">
           <Layers size={18} className="text-primary" />
@@ -25,32 +20,31 @@ export default function LayerPanel() {
         )}
       </div>
 
-      {/* Nội dung danh sách */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
         {bubbles.length === 0 ? (
-          // 🚀 HIỂN THỊ EMPTY STATE KHI CHƯA CÓ CHỮ
           <div className="h-full flex flex-col items-center justify-center opacity-20 select-none p-6 text-center">
-            <div className="p-4 rounded-full bg-border/30 mb-4">
-              <Ghost size={40} />
-            </div>
+            <div className="p-4 rounded-full bg-border/30 mb-4"><Ghost size={40} /></div>
             <p className="text-xs font-bold uppercase tracking-widest">Trống rỗng</p>
-            <p className="text-[10px] mt-2 leading-relaxed">
-              Các lớp chữ sẽ xuất hiện tại đây sau khi bạn dịch trang hoặc thêm chữ thủ công
-            </p>
+            <p className="text-[10px] mt-2 leading-relaxed">Các lớp chữ sẽ xuất hiện tại đây sau khi bạn dịch</p>
           </div>
         ) : (
           reversedBubbles.map((bubble) => {
             const isActive = activeBubbleId === bubble.id;
-            const layerName = bubble.text.trim() 
-              ? bubble.text.substring(0, 15) + (bubble.text.length > 15 ? '...' : '') 
-              : 'Chữ trống...';
+            const isHovered = useCanvasStore.getState().hoveredBubbleId === bubble.id;
+            // Dọn dẹp khoảng trắng để tên Layer hiển thị đẹp
+            const cleanText = bubble.text.replace(/\n/g, ' ').trim();
+            const layerName = cleanText ? cleanText.substring(0, 18) + (cleanText.length > 18 ? '...' : '') : 'Chữ trống...';
 
             return (
               <div 
                 key={bubble.id}
                 onClick={() => { if (!bubble.isLocked) setActiveBubble(bubble.id) }}
+                onMouseEnter={() => useCanvasStore.getState().setHoveredBubble(bubble.id)}
+                onMouseLeave={() => useCanvasStore.getState().setHoveredBubble(null)}
                 className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors border ${
-                  isActive ? 'bg-primary/20 border-primary/50' : 'bg-transparent border-transparent hover:bg-border/50'
+                  isActive ? 'bg-primary/20 border-primary/50' : 
+                  isHovered ? 'bg-white/5 border-white/20' : 
+                  'bg-transparent border-transparent hover:bg-border/50'
                 }`}
               >
                 <div className="flex items-center gap-2 overflow-hidden">

@@ -67,3 +67,25 @@ canvas {
   touch-action: none; /* Trả lại toàn bộ quyền kiểm soát cử chỉ cho JavaScript PointerEvent */
   -webkit-tap-highlight-color: transparent;
 }
+
+
+/* 🚀 Hiệu ứng chuyển cảnh mượt mà khi AI trả ảnh về */
+.image-transition {
+  transition: opacity 0.5s ease-in-out, filter 0.5s ease-in-out;
+}
+
+/* 🚀 Hiệu ứng chớp sáng lướt qua thẻ Thumbnail khi dịch xong */
+@keyframes scanner-sweep {
+  0% { transform: translateX(-100%) skewX(-15deg); opacity: 0; }
+  50% { opacity: 1; }
+  100% { transform: translateX(200%) skewX(-15deg); opacity: 0; }
+}
+
+.animate-scanner::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; width: 30%; height: 100%;
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.4), transparent);
+  animation: scanner-sweep 1s ease-out;
+  pointer-events: none;
+}

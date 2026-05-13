@@ -10,6 +10,8 @@ python-ai-worker/__pycache__/
 *.pt
 *.onnx
 
+*.db
+
 # --- JAVA TRASH ---
 java-api-gateway/target/
 java-api-gateway/.idea/

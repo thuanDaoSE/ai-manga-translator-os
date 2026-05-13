@@ -3,9 +3,8 @@ import { useToolStore } from '../../store/useToolStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useConfigStore } from '../../store/useConfigStore';
 import { mangaApi } from '../../services/api';
-import { getStroke } from 'perfect-freehand'; // 🚀 Import động cơ cọ vẽ
+import { getStroke } from 'perfect-freehand'; 
 
-// Thuật toán Helper: Chuyển mảng điểm đa giác thành lệnh vẽ SVG Path2D
 function getSvgPathFromStroke(stroke: number[][]) {
   if (!stroke.length) return '';
   const d = stroke.reduce(
@@ -20,55 +19,73 @@ function getSvgPathFromStroke(stroke: number[][]) {
   return d.join(' ');
 }
 
-interface Props { imgUrl: string; }
+interface Props { 
+  rawUrl: string | null; 
+  displayUrl: string | null; 
+}
 
-export default function MangaCanvas({ imgUrl }: Props) {
-  const drawRef = useRef<HTMLCanvasElement>(null);      // Canvas hiển thị (Real-time)
-  const committedRef = useRef<HTMLCanvasElement>(null); // 🚀 Canvas ẩn lưu các nét ĐÃ VẼ XONG
+export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
+  const drawRef = useRef<HTMLCanvasElement>(null);      
+  const committedRef = useRef<HTMLCanvasElement>(null); 
   const rawRef = useRef<HTMLCanvasElement>(null);
   const cleanRef = useRef<HTMLCanvasElement>(null);
 
   const { activeMode, brushSize, currentZoom } = useToolStore();
   
-  // Lưu trữ tọa độ mượt mà
   const currentPoints = useRef<number[][]>([]);
   const isDrawing = useRef(false);
   const scanStart = useRef({ x: 0, y: 0 });
   const currentPos = useRef({ x: 0, y: 0 });
 
-  // 1. Tải ảnh ban đầu
   useEffect(() => {
-    if (!imgUrl) return;
+    if (!rawUrl) return;
     const img = new Image();
-    img.src = imgUrl;
+    img.crossOrigin = "anonymous";
+    img.src = rawUrl;
+    img.onload = () => {
+      if (rawRef.current) {
+        rawRef.current.width = img.naturalWidth;
+        rawRef.current.height = img.naturalHeight;
+        rawRef.current.getContext('2d')?.drawImage(img, 0, 0);
+      }
+    };
+  }, [rawUrl]);
+
+  useEffect(() => {
+    if (!displayUrl) return;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = displayUrl;
     img.onload = () => {
       const w = img.naturalWidth;
       const h = img.naturalHeight;
-      // Khởi tạo kích cỡ cho cả 4 canvas
-      [rawRef, cleanRef, drawRef, committedRef].forEach(ref => {
+      [cleanRef, drawRef, committedRef].forEach(ref => {
         if (ref.current) { ref.current.width = w; ref.current.height = h; }
       });
-      rawRef.current?.getContext('2d')?.drawImage(img, 0, 0);
       cleanRef.current?.getContext('2d')?.drawImage(img, 0, 0);
     };
-  }, [imgUrl]);
+  }, [displayUrl]);
 
-  // 2. ĐỘNG CƠ POINTER EVENT VÀ CỌ VẼ CHUYÊN NGHIỆP
+  useEffect(() => {
+    if (activeMode === 'none') {
+       const ctx1 = drawRef.current?.getContext('2d');
+       const ctx2 = committedRef.current?.getContext('2d');
+       if (drawRef.current && committedRef.current) {
+         ctx1?.clearRect(0, 0, drawRef.current.width, drawRef.current.height);
+         ctx2?.clearRect(0, 0, committedRef.current.width, committedRef.current.height);
+       }
+       currentPoints.current = [];
+    }
+  }, [activeMode]);
+
   useEffect(() => {
     const drawCanvas = drawRef.current;
     if (!drawCanvas) return;
 
-    // Trích xuất tọa độ và Lực nhấn (Pressure) từ Bút/Chuột
-    // Trích xuất tọa độ và Lực nhấn (Pressure) từ Bút/Chuột
-    // Trích xuất tọa độ và Lực nhấn (Pressure) từ Bút/Chuột
     const getPointerPos = (e: PointerEvent) => {
       const rect = drawCanvas.getBoundingClientRect();
       const scaleX = drawCanvas.width / rect.width;
       const scaleY = drawCanvas.height / rect.height;
-      
-      // 🚀 FIX LỖI CỠ CỌ: 
-      // Nếu là chuột, ép lực nhấn = 1.0 để nét vẽ to đúng bằng viền con trỏ. 
-      // Nếu là bút, lấy lực nhấn thật.
       const pressure = e.pointerType === 'mouse' ? 1.0 : (e.pressure !== 0 ? e.pressure : 1.0);
       
       return { 
@@ -78,14 +95,11 @@ export default function MangaCanvas({ imgUrl }: Props) {
       };
     };
 
-    
-    // Hàm render 60 FPS
     const renderCanvas = () => {
        const ctx = drawCanvas.getContext('2d');
        const committedCanvas = committedRef.current;
        if (!ctx || !committedCanvas) return;
 
-       // Khôi phục lại các nét đã vẽ trước đó
        ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
        ctx.drawImage(committedCanvas, 0, 0);
 
@@ -98,21 +112,17 @@ export default function MangaCanvas({ imgUrl }: Props) {
             ctx.lineWidth = 2;
             ctx.strokeRect(scanStart.current.x, scanStart.current.y, currentPos.current.x - scanStart.current.x, currentPos.current.y - scanStart.current.y);
             ctx.setLineDash([]);
-         } else if (mode === 'erase' || mode === 'restore') {
-            // 🚀 Thuật toán vẽ cọ mượt mà của Perfect Freehand
+         } 
+         // 🚀 ĐÃ SỬA: Thêm mode === 'redraw' vào điều kiện render
+         else if (mode === 'erase' || mode === 'restore' || mode === 'redraw') {
             const strokeOutline = getStroke(currentPoints.current, {
-               size: useToolStore.getState().brushSize,
-               thinning: 0.6, // Tự động thuôn nhọn nét khi nhấn nhẹ
-               smoothing: 0.8, // Lọc rung tay cực tốt
-               streamline: 0.5,
-               simulatePressure: false, // Tắt mô phỏng vì ta dùng áp lực thật của Pencil
+               size: useToolStore.getState().brushSize, thinning: 0.6, smoothing: 0.8, streamline: 0.5, simulatePressure: false,
             });
-            
             const pathData = getSvgPathFromStroke(strokeOutline);
             const path = new Path2D(pathData);
 
-            // Đổ màu trực tiếp (Xóa) hoặc dùng làm Mặt nạ (Restore)
-            if (mode === 'erase') {
+            // 🚀 ĐÃ SỬA: Cho redraw xài chung nét vẽ màu đỏ của erase
+            if (mode === 'erase' || mode === 'redraw') {
                ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
                ctx.fill(path);
             } else if (mode === 'restore') {
@@ -128,14 +138,11 @@ export default function MangaCanvas({ imgUrl }: Props) {
        }
     };
 
-    // --- BẮT ĐẦU CHẠM ---
     const handlePointerDown = (e: PointerEvent) => {
       const mode = useToolStore.getState().activeMode;
       if (mode === 'none') return;
-      
       isDrawing.current = true;
-      drawCanvas.setPointerCapture(e.pointerId); // Khóa con trỏ vào Canvas để vuốt ra mép không bị mất nét
-      
+      drawCanvas.setPointerCapture(e.pointerId); 
       const pos = getPointerPos(e);
       if (mode === 'scan') {
          scanStart.current = { x: pos.x, y: pos.y };
@@ -146,20 +153,17 @@ export default function MangaCanvas({ imgUrl }: Props) {
       renderCanvas();
     };
 
-    // --- DI CHUYỂN BÚT ---
     const handlePointerMove = (e: PointerEvent) => {
       if (!isDrawing.current) return;
       const pos = getPointerPos(e);
-
       if (useToolStore.getState().activeMode === 'scan') {
          currentPos.current = { x: pos.x, y: pos.y };
       } else {
          currentPoints.current.push([pos.x, pos.y, pos.p]);
       }
-      requestAnimationFrame(renderCanvas); // Tối ưu GPU
+      requestAnimationFrame(renderCanvas); 
     };
 
-    // --- NHẤC BÚT LÊN ---
     const handlePointerUp = async (e: PointerEvent) => {
       if (!isDrawing.current) return;
       isDrawing.current = false;
@@ -167,8 +171,8 @@ export default function MangaCanvas({ imgUrl }: Props) {
       
       const mode = useToolStore.getState().activeMode;
       
-      if (mode === 'erase' || mode === 'restore') {
-         // 🚀 CHỐT NÉT VẼ VÀO LỚP ẨN (COMMITTED CANVAS)
+      // 🚀 ĐÃ SỬA: Thêm mode === 'redraw' vào điều kiện commit nét vẽ
+      if (mode === 'erase' || mode === 'restore' || mode === 'redraw') {
          const committedCtx = committedRef.current?.getContext('2d');
          if (committedCtx) {
             const strokeOutline = getStroke(currentPoints.current, {
@@ -177,7 +181,8 @@ export default function MangaCanvas({ imgUrl }: Props) {
             const pathData = getSvgPathFromStroke(strokeOutline);
             const path = new Path2D(pathData);
 
-            if (mode === 'erase') {
+            // 🚀 ĐÃ SỬA: Cho redraw xài chung màu đỏ để tạo Mask
+            if (mode === 'erase' || mode === 'redraw') {
                committedCtx.fillStyle = "rgba(255, 0, 0, 0.5)";
                committedCtx.fill(path);
             } else if (mode === 'restore') {
@@ -190,11 +195,10 @@ export default function MangaCanvas({ imgUrl }: Props) {
                }
             }
          }
-         currentPoints.current = []; // Xóa bộ nhớ tạm nét vẽ
-         renderCanvas(); // Xóa khỏi màn hình Real-time, hiện ảnh từ Committed
+         currentPoints.current = []; 
+         renderCanvas(); 
       } else if (mode === 'scan') {
          const pos = getPointerPos(e);
-         // Logic gọi API Lens y hệt cũ
          useToolStore.getState().setScanModal({
             isOpen: true, jap: "Đang quét OCR...", vie: "Đang dịch...",
             coords: { x1: scanStart.current.x, y1: scanStart.current.y, x2: pos.x, y2: pos.y }
@@ -235,7 +239,6 @@ export default function MangaCanvas({ imgUrl }: Props) {
     };
   }, []);
 
-  // 3. Cập nhật con trỏ chuột
   const cursorStyle = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw'
     ? `url(data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="${brushSize * currentZoom}" height="${brushSize * currentZoom}" viewBox="0 0 ${brushSize * currentZoom} ${brushSize * currentZoom}"><circle cx="${(brushSize * currentZoom) / 2}" cy="${(brushSize * currentZoom) / 2}" r="${(brushSize * currentZoom) / 2 - 1}" fill="none" stroke="black" stroke-width="1.5"/><circle cx="${(brushSize * currentZoom) / 2}" cy="${(brushSize * currentZoom) / 2}" r="${(brushSize * currentZoom) / 2 - 2}" fill="none" stroke="white" stroke-width="1.5"/></svg>`)}) ${(brushSize * currentZoom) / 2} ${(brushSize * currentZoom) / 2}, crosshair`
     : activeMode === 'scan' ? 'crosshair' : 'default';
@@ -244,7 +247,6 @@ export default function MangaCanvas({ imgUrl }: Props) {
     <>
       <canvas ref={rawRef} className="hidden" />
       <canvas ref={cleanRef} className="hidden" />
-      {/* 🚀 Canvas ẩn cực kỳ quan trọng để lưu giữ các nét cũ đã hoàn tất */}
       <canvas ref={committedRef} className="hidden" /> 
       
       <canvas 

@@ -27,6 +27,14 @@ interface CanvasState {
   setActiveBubble: (id: string | null) => void;
   clearBubbles: () => void;
   setBubbles: (bubbles: TextBubble[]) => void; // 🚀 Thêm dòng này
+  
+  pageBubbles: Record<number, TextBubble[]>;
+  saveBubblesForPage: (pageIndex: number) => void;
+  loadBubblesForPage: (pageIndex: number) => void;
+
+  setBubblesForSpecificPage: (pageIndex: number, bubbles: TextBubble[]) => void;
+  hoveredBubbleId: string | null;
+  setHoveredBubble: (id: string | null) => void;
 }
 
 // 🚀 Bọc toàn bộ logic cũ bằng temporal()
@@ -35,9 +43,11 @@ export const useCanvasStore = create<CanvasState>()(
     (set) => ({
       bubbles: [],
       activeBubbleId: null,
+      pageBubbles: {},
 
+      // 🚀 SỬA LẠI DÒNG NÀY ĐỂ ĐẢM BẢO ID DUY NHẤT
       addBubble: (bubble) => set((state) => ({
-        bubbles: [...state.bubbles, { ...bubble, id: Date.now().toString() }]
+        bubbles: [...state.bubbles, { ...bubble, id: Date.now().toString() + Math.random().toString(36).substring(2, 9) }]
       })),
 
       updateBubble: (id, updates) => set((state) => ({
@@ -51,7 +61,19 @@ export const useCanvasStore = create<CanvasState>()(
 
       setActiveBubble: (id) => set({ activeBubbleId: id }),
       setBubbles: (bubbles) => set({ bubbles, activeBubbleId: null }),
-
+saveBubblesForPage: (pageIndex) => set((state) => ({
+        pageBubbles: { ...state.pageBubbles, [pageIndex]: state.bubbles }
+      })),
+      hoveredBubbleId: null,
+      setHoveredBubble: (id) => set({ hoveredBubbleId: id }),
+      loadBubblesForPage: (pageIndex) => set((state) => ({
+        bubbles: state.pageBubbles[pageIndex] || [],
+        activeBubbleId: null
+      })),
+      // 🚀 THÊM ĐOẠN NÀY ĐỂ LƯU CHỮ CỦA TRANG ĐANG CHẠY NGẦM:
+      setBubblesForSpecificPage: (pageIndex, newBubbles) => set((state) => ({
+        pageBubbles: { ...state.pageBubbles, [pageIndex]: newBubbles }
+      })),
       clearBubbles: () => set({ bubbles: [], activeBubbleId: null }),
     }),
     {

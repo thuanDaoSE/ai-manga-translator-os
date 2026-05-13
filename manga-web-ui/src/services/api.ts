@@ -1,5 +1,6 @@
-const API_URL = "http://localhost:8000/api";
-const STATIC_URL = "http://localhost:8000/static";
+const BASE_URL = import.meta.env.VITE_API_URL;
+const API_URL = `${BASE_URL}/api`;
+const STATIC_URL = `${BASE_URL}/static`;
 
 export const mangaApi = {
   uploadRaw: async (file: File) => {
@@ -15,7 +16,6 @@ export const mangaApi = {
   },
 
   translatePage: async (file: File, config: any) => {
-    // ... (Giữ nguyên như cũ)
     const formData = new FormData();
     formData.append("file", file);
     formData.append("genre", config.genre);
@@ -23,31 +23,68 @@ export const mangaApi = {
     formData.append("pronouns", config.pronoun);
     formData.append("glossary", config.glossary);
 
-    const response = await fetch(`${API_URL}/translate-page`, {
+    // BƯỚC 1: Gửi ảnh cho FastAPI để đưa vào hàng đợi Celery
+    const response = await fetch(`${API_URL}/translate`, {
+      // 🚀 Sửa API URL thành /translate
       method: "POST",
       body: formData,
     });
-    
-    if (!response.ok) throw new Error("Server từ chối kết nối (Lỗi CORS hoặc 500)");
-    const result = await response.json();
-    
-    return {
-      cleanUrl: `${STATIC_URL}/Clean_${result.file_name}?t=${Date.now()}`,
-      bubbles: result.data
-    };
+
+    if (!response.ok) throw new Error("Server từ chối kết nối!");
+    const data = await response.json();
+
+    if (data.status !== "queued") throw new Error("Lỗi không thể xếp hàng");
+    const taskId = data.task_id;
+
+    // BƯỚC 2: Vòng lặp liên tục hỏi thăm tiến độ (Polling) mỗi 1 giây
+    while (true) {
+      // Nghỉ 1 giây rồi mới hỏi tiếp để tránh spam Server
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const pollRes = await fetch(`${API_URL}/task/${taskId}`);
+      const pollData = await pollRes.json();
+
+      if (pollData.state === "SUCCESS") {
+        // AI Xử lý xong! Trả kết quả về cho Topbar hiển thị
+        return {
+          cleanUrl: pollData.result.clean_url,
+          bubbles: pollData.result.data, // 🚀 ĐÃ SỬA: Hứng dữ liệu tọa độ thật từ AI thay vì mảng rỗng
+        };
+      } else if (pollData.state === "FAILURE") {
+        throw new Error("Lỗi khi AI xử lý ảnh!");
+      } else if (pollData.state === "PROCESSING") {
+        // In tiến độ ra Console để bạn xem (sau này ta sẽ gắn nó vào thanh UI)
+        console.log(
+          `[CELERY] Tiến độ: ${pollData.progress}% - ${pollData.message}`,
+        );
+      }
+    }
   },
 
-  // 🚀 BỔ SUNG: Gọi API Xóa Nền
-  eraseMask: async (filename: string, maskBase64: string) => {
+  // 🚀 ĐÃ SỬA: Nhận imageUrl thay vì filename
+  eraseMask: async (imageUrl: string, maskBase64: string) => {
     const response = await fetch(`${API_URL}/erase-mask`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename, mask_base64: maskBase64 }),
+      body: JSON.stringify({ image_url: imageUrl, mask_base64: maskBase64 }),
     });
     if (!response.ok) throw new Error("Lỗi Server AI");
     const data = await response.json();
     if (data.status !== "success") throw new Error(data.message);
-    return `${STATIC_URL}/${data.new_filename}?t=${Date.now()}`;
+    return `${data.new_url}?t=${Date.now()}`; // 🚀 Backend sẽ trả về URL chuẩn
+  },
+
+  // 🚀 ĐÃ SỬA: Nhận imageUrl thay vì filename
+  redrawMask: async (imageUrl: string, maskBase64: string, prompt: string) => {
+    const response = await fetch(`${API_URL}/redraw`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_url: imageUrl, mask_base64: maskBase64, prompt }),
+    });
+    if (!response.ok) throw new Error("Lỗi Server Redraw AI");
+    const data = await response.json();
+    if (data.status !== "success") throw new Error(data.message);
+    return `${data.new_url}?t=${Date.now()}`;
   },
 
   // 🚀 BỔ SUNG: Gọi API Quét Lens
@@ -59,5 +96,5 @@ export const mangaApi = {
     });
     if (!response.ok) throw new Error("Lỗi Server AI");
     return await response.json();
-  }
+  },
 };

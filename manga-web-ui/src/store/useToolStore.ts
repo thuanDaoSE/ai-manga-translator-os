@@ -42,6 +42,9 @@ interface ToolState {
   showRightPanel: boolean;
   toggleLeftPanel: () => void;
   toggleRightPanel: () => void;
+
+  isComparing: boolean;
+  setIsComparing: (isComparing: boolean) => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
@@ -80,4 +83,7 @@ export const useToolStore = create<ToolState>((set) => ({
   showRightPanel: true,
   toggleLeftPanel: () => set((state) => ({ showLeftPanel: !state.showLeftPanel })),
   toggleRightPanel: () => set((state) => ({ showRightPanel: !state.showRightPanel })),
+  
+  isComparing: false,
+  setIsComparing: (val) => set({ isComparing: val }),
 }));

@@ -6,12 +6,11 @@ export default function WelcomeScreen() {
   const projectStore = useProjectStore();
 
   // Hàm xử lý upload file được lấy thẳng từ Topbar sang đây cho tiện
+  // 🚀 ĐÃ SỬA: Gọi đúng hàm uploadProjectFiles
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files).sort((a, b) => a.name.localeCompare(b.name));
-      projectStore.setFiles(files);
-      projectStore.setCurrentIndex(0);
-      files.forEach(file => mangaApi.uploadRaw(file));
+      projectStore.uploadProjectFiles(files);
     }
   };
 

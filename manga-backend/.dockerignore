@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+workspace/
+manga_studio.db
+manga_studio_v2.db
+.env
+*.zip
