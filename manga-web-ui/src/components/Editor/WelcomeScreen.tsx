@@ -1,15 +1,45 @@
+import { useState } from 'react';
 import { Upload, Wand2, Paintbrush, ScanText } from 'lucide-react';
 import { mangaApi } from '../../services/api';
 import { useProjectStore } from '../../store/useProjectStore';
+import { useAuthStore } from '../../store/useAuthStore'; 
+import PolicyModal from '../Modals/PolicyModal'; // 🚀 1. Import Modal Chính sách vào đây
 
 export default function WelcomeScreen() {
   const projectStore = useProjectStore();
+  
+  // 🚀 2. KHAI BÁO STATE QUẢN LÝ ĐỒNG Ý CHÍNH SÁCH
+  const [isPolicyOpen, setIsPolicyOpen] = useState(false);
+  const [isAgreed, setIsAgreed] = useState(() => {
+  return localStorage.getItem('manga_policy_agreed') === 'true';
+});
 
-  // Hàm xử lý upload file được lấy thẳng từ Topbar sang đây cho tiện
-  // 🚀 ĐÃ SỬA: Gọi đúng hàm uploadProjectFiles
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
+    // CHỐT CHẶN BẢO MẬT: Kiểm tra đăng nhập ngay tại cửa
+    const session = useAuthStore.getState().session;
+    if (!session) {
+      import('react-hot-toast').then(module => module.default.error("Vui lòng đăng nhập để tạo không gian làm việc và tải ảnh lên!"));
+      e.target.value = ''; // Reset input
+      return;
+    }
+
+    if (e.target.files && e.target.files.length > 0) {  
       const files = Array.from(e.target.files).sort((a, b) => a.name.localeCompare(b.name));
+
+      if (files.length > 20) {
+         import('react-hot-toast').then(module => module.default.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 20 trang mỗi lần!"));
+         e.target.value = '';
+         return;
+      }
+      
+      // Kiểm tra dung lượng 10MB ngay tại cửa
+      const badFile = files.find(f => f.size > 10 * 1024 * 1024);
+      if (badFile) {
+         import('react-hot-toast').then(module => module.default.error(`File ${badFile.name} vượt quá 10MB!`));
+         e.target.value = '';
+         return;
+      }
+      
       projectStore.uploadProjectFiles(files);
     }
   };
@@ -33,10 +63,48 @@ export default function WelcomeScreen() {
           Nền tảng biên dịch và chỉnh sửa truyện tranh chuyên nghiệp. Tự động dịch thuật, xóa nền và phục hồi nét vẽ bằng sức mạnh của trí tuệ nhân tạo.
         </p>
 
-        {/* Nút Call-to-Action to bản */}
-        <label className="btn-primary px-8 py-4 text-lg rounded-xl shadow-lg shadow-primary/25 cursor-pointer hover:scale-105 transition-transform relative z-10">
+        {/* 🚀 3. CHÈN CHECKBOX VÀO ĐÂY (Ngay trên nút Upload) */}
+        <div className="flex items-start gap-3 bg-background/50 p-4 rounded-xl border border-border max-w-lg w-full mb-6 relative z-10 text-left shadow-inner">
+          <input 
+  type="checkbox" 
+  id="policy-checkbox"
+  checked={isAgreed}
+  onChange={(e) => {
+    // 🚀 BẢN VÁ TỰ GHI NHỚ VÀO Ổ CỨNG TRÌNH DUYỆT
+    setIsAgreed(e.target.checked);
+    localStorage.setItem('manga_policy_agreed', e.target.checked ? 'true' : 'false');
+  }}
+  className="mt-1 w-4 h-4 cursor-pointer accent-emerald-500 shrink-0"
+/>
+          <label htmlFor="policy-checkbox" className="text-xs text-text-muted cursor-pointer select-none leading-relaxed">
+            Tôi đã đọc, hiểu và đồng ý với các{' '}
+            <button 
+              onClick={(e) => { e.preventDefault(); setIsPolicyOpen(true); }} 
+              className="text-emerald-400 font-bold hover:underline"
+            >
+              Điều khoản & Chính sách
+            </button>
+            {' '}của hệ thống. Tôi cam kết tự chịu trách nhiệm về bản quyền của các hình ảnh tải lên.
+          </label>
+        </div>
+
+        {/* 🚀 4. Nút Call-to-Action (Sẽ BỊ KHÓA nếu chưa tích Checkbox) */}
+        <label className={`btn-primary px-8 py-4 text-lg rounded-xl shadow-lg transition-transform relative z-10 
+          ${!isAgreed 
+            ? 'opacity-50 cursor-not-allowed grayscale' 
+            : 'shadow-primary/25 cursor-pointer hover:scale-105'
+          }`}
+        >
           <Upload className="mr-2" size={24} /> Chọn Ảnh RAW Đang Chờ Dịch
-          <input type="file" multiple accept="image/*" className="hidden" onChange={handleFileChange} />
+          {/* Chặn upload nếu chưa đồng ý */}
+          <input 
+            type="file" 
+            multiple 
+            accept="image/jpeg, image/png, image/webp" 
+            className="hidden" 
+            disabled={!isAgreed} 
+            onChange={handleFileChange} 
+          />
         </label>
 
         {/* Thẻ Bento Grid giới thiệu tính năng */}
@@ -59,6 +127,11 @@ export default function WelcomeScreen() {
         </div>
       </div>
 
+      {/* 🚀 5. GẮN CỬA SỔ POLICY VÀO ĐÂY */}
+      <PolicyModal 
+        isOpen={isPolicyOpen} 
+        onClose={() => setIsPolicyOpen(false)} 
+      />
     </div>
   );
 }

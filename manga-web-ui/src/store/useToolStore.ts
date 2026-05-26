@@ -4,27 +4,32 @@ type AppMode = 'none' | 'erase' | 'scan' | 'restore' | 'redraw';
 type RestoreType = 'raw' | 'clean';
 
 interface ToolState {
-  // Modes
   activeMode: AppMode;
   restoreType: RestoreType;
   setActiveMode: (mode: AppMode) => void;
   toggleRestoreType: () => void;
 
-  // Brush
   brushSize: number;
   setBrushSize: (size: number) => void;
 
-  // Zoom
   currentZoom: number;
   setZoom: (zoom: number) => void;
 
-  // Text Styling
   fontSize: number;
   setFontSize: (size: number) => void;
   fontColor: string;
   setFontColor: (color: string) => void;
   fontFamily: string;
   setFontFamily: (font: string) => void;
+  
+  // 🚀 ĐÃ BỔ SUNG ĐẦY ĐỦ CÁC HÀM STYLE
+  isBold: boolean;
+  setIsBold: (val: boolean) => void;
+  isItalic: boolean;
+  setIsItalic: (val: boolean) => void;
+  isUppercase: boolean;
+  setIsUppercase: (val: boolean) => void;
+
   showText: boolean;
   setShowText: (show: boolean) => void;
 
@@ -37,7 +42,6 @@ interface ToolState {
   isZenMode: boolean;
   toggleZenMode: () => void;
 
-  // ... (sau isZenMode)
   showLeftPanel: boolean;
   showRightPanel: boolean;
   toggleLeftPanel: () => void;
@@ -45,12 +49,15 @@ interface ToolState {
 
   isComparing: boolean;
   setIsComparing: (isComparing: boolean) => void;
+
+  actionPosition: { x: number, y: number } | null;
+  setActionPosition: (pos: { x: number, y: number } | null) => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
   activeMode: 'none',
   restoreType: 'raw',
-  setActiveMode: (mode) => set((state) => ({ activeMode: state.activeMode === mode ? 'none' : mode })),
+  setActiveMode: (mode) => set({ activeMode: mode }),
   toggleRestoreType: () => set((state) => ({ restoreType: state.restoreType === 'raw' ? 'clean' : 'raw' })),
   
   brushSize: 25,
@@ -65,20 +72,27 @@ export const useToolStore = create<ToolState>((set) => ({
   setFontColor: (color) => set({ fontColor: color }),
   fontFamily: "'Comic Neue', cursive",
   setFontFamily: (font) => set({ fontFamily: font }),
+  
+  // 🚀 ĐÃ BỔ SUNG GIÁ TRỊ THỰC THI CHO CÁC HÀM STYLE
+  isBold: false,
+  setIsBold: (val) => set({ isBold: val }),
+  isItalic: false,
+  setIsItalic: (val) => set({ isItalic: val }),
+  isUppercase: false,
+  setIsUppercase: (val) => set({ isUppercase: val }),
+
   showText: true,
   setShowText: (show) => set({ showText: show }),
 
   customFonts: [],
-  addCustomFont: (font) => set((state) => ({ 
-    customFonts: [font, ...state.customFonts] 
-  })),
+  addCustomFont: (font) => set((state) => ({ customFonts: [font, ...state.customFonts] })),
 
   scanModal: null,
   setScanModal: (data) => set({ scanModal: data }),
 
   isZenMode: false,
   toggleZenMode: () => set((state) => ({ isZenMode: !state.isZenMode })),
-  // ... (sau isZenMode: false)
+  
   showLeftPanel: true,
   showRightPanel: true,
   toggleLeftPanel: () => set((state) => ({ showLeftPanel: !state.showLeftPanel })),
@@ -86,4 +100,7 @@ export const useToolStore = create<ToolState>((set) => ({
   
   isComparing: false,
   setIsComparing: (val) => set({ isComparing: val }),
+
+  actionPosition: null,
+  setActionPosition: (pos) => set({ actionPosition: pos })
 }));

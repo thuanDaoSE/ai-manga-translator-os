@@ -3,21 +3,8 @@ import { useToolStore } from '../../store/useToolStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useConfigStore } from '../../store/useConfigStore';
 import { mangaApi } from '../../services/api';
-import { getStroke } from 'perfect-freehand'; 
+import toast from 'react-hot-toast';
 
-function getSvgPathFromStroke(stroke: number[][]) {
-  if (!stroke.length) return '';
-  const d = stroke.reduce(
-    (acc, [x0, y0], i, arr) => {
-      const [x1, y1] = arr[(i + 1) % arr.length];
-      acc.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
-      return acc;
-    },
-    ['M', ...stroke[0], 'Q']
-  );
-  d.push('Z');
-  return d.join(' ');
-}
 
 interface Props { 
   rawUrl: string | null; 
@@ -32,7 +19,7 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
 
   const { activeMode, brushSize, currentZoom } = useToolStore();
   
-  const currentPoints = useRef<number[][]>([]);
+  const currentPoints = useRef<{x: number, y: number}[]>([]); 
   const isDrawing = useRef(false);
   const scanStart = useRef({ x: 0, y: 0 });
   const currentPos = useRef({ x: 0, y: 0 });
@@ -86,13 +73,37 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
       const rect = drawCanvas.getBoundingClientRect();
       const scaleX = drawCanvas.width / rect.width;
       const scaleY = drawCanvas.height / rect.height;
-      const pressure = e.pointerType === 'mouse' ? 1.0 : (e.pressure !== 0 ? e.pressure : 1.0);
-      
       return { 
         x: (e.clientX - rect.left) * scaleX, 
-        y: (e.clientY - rect.top) * scaleY, 
-        p: pressure 
+        y: (e.clientY - rect.top) * scaleY 
       };
+    };
+
+    // Nét cọ mượt Bezier
+    const drawStroke = (ctx: CanvasRenderingContext2D, points: {x: number, y: number}[], size: number, color: string) => {
+      if (points.length === 0) return;
+      
+      ctx.beginPath();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = size;
+      ctx.strokeStyle = color;
+
+      if (points.length < 3) {
+        ctx.moveTo(points[0].x, points[0].y);
+        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+        if (points.length === 1) ctx.lineTo(points[0].x + 0.1, points[0].y);
+        ctx.stroke();
+        return;
+      }
+
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length - 1; i++) {
+        const midPoint = { x: (points[i].x + points[i + 1].x) / 2, y: (points[i].y + points[i + 1].y) / 2 };
+        ctx.quadraticCurveTo(points[i].x, points[i].y, midPoint.x, midPoint.y);
+      }
+      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      ctx.stroke();
     };
 
     const renderCanvas = () => {
@@ -104,6 +115,7 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
        ctx.drawImage(committedCanvas, 0, 0);
 
        const mode = useToolStore.getState().activeMode;
+       const currentBrushSize = useToolStore.getState().brushSize;
 
        if (isDrawing.current) {
          if (mode === 'scan') {
@@ -113,23 +125,15 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
             ctx.strokeRect(scanStart.current.x, scanStart.current.y, currentPos.current.x - scanStart.current.x, currentPos.current.y - scanStart.current.y);
             ctx.setLineDash([]);
          } 
-         // 🚀 ĐÃ SỬA: Thêm mode === 'redraw' vào điều kiện render
          else if (mode === 'erase' || mode === 'restore' || mode === 'redraw') {
-            const strokeOutline = getStroke(currentPoints.current, {
-               size: useToolStore.getState().brushSize, thinning: 0.6, smoothing: 0.8, streamline: 0.5, simulatePressure: false,
-            });
-            const pathData = getSvgPathFromStroke(strokeOutline);
-            const path = new Path2D(pathData);
-
-            // 🚀 ĐÃ SỬA: Cho redraw xài chung nét vẽ màu đỏ của erase
             if (mode === 'erase' || mode === 'redraw') {
-               ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
-               ctx.fill(path);
+               drawStroke(ctx, currentPoints.current, currentBrushSize, "rgba(255, 0, 0, 0.5)");
             } else if (mode === 'restore') {
                const sourceCanvas = useToolStore.getState().restoreType === 'clean' ? cleanRef.current : rawRef.current;
                if (sourceCanvas) {
                   ctx.save();
-                  ctx.clip(path);
+                  drawStroke(ctx, currentPoints.current, currentBrushSize, "rgba(0, 0, 0, 1)");
+                  ctx.globalCompositeOperation = 'source-in';
                   ctx.drawImage(sourceCanvas, 0, 0);
                   ctx.restore();
                }
@@ -148,7 +152,7 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
          scanStart.current = { x: pos.x, y: pos.y };
          currentPos.current = { x: pos.x, y: pos.y };
       } else {
-         currentPoints.current = [[pos.x, pos.y, pos.p]];
+         currentPoints.current = [{x: pos.x, y: pos.y}];
       }
       renderCanvas();
     };
@@ -159,7 +163,7 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
       if (useToolStore.getState().activeMode === 'scan') {
          currentPos.current = { x: pos.x, y: pos.y };
       } else {
-         currentPoints.current.push([pos.x, pos.y, pos.p]);
+         currentPoints.current.push({x: pos.x, y: pos.y});
       }
       requestAnimationFrame(renderCanvas); 
     };
@@ -170,29 +174,34 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
       drawCanvas.releasePointerCapture(e.pointerId);
       
       const mode = useToolStore.getState().activeMode;
+      const currentBrushSize = useToolStore.getState().brushSize;
       
-      // 🚀 ĐÃ SỬA: Thêm mode === 'redraw' vào điều kiện commit nét vẽ
       if (mode === 'erase' || mode === 'restore' || mode === 'redraw') {
          const committedCtx = committedRef.current?.getContext('2d');
          if (committedCtx) {
-            const strokeOutline = getStroke(currentPoints.current, {
-               size: useToolStore.getState().brushSize, thinning: 0.6, smoothing: 0.8, streamline: 0.5, simulatePressure: false,
-            });
-            const pathData = getSvgPathFromStroke(strokeOutline);
-            const path = new Path2D(pathData);
-
-            // 🚀 ĐÃ SỬA: Cho redraw xài chung màu đỏ để tạo Mask
             if (mode === 'erase' || mode === 'redraw') {
-               committedCtx.fillStyle = "rgba(255, 0, 0, 0.5)";
-               committedCtx.fill(path);
+               // Lưu cứng nét vẽ vào canvas ẩn (committedCanvas)
+               drawStroke(committedCtx, currentPoints.current, currentBrushSize, "rgba(255, 0, 0, 0.5)");
+               
+               // 🚀 NÂNG CẤP UX: Hiện nút Action ngay tại vị trí thả chuột (trên màn hình)
+               useToolStore.getState().setActionPosition({ x: e.clientX, y: e.clientY });
+               
             } else if (mode === 'restore') {
                const sourceCanvas = useToolStore.getState().restoreType === 'clean' ? cleanRef.current : rawRef.current;
                if (sourceCanvas) {
-                  committedCtx.save();
-                  committedCtx.clip(path);
-                  committedCtx.drawImage(sourceCanvas, 0, 0);
-                  committedCtx.restore();
+                  const tempCanvas = document.createElement('canvas');
+                  tempCanvas.width = committedRef.current!.width;
+                  tempCanvas.height = committedRef.current!.height;
+                  const tCtx = tempCanvas.getContext('2d')!;
+                  
+                  drawStroke(tCtx, currentPoints.current, currentBrushSize, "rgba(0,0,0,1)");
+                  tCtx.globalCompositeOperation = 'source-in';
+                  tCtx.drawImage(sourceCanvas, 0, 0);
+                  
+                  committedCtx.drawImage(tempCanvas, 0, 0);
                }
+               // Với cọ khôi phục thì có thể không cần hiện bảng Action vì vẽ tới đâu AI gốc lộ ra tới đó luôn (hoặc sếp có thể bật lên tùy ý)
+               useToolStore.getState().setActionPosition(null); 
             }
          }
          currentPoints.current = []; 
@@ -207,12 +216,29 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
          try {
             const config = useConfigStore.getState();
             const pStore = useProjectStore.getState();
-            const currentUrl = pStore.processedUrls[pStore.currentIndex];
-            const filename = currentUrl ? currentUrl.split('/').pop()?.split('?')[0] : "Clean_" + pStore.fileQueue[pStore.currentIndex].name;
+            
+            // 🚀 BẮT CHUẨN ĐƯỜNG DẪN ẢNH 
+            const originalName = pStore.fileQueue[pStore.currentIndex]?.name || "";
+            const fileExt = originalName.includes('.') ? originalName.split('.').pop() : 'jpg'; 
+            const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${pStore.projectId}/raw/${pStore.pageIds[pStore.currentIndex]}.${fileExt}`;
+            const targetUrl = pStore.processedUrls[pStore.currentIndex] || serverRawUrl;
+
+            // 🚀 ĐÃ SỬA: Thêm .split('?')[0] để CHẶT ĐỨT cái đuôi chống cache (?t=...) trước khi gửi cho OpenCV
+            const relativePath = targetUrl.replace(`${import.meta.env.VITE_API_URL}/`, '').split('?')[0];
+            const cleanTargetUrl = targetUrl.split('?')[0]; // Chặt luôn đuôi ở URL gốc gửi đi cho chắc cú
 
             const result = await mangaApi.quickScan({
-               filename: filename, x1: Math.floor(scanStart.current.x), y1: Math.floor(scanStart.current.y),
-               x2: Math.floor(pos.x), y2: Math.floor(pos.y), genre: config.genre, tone: config.tone, pronouns: config.pronoun
+               filename: relativePath, 
+               image_url: cleanTargetUrl,   
+               x1: Math.floor(scanStart.current.x), 
+               y1: Math.floor(scanStart.current.y),
+               x2: Math.floor(pos.x), 
+               y2: Math.floor(pos.y), 
+               genre: config.genre, 
+               tone: config.tone, 
+               pronouns: config.pronoun,
+               // 🚀 BỔ SUNG DÒNG NÀY ĐỂ GỬI TỪ ĐIỂN LÊN SERVER
+               glossary: config.glossary 
             });
             
             if (result.status === "success") {

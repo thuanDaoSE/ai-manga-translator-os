@@ -1,42 +1,95 @@
+import { useEffect, useState, useRef } from 'react';
 import { useToolStore } from '../../store/useToolStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
-import { Trash2 } from 'lucide-react';
+import { mangaApi } from '../../services/api';
+// 🚀 Thêm icon Upload để làm nút tải Font
+import { Trash2, Upload } from 'lucide-react'; 
+import toast from 'react-hot-toast';
+import { saveFontToBrowser, loadAllSavedFonts } from '../../utils/fontManager';
 
 export default function FloatingTextToolbar() {
   const toolStore = useToolStore();
   const canvasStore = useCanvasStore();
   
+  const [serverFonts, setServerFonts] = useState<string[]>([]);
+  // 🚀 BẢN VÁ: Thêm State chứa Font cá nhân và Ref cho input file
+  const [customFonts, setCustomFonts] = useState<string[]>([]);
+  const fontInputRef = useRef<HTMLInputElement>(null);
+  
   const activeId = canvasStore.activeBubbleId;
   const activeBubble = canvasStore.bubbles.find(b => b.id === activeId);
 
+  useEffect(() => {
+    // 1. Tải Font từ Server
+    mangaApi.getFonts().then(data => {
+      if (data.fonts) {
+         const fontNames = data.fonts.map((f: string) => f.replace(/\.[^/.]+$/, ""));
+         setServerFonts(fontNames);
+      }
+    }).catch(err => console.error("Lỗi lấy danh sách font:", err));
+
+    // 2. 🚀 BẢN VÁ: Tải Font cá nhân từ Trình duyệt (IndexedDB)
+    loadAllSavedFonts()
+      .then(fonts => setCustomFonts(fonts))
+      .catch(err => console.error("Lỗi load font cá nhân:", err));
+  }, []);
+
   if (!activeId || !activeBubble) return null;
 
+  const currentSize = activeBubble.fontSize || toolStore.fontSize;
+
   const handleFontSize = (delta: number) => {
-    const newSize = Math.max(8, Math.min(toolStore.fontSize + delta, 150));
-    toolStore.setFontSize(newSize);
-    canvasStore.updateBubble(activeId, { fontSize: newSize });
+    const newSize = Math.max(8, Math.min(currentSize + delta, 150));
+    useToolStore.getState().setFontSize(newSize);
+    useCanvasStore.getState().updateBubble(activeId, { fontSize: newSize });
   };
 
   const handleFontFamily = (font: string) => {
-    toolStore.setFontFamily(font);
+    useToolStore.getState().setFontFamily(font);
     canvasStore.updateBubble(activeId, { fontFamily: font });
   };
 
   const handleFontColor = (color: string) => {
-    toolStore.setFontColor(color);
-    canvasStore.updateBubble(activeId, { fontColor: color });
+    useToolStore.getState().setFontColor(color);
+    useCanvasStore.getState().updateBubble(activeId, { fontColor: color });
   };
 
-  // 🚀 Cơ chế Absolute cũ nhưng có "Né trần nhà"
-  const isTooCloseToTop = activeBubble.y < 60;
+  // 🚀 BẢN VÁ: Hàm xử lý Upload Font Local
+  const handleUploadFont = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.ttf') && !file.name.toLowerCase().endsWith('.otf')) {
+      toast.error('Chỉ hỗ trợ file Font .TTF hoặc .OTF');
+      return;
+    }
+
+    const loadId = toast.loading("Đang cài đặt Font...");
+    try {
+      const fontName = await saveFontToBrowser(file);
+      
+      // Bổ sung font mới vào danh sách nếu chưa có
+      if (!customFonts.includes(fontName)) {
+        setCustomFonts(prev => [...prev, fontName]);
+      }
+      
+      // Tự động đổi font của ô chữ hiện tại sang font vừa tải lên luôn cho nóng
+      handleFontFamily(fontName);
+      toast.success(`Đã cài đặt Font: ${fontName}`, { id: loadId });
+    } catch (error) {
+      toast.error("Lỗi khi tải font!", { id: loadId });
+    }
+    e.target.value = ''; // Xóa input để up được file trùng tên nếu muốn
+  };
+
+  const isTooCloseToTop = activeBubble.y < 100;
   const topPosition = isTooCloseToTop 
-    ? activeBubble.y + activeBubble.h + 20 
-    : activeBubble.y - 65;
+    ? activeBubble.y + activeBubble.h + 80 
+    : activeBubble.y - 125;
 
   return (
     <div 
       className="toolbar-container absolute z-[100] flex items-center gap-3 p-2 rounded-xl glass-panel shadow-2xl animate-in fade-in zoom-in-95 pointer-events-auto"
-      // 🚀 BẢN VÁ: Ngăn chặn sự kiện click lan ra ngoài làm mất focus chữ
       onMouseDown={(e) => e.stopPropagation()} 
       style={{
          left: activeBubble.x + (activeBubble.w / 2),
@@ -46,30 +99,61 @@ export default function FloatingTextToolbar() {
       }}
     >
       
-      {/* 1. Nút tăng giảm Size chữ */}
+      {/* CỤM 1: CHỈNH CỠ CHỮ */}
       <div className="flex items-center bg-background rounded-md border border-border overflow-hidden h-8">
         <button className="px-3 hover:bg-border text-text-muted hover:text-text-main font-medium cursor-pointer" onClick={() => handleFontSize(-2)}>A-</button>
-        <span className="w-10 text-center text-xs font-bold">{toolStore.fontSize}</span>
+        <span className="w-10 text-center text-xs font-bold">{currentSize}</span>
         <button className="px-3 hover:bg-border text-text-muted hover:text-text-main font-medium cursor-pointer" onClick={() => handleFontSize(2)}>A+</button>
       </div>
 
-      {/* 2. Nút chọn Font chữ */}
-      <select value={toolStore.fontFamily} onChange={(e) => handleFontFamily(e.target.value)} className="bg-background border border-border text-text-main rounded-md px-2 h-8 outline-none max-w-32 text-xs focus:border-primary cursor-pointer">
-        {toolStore.customFonts.length > 0 && (
-          <optgroup label="⭐ Font Của Bạn">
-            {toolStore.customFonts.map((font, idx) => (
-              <option key={idx} value={font.value} style={{ fontFamily: font.value.replace(/'/g, "") }}>{font.name}</option>
-            ))}
-          </optgroup>
-        )}
-        <optgroup label="Mặc định">
-          <option value="'Comic Neue', cursive">Comic Neue</option>
-          <option value="'Anton', sans-serif">Anton</option>
-          <option value="'Creepster', cursive">Creepster</option>
-        </optgroup>
-      </select>
+      {/* 🚀 CỤM 2: CHỌN FONT CHỮ VÀ UPLOAD FONT */}
+      <div className="flex items-center gap-1">
+        <select 
+          value={toolStore.fontFamily} 
+          onChange={(e) => handleFontFamily(e.target.value)} 
+          className="bg-background border border-border text-text-main rounded-md px-2 h-8 outline-none max-w-32 text-xs focus:border-primary cursor-pointer"
+        >
+          {customFonts.length > 0 && (
+            <optgroup label="⭐ Font Cá Nhân">
+              {customFonts.map((fontName, idx) => (
+                <option key={`custom-${idx}`} value={fontName} style={{ fontFamily: fontName }}>{fontName}</option>
+              ))}
+            </optgroup>
+          )}
 
-      {/* 3. Nút chọn Màu sắc */}
+          {serverFonts.length > 0 && (
+            <optgroup label="☁️ Font Hệ Thống">
+              {serverFonts.map((fontName, idx) => (
+                <option key={`srv-${idx}`} value={fontName} style={{ fontFamily: fontName }}>{fontName}</option>
+              ))}
+            </optgroup>
+          )}
+          
+          <optgroup label="Mặc định">
+            <option value="'Comic Neue', cursive">Comic Neue</option>
+            <option value="'Anton', sans-serif">Anton</option>
+            <option value="Arial, sans-serif">Arial</option>
+          </optgroup>
+        </select>
+
+        {/* Nút Upload Font (Icon) */}
+        <input 
+          type="file" 
+          accept=".ttf,.otf" 
+          ref={fontInputRef} 
+          onChange={handleUploadFont} 
+          className="hidden" 
+        />
+        <button 
+          onClick={() => fontInputRef.current?.click()}
+          className="h-8 px-2 bg-primary/10 text-primary hover:bg-primary hover:text-white rounded-md transition-colors flex items-center justify-center cursor-pointer border border-primary/20"
+          title="Tải Font chữ cá nhân từ máy tính (.ttf, .otf)"
+        >
+          <Upload size={14} />
+        </button>
+      </div>
+
+      {/* CỤM 3: CHỌN MÀU CHỮ */}
       <div className="flex gap-1.5 items-center bg-background px-2 h-8 rounded-md border border-border">
         {['#000000', '#ffffff', '#ef4444', '#f59e0b'].map(c => (
           <button key={c} onClick={() => handleFontColor(c)} className="w-4 h-4 rounded-full border border-border hover:scale-125 transition-transform cursor-pointer" style={{ backgroundColor: c }} />
@@ -79,7 +163,7 @@ export default function FloatingTextToolbar() {
 
       <div className="w-px h-6 bg-border mx-1"></div>
 
-      {/* 4. Nút Xóa (Đã dọn dẹp sạch sẽ SFX và Đuôi bong bóng) */}
+      {/* CỤM 4: NÚT XÓA */}
       <button onClick={() => canvasStore.removeBubble(activeId)} className="p-1.5 text-text-muted hover:text-danger hover:bg-danger/20 rounded-md cursor-pointer" title="Xóa ô chữ">
         <Trash2 size={16} />
       </button>

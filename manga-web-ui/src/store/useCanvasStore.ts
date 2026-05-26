@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { temporal } from 'zundo'; // 🚀 Nhập ma thuật Zundo
+import { persist } from 'zustand/middleware';
 
 export interface TextBubble {
   id: string;
@@ -16,74 +16,62 @@ export interface TextBubble {
   isHidden?: boolean;
   isLocked?: boolean;
   tailDirection?: 'none' | 'left' | 'right';
+  
+  // 🚀 BỘ VŨ KHÍ STYLE MỚI
+  isBold?: boolean;
+  isItalic?: boolean;
+  isUppercase?: boolean;
+  outlineColor?: string;
+  outlineWidth?: number;
+  hasShadow?: boolean;
 }
 
 interface CanvasState {
   bubbles: TextBubble[];
   activeBubbleId: string | null;
+  hoveredBubbleId: string | null;
+  
+  setBubbles: (bubbles: TextBubble[]) => void;
   addBubble: (bubble: Omit<TextBubble, 'id'>) => void;
-  updateBubble: (id: string, updates: Partial<TextBubble>) => void;
+  updateBubble: (id: string, data: Partial<TextBubble>) => void;
   removeBubble: (id: string) => void;
   setActiveBubble: (id: string | null) => void;
-  clearBubbles: () => void;
-  setBubbles: (bubbles: TextBubble[]) => void; // 🚀 Thêm dòng này
-  
-  pageBubbles: Record<number, TextBubble[]>;
-  saveBubblesForPage: (pageIndex: number) => void;
-  loadBubblesForPage: (pageIndex: number) => void;
-
-  setBubblesForSpecificPage: (pageIndex: number, bubbles: TextBubble[]) => void;
-  hoveredBubbleId: string | null;
   setHoveredBubble: (id: string | null) => void;
+  clearBubbles: () => void;
 }
 
-// 🚀 Bọc toàn bộ logic cũ bằng temporal()
 export const useCanvasStore = create<CanvasState>()(
-  temporal(
+  persist(
     (set) => ({
       bubbles: [],
       activeBubbleId: null,
-      pageBubbles: {},
+      hoveredBubbleId: null,
 
-      // 🚀 SỬA LẠI DÒNG NÀY ĐỂ ĐẢM BẢO ID DUY NHẤT
-      addBubble: (bubble) => set((state) => ({
-        bubbles: [...state.bubbles, { ...bubble, id: Date.now().toString() + Math.random().toString(36).substring(2, 9) }]
+      setBubbles: (bubbles) => set({ bubbles }),
+      
+      addBubble: (bubbleData) => set((state) => ({
+        bubbles: [...state.bubbles, { ...bubbleData, id: Date.now().toString() }]
       })),
 
-      updateBubble: (id, updates) => set((state) => ({
-        bubbles: state.bubbles.map((b) => (b.id === id ? { ...b, ...updates } : b))
-      })),
+      // 🚀 BẢN VÁ QUAN TRỌNG NHẤT: Dùng spread operator {...b, ...data} để cập nhật ĐỘNG mọi thuộc tính
+      updateBubble: (id, data) => set((state) => ({
+    bubbles: state.bubbles.map((b) => 
+      // 🚀 SỬA THÀNH DÒNG NÀY: Gom toàn bộ dữ liệu cũ (...b) và đè dữ liệu mới lên (...data)
+      b.id === id ? { ...b, ...data } : b
+    )
+  })),
 
       removeBubble: (id) => set((state) => ({
-        bubbles: state.bubbles.filter((b) => b.id !== id),
-        activeBubbleId: state.activeBubbleId === id ? null : state.activeBubbleId
+        bubbles: state.bubbles.filter((b) => b.id !== id)
       })),
 
       setActiveBubble: (id) => set({ activeBubbleId: id }),
-      setBubbles: (bubbles) => set({ bubbles, activeBubbleId: null }),
-saveBubblesForPage: (pageIndex) => set((state) => ({
-        pageBubbles: { ...state.pageBubbles, [pageIndex]: state.bubbles }
-      })),
-      hoveredBubbleId: null,
       setHoveredBubble: (id) => set({ hoveredBubbleId: id }),
-      loadBubblesForPage: (pageIndex) => set((state) => ({
-        bubbles: state.pageBubbles[pageIndex] || [],
-        activeBubbleId: null
-      })),
-      // 🚀 THÊM ĐOẠN NÀY ĐỂ LƯU CHỮ CỦA TRANG ĐANG CHẠY NGẦM:
-      setBubblesForSpecificPage: (pageIndex, newBubbles) => set((state) => ({
-        pageBubbles: { ...state.pageBubbles, [pageIndex]: newBubbles }
-      })),
-      clearBubbles: () => set({ bubbles: [], activeBubbleId: null }),
+      clearBubbles: () => set({ bubbles: [] })
     }),
     {
-      // 🚀 CẤU HÌNH THÔNG MINH CHO ZUNDO
-      // Tối đa lưu 50 bước để bảo vệ RAM tuyệt đối
-      limit: 50,
-      // Tính năng cực hay: Gom nhóm thao tác kéo thả (Throttle)
-      // Nếu user kéo chữ liên tục trong 1 giây, nó chỉ tính là 1 bước Undo!
-      partialize: (state) => ({ bubbles: state.bubbles }) 
+      name: 'manga-canvas-storage',
+      partialize: (state) => ({ bubbles: state.bubbles }),
     }
-    
   )
 );

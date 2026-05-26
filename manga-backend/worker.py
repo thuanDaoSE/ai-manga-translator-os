@@ -106,6 +106,10 @@ def process_manga_page(self, filename: str, genre: str, tone: str, pronouns: str
         smart_mask = cv2.dilate(cv2.bitwise_and(fat_mask, cv2.bitwise_or(ctd_mask, white_regions)), np.ones((3, 3), np.uint8), iterations=1)
         mask = smart_mask.copy()
 
+        # 🚀 CHÈN BÍ THUẬT VÀO ĐÂY: Phình to mặt nạ bằng Elip để nuốt trọn viền đen (Anti-Aliasing)
+        dilation_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask = cv2.dilate(mask, dilation_kernel, iterations=1)
+
         # 🚀 Bắn log: 30%
         self.update_state(state='PROCESSING', meta={'progress': 30, 'message': 'Đang trích xuất tiếng Nhật (OCR)...'})
         broadcast_progress(task_id, 30, 'Đang đọc chữ & Tẩy nền (LaMa)...')
@@ -116,11 +120,18 @@ def process_manga_page(self, filename: str, genre: str, tone: str, pronouns: str
         ocr_batch_payload = []
         count = 1
 
-        # 2. ĐỌC CHỮ & XÓA NỀN CÙNG LÚC (Giữ nguyên phần dưới này)
+        # 2. ĐỌC CHỮ & XÓA NỀN CÙNG LÚC
         for cnt in contours:
-        # ...
             x, y, w, h = cv2.boundingRect(cnt)
-            if w < 10 or h < 10: continue
+            
+            # 🚀 BẢN VÁ: BỘ LỌC BỤI VÀ RÁC (MICRO-NOISE FILTER)
+            # Sếp vặn thông số MIN_SIZE ở đây.
+            # - Để 15 hoặc 20: Lọc rác cực sạch, nhưng có thể bỏ sót chữ Furigana siêu nhỏ.
+            # - Để 10 hoặc 12: Bắt chữ nhỏ tốt, nhưng dễ dính bụi.
+            MIN_SIZE = 16 
+            
+            if w < MIN_SIZE or h < MIN_SIZE: 
+                continue # Kích thước quá nhỏ -> Đích thị là hạt bụi, bỏ qua luôn!
                 
             japanese_text = extract_text_manga_ocr(image[y:y+h, x:x+w])
             extracted_data.append({"id": count, "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h}, "japanese": japanese_text, "vietnamese": ""})
@@ -169,7 +180,9 @@ def process_manga_page(self, filename: str, genre: str, tone: str, pronouns: str
         broadcast_progress(task_id, 70, 'DeepSeek đang dịch nội dung...')
         
         try:
-            glossary_instruction = f"5. TỪ ĐIỂN: {glossary}" if glossary.strip() else ""
+            # 🚀 ÉP KHUÔN TỪ ĐIỂN MẠNH HƠN
+            glossary_instruction = f"5. TỪ ĐIỂN BẮT BUỘC SỬ DỤNG (Không được tự ý dịch khác):\n{glossary}" if glossary.strip() else ""
+            
             prompt = f"""Bạn là dịch giả truyện tranh. 
             BỐI CẢNH: Thể loại: {genre}, Văn phong: {tone}, Xưng hô: {pronouns}.
             NHIỆM VỤ: Dịch mảng JSON sau sang tiếng Việt. 
@@ -184,7 +197,8 @@ def process_manga_page(self, filename: str, genre: str, tone: str, pronouns: str
             response = client.chat.completions.create(
                 model="deepseek-chat",
                 messages=[{"role": "system", "content": "You output strict JSON."}, {"role": "user", "content": prompt}],
-                response_format={'type': 'json_object'}
+                response_format={'type': 'json_object'},
+                temperature=0.3 # 🚀 HẠ TEMPERATURE ĐỂ AI BỚT SÁNG TẠO VÀ TUÂN THỦ TỪ ĐIỂN
             )
             
             translated_array = json.loads(response.choices[0].message.content).get("translations", [])
@@ -201,24 +215,101 @@ def process_manga_page(self, filename: str, genre: str, tone: str, pronouns: str
         broadcast_progress(task_id, 100, 'Hoàn tất!', state='SUCCESS')
         
         # 🚀 SỬA ĐỂ LƯU VÀO THƯ MỤC CLEAN CỦA PROJECT
+        # ... (Các đoạn code lưu clean_image ở trên giữ nguyên)
         clean_path = filename.replace("/raw/", "/clean/")
-        
-        # 🚀 BẢN VÁ 1: Bắt buộc tạo thư mục /clean/ trước khi lưu, nếu không cv2 sẽ im lặng thất bại!
         os.makedirs(os.path.dirname(clean_path), exist_ok=True)
-        
         cv2.imwrite(clean_path, clean_image)
         
+        self.update_state(state='PROCESSING', meta={'progress': 100, 'message': 'Hoàn thiện...'})
+        broadcast_progress(task_id, 100, 'Hoàn tất!', state='SUCCESS')
+        
+        # 🚀 ĐÃ SỬA: Xóa bỏ psd_url và jsx_url đi vì Frontend và main.py đã tự lo!
         return {
             "status": "success",
             "clean_url": f"{get_base_url()}/{clean_path}",
             "data": extracted_data 
         }
+        
     except Exception as e:
         print("\n" + "="*50)
         print("🚨 LỖI NGHIÊM TRỌNG TRONG CELERY WORKER:")
-        traceback.print_exc()
-        print("="*50 + "\n")
-        self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
-        # 🚀 Bắn log lỗi
-        broadcast_progress(task_id, 0, f"Lỗi: {str(e)}", state='FAILURE')
-        raise e
+
+
+
+import json
+import os
+
+def create_jsx_script(extracted_data, output_jsx_path):
+    """
+    Hàm này nhận dữ liệu từ AI và đẻ ra 1 file Script (.jsx) cho Photoshop.
+    """
+    js_data = []
+    for item in extracted_data:
+        # Lấy tọa độ khung chứa chữ
+        box = item.get('box', [0, 0, 100, 100])
+        x, y, x_max, y_max = box[0], box[1], box[2], box[3]
+        
+        # Bỏ các box không có bản dịch
+        text = item.get('vietnamese', '').strip()
+        if not text:
+            continue
+            
+        js_data.append({
+            "text": text,
+            "x": x,
+            "y": y,
+            "w": x_max - x,
+            "h": y_max - y
+        })
+    
+    # Biến List Python thành Array Javascript an toàn
+    js_array_str = json.dumps(js_data, ensure_ascii=False)
+    
+    # Đóng gói thành mã Adobe ExtendScript
+    jsx_content = f"""// Script Tu Dong Hoa Typesetting Mangaf
+// Duoc tao boi He thong AI SaaS
+
+if (app.documents.length > 0) {{
+    var doc = app.activeDocument;
+    app.preferences.rulerUnits = Units.PIXELS; // Ep he toa do Pixel
+    
+    var mangaData = {js_array_str};
+    
+    // Tao 1 Group xit xam de chua toan bo Text
+    var textGroup = doc.layerSets.add();
+    textGroup.name = "[3] Text AI (Tu Dong)";
+    
+    for (var i = 0; i < mangaData.length; i++) {{
+        var item = mangaData[i];
+        
+        // Tao Text Layer moi
+        var textLayer = textGroup.artLayers.add();
+        textLayer.kind = LayerKind.TEXT;
+        
+        var ti = textLayer.textItem;
+        ti.kind = TextType.PARAGRAPHTEXT; // Chuan Paragraph de chu tu xuong dong
+        ti.width = item.w;
+        ti.height = item.h;
+        ti.position = [item.x, item.y];
+        ti.contents = item.text;
+        
+        // Dinh dang font chu co ban (Can giua, Size)
+        try {{
+            ti.size = new UnitValue(16, "px");
+            ti.justification = Justification.CENTER;
+        }} catch(e) {{}}
+    }}
+    
+    // Thong bao khi xong
+    alert("Thanh cong! Đã do xong " + mangaData.length + " bong bong thoai!");
+}} else {{
+    alert("Vui long mo file PSD len truoc khi chay script!");
+}}
+"""
+    # Lưu file ra ổ cứng
+    with open(output_jsx_path, 'w', encoding='utf-8') as f:
+        f.write(jsx_content)
+        
+    return output_jsx_path
+
+

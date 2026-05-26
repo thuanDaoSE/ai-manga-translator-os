@@ -1,75 +1,113 @@
-import { useEffect } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import Topbar from './components/Layout/Topbar';
 import Sidebar from './components/Layout/Sidebar';
 import Workspace from './components/Layout/Workspace';
-import LayerPanel from './components/Layout/LayerPanel';
 import TranslationConfigModal from './components/Modals/TranslationConfigModal';
 import LensModal from './components/Modals/LensModal';
-import AuthModal from './components/Modals/AuthModal'; // 🚀 Kéo AuthModal vào
+import { useEffect, useRef } from 'react';
+import AuthModal from './components/Modals/AuthModal';
 import { useToolStore } from './store/useToolStore';
 import { useCanvasStore } from './store/useCanvasStore';
-import { useAuthStore } from './store/useAuthStore'; // 🚀 Kéo AuthStore vào
+import { useProjectStore } from './store/useProjectStore';
+import { useAuthStore } from './store/useAuthStore';
 import { supabase } from './services/supabaseClient';
 import { Toaster } from 'react-hot-toast';
 
+import TestFabric from './components/TestFabric';
+import { mangaApi } from './services/api';
+
+// 🚀 BẢN VÁ: Import hàm quản lý Font cá nhân
+import { loadAllSavedFonts } from './utils/fontManager'; 
+
 export default function App() {
-  const { isZenMode, toggleZenMode, setActiveMode, showLeftPanel, showRightPanel } = useToolStore();
-  const { undo, redo } = useCanvasStore.temporal.getState();
-  const { setUser } = useAuthStore();
+  const { isZenMode, toggleZenMode, setActiveMode, showLeftPanel, scanModal } = useToolStore();
+  const { setUser, session } = useAuthStore(); 
+  const { projectId } = useProjectStore(); 
+  const hasRestored = useRef(false);
 
-  // 🚀 TỰ ĐỘNG KIỂM TRA ĐĂNG NHẬP KHI BẬT WEB
+  // 🚀 KHÔI PHỤC FONT TỪ TRÌNH DUYỆT LÊN NGAY KHI MỞ WEB
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session);
-    });
+    loadAllSavedFonts()
+      .then(fonts => {
+         if (fonts.length > 0) console.log("✅ Đã khôi phục các font cá nhân:", fonts);
+      })
+      .catch(console.error);
+  }, []);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session);
-    });
-
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setUser(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setUser(session));
     return () => subscription.unsubscribe();
   }, [setUser]);
 
-  // CÀI ĐẶT BỘ PHÍM TẮT CHUẨN NGÀNH
+  useEffect(() => {
+    const savedProjectId = localStorage.getItem('active_manga_project_id');
+    
+    // Nếu có đăng nhập, có ID dự án, VÀ CHƯA TỪNG KHÔI PHỤC TRONG PHIÊN NÀY
+    if (session?.user?.id && savedProjectId && !hasRestored.current) {
+      console.log("🔄 Đang khôi phục phiên làm việc cho Dự án:", savedProjectId);
+      
+      hasRestored.current = true; // 🚀 Kéo cờ lên ngay lập tức để chặn ngắt vòng lặp!
+      
+      mangaApi.getProjectPages(savedProjectId)
+        .then((data) => {
+          if (data && data.pages && data.pages.length > 0) {
+            useProjectStore.getState().restoreProject(data.pages);
+          }
+        })
+        .catch((err) => {
+          console.error("Không thể khôi phục:", err);
+          useProjectStore.getState().clearProject(); 
+        });
+    }
+  }, [session?.user?.id]);
+
   useHotkeys('v', () => setActiveMode('none'), { enableOnFormTags: false });
   useHotkeys('b', () => setActiveMode('restore'), { enableOnFormTags: false });
   useHotkeys('e', () => setActiveMode('erase'), { enableOnFormTags: false });
   useHotkeys('s', () => setActiveMode('scan'), { enableOnFormTags: false });
-  useHotkeys('tab', (e) => { 
+  useHotkeys('tab', (e) => { e.preventDefault(); toggleZenMode(); }, { enableOnFormTags: false });
+  
+  // 🚀 Phím tắt Undo/Redo an toàn
+  useHotkeys('mod+z', (e) => { 
     e.preventDefault(); 
-    toggleZenMode(); 
+    useProjectStore.getState().undoUrl(); 
+    useCanvasStore.getState().undo(); 
   }, { enableOnFormTags: false });
-  useHotkeys('mod+z', (e) => { e.preventDefault(); undo(); }, { enableOnFormTags: false });
-  useHotkeys('mod+y, mod+shift+z', (e) => { e.preventDefault(); redo(); }, { enableOnFormTags: false });
+  
+  useHotkeys('mod+y, mod+shift+z', (e) => { 
+    e.preventDefault(); 
+    useProjectStore.getState().redoUrl(); 
+    useCanvasStore.getState().redo(); 
+  }, { enableOnFormTags: false });
 
   return (
     <div className="flex flex-col h-screen bg-background text-text-main overflow-hidden font-sans">
-      <Toaster position="top-center" reverseOrder={false} /> {/* 🚀 Thêm dòng này */}
+      <Toaster position="top-center" reverseOrder={false} />
       <AuthModal /> 
 
-      <div 
-        className="grid transition-[grid-template-rows] duration-300 ease-in-out"
-        style={{ gridTemplateRows: isZenMode ? '0fr' : '1fr' }}
-      >
-        <div className="overflow-hidden">
-          <Topbar />
-        </div>
+      <div className="grid transition-[grid-template-rows] duration-300 ease-in-out" style={{ gridTemplateRows: isZenMode ? '0fr' : '1fr' }}>
+        <div className="overflow-hidden"><Topbar /></div>
       </div>
 
-      <div 
-        className="flex-1 transition-all duration-300 ease-in-out grid"
-        style={{
-          gridTemplateColumns: `${isZenMode || !showLeftPanel ? '0px' : '256px'} 1fr ${isZenMode || !showRightPanel ? '0px' : '256px'}`
-        }}
-      >
-        <div className="overflow-hidden bg-sidebar"><Sidebar /></div>
-        <div className="overflow-hidden relative flex flex-col"><Workspace /></div>
-        <div className="overflow-hidden bg-sidebar"><LayerPanel /></div>
+      <div className="flex-1 flex overflow-hidden">
+        {(!isZenMode && showLeftPanel) && (
+          <div className="w-64 shrink-0 bg-sidebar border-r border-border shadow-xl z-20 transition-all">
+            <Sidebar />
+          </div>
+        )}
+        
+        <div className="flex-1 relative flex flex-col overflow-hidden">
+          <Workspace />
+        </div>
+
+        {(!isZenMode && scanModal?.isOpen) && (
+          <div className="w-[340px] shrink-0 bg-sidebar border-l border-border shadow-2xl z-20 transition-all animate-in slide-in-from-right-8 duration-300">
+            <LensModal />
+          </div>
+        )}
       </div>
-      
       <TranslationConfigModal />
-      <LensModal />
     </div>
   );
 }
