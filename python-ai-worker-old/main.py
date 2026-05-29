@@ -4,6 +4,7 @@ import json
 import time
 import shutil
 import base64
+import httpx
 import numpy as np
 import urllib.request
 from typing import List
@@ -18,6 +19,19 @@ import onnxruntime as ort
 from transformers import AutoProcessor, AutoModelForCausalLM
 from openai import OpenAI 
 from dotenv import load_dotenv
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI() # Chỗ này sếp đã có sẵn rồi
+
+# 🚀 DÁN NGUYÊN KHỐI NÀY VÀO NGAY DƯỚI DÒNG Khởi tạo app
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Cho phép tất cả các web (cổng 5500, 3000...) được gọi vào
+    allow_credentials=True,
+    allow_methods=["*"],  # Cho phép mọi loại request (GET, POST, PUT, DELETE)
+    allow_headers=["*"],
+)
 
 # ==========================================
 # KHAI BÁO CLASS DỮ LIỆU (PYDANTIC)
@@ -54,10 +68,11 @@ print("🚀 Đang khởi động hệ thống AI Manga Translator OS (Bản Full
 # CẤU HÌNH API DEEPSEEK
 # ==========================================
 load_dotenv()
-api_key = os.getenv("DEEPSEEK_API_KEY")
-if not api_key:
-    raise ValueError("🚨 Thiếu DEEPSEEK_API_KEY trong file .env!")
-client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+client = OpenAI(
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
+    base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"), # Đảm bảo đúng base_url
+    http_client=httpx.Client(timeout=120.0) # 🚀 BÍ QUYẾT LÀ DÒNG NÀY
+)
 
 # ==========================================
 # NẠP CÁC AI LOCAL (CTD & LAMA ONNX)
@@ -118,7 +133,6 @@ except Exception as e:
 # ==========================================
 # KHỞI TẠO MÁY CHỦ FASTAPI
 # ==========================================
-app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -567,3 +581,8 @@ async def quick_scan(payload: QuickScanPayload):
         "japanese": japanese_text,
         "vietnamese": vietnamese_text
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    # Tham số host="0.0.0.0" để cho phép mạng Lan truy cập, port=8000 là cổng chạy
+    uvicorn.run(app, host="0.0.0.0", port=8000)
