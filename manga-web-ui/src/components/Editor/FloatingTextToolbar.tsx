@@ -145,7 +145,18 @@ export default function FloatingTextToolbar() {
           className="hidden" 
         />
         <button 
-          onClick={() => fontInputRef.current?.click()}
+          onClick={() => {
+            // 🛡️ BẬT KHIÊN PHÁP LÝ Ở ĐÂY
+            const isAgreed = window.confirm(
+              "KHIÊN PHÁP LÝ & BẢN QUYỀN 🛡️\n\n" +
+              "Bằng việc tải font này lên, bạn xác nhận mình có quyền sử dụng hợp pháp. " +
+              "Font sẽ được lưu nội bộ trên máy của bạn. Hệ thống không lưu trữ và không chịu trách nhiệm về các vấn đề bản quyền.\n\n" +
+              "Bạn có đồng ý tiếp tục?"
+            );
+            if (isAgreed) {
+              fontInputRef.current?.click();
+            }
+          }}
           className="h-8 px-2 bg-primary/10 text-primary hover:bg-primary hover:text-white rounded-md transition-colors flex items-center justify-center cursor-pointer border border-primary/20"
           title="Tải Font chữ cá nhân từ máy tính (.ttf, .otf)"
         >

@@ -21,6 +21,8 @@ export default function Workspace() {
   const projectStore = useProjectStore();
   const canvasStore = useCanvasStore();
 
+  const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
+
   
 
   // =========================================================
@@ -197,6 +199,8 @@ export default function Workspace() {
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
+
+    setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
     const container = containerRef.current;
     if (!container) return;
 
@@ -369,7 +373,17 @@ export default function Workspace() {
 
       {displayUrl ? (
         <>
-          <div id="workspace-container" ref={workspaceContainerRef} className="absolute left-0 top-0 shadow-2xl will-change-transform origin-top-left" style={{ transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${currentZoom})` }}>
+          {/* 🚀 3. SỬA LẠI CÁI DIV NÀY: Khóa width và height chuẩn 1:1 theo ảnh gốc */}
+          <div 
+            id="workspace-container" 
+            ref={workspaceContainerRef} 
+            className="absolute left-0 top-0 shadow-2xl will-change-transform origin-top-left" 
+            style={{ 
+              width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', 
+              height: imgSize.h > 0 ? `${imgSize.h}px` : 'auto',
+              transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${currentZoom})` 
+            }}
+          >
 
             {/* Lớp RAW (Gốc) - Nằm dưới cùng */}
             <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block max-w-none m-0 p-0 pointer-events-none select-none" onLoad={handleImageLoad} />

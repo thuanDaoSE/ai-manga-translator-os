@@ -253,14 +253,30 @@ if (app.documents.length > 0) {
       {/* PHẢI: Zoom, Undo, Xuất file */}
       <div className="flex items-center gap-1">
         
+        {/* 🚀 BỔ SUNG 2 NÚT UNDO / REDO Ở ĐÂY */}
+        <button 
+          onClick={() => useCanvasStore.getState().undo()} 
+          disabled={useCanvasStore.getState().past.length === 0}
+          className={`p-1.5 rounded-md transition-colors ${useCanvasStore.getState().past.length === 0 ? 'text-gray-600/50 cursor-not-allowed' : 'text-text-muted hover:text-text-main hover:bg-border cursor-pointer'}`}
+          title="Hoàn tác (Ctrl+Z)"
+        >
+          <Undo2 size={18} />
+        </button>
+        <button 
+          onClick={() => useCanvasStore.getState().redo()} 
+          disabled={useCanvasStore.getState().future.length === 0}
+          className={`p-1.5 rounded-md transition-colors ${useCanvasStore.getState().future.length === 0 ? 'text-gray-600/50 cursor-not-allowed' : 'text-text-muted hover:text-text-main hover:bg-border cursor-pointer'}`}
+          title="Làm lại (Ctrl+Y)"
+        >
+          <Redo2 size={18} />
+        </button>
+        
+        <div className="w-px h-5 bg-border mx-2"></div>
+        {/* KẾT THÚC BỔ SUNG UNDO/REDO */}
+
         <button onClick={() => setZoom(currentZoom - 0.1)} className="p-1.5 text-text-muted hover:text-text-main hover:bg-border rounded-md cursor-pointer"><ZoomOut size={18} /></button>
         <span className="w-12 text-center font-bold text-xs text-text-main">{Math.round(currentZoom * 100)}%</span>
         <button onClick={() => setZoom(currentZoom + 0.1)} className="p-1.5 text-text-muted hover:text-text-main hover:bg-border rounded-md cursor-pointer"><ZoomIn size={18} /></button>
-        
-        <div className="w-px h-5 bg-border mx-2"></div>
-
-        {/* 🚀 ĐÃ XÓA SẠCH NÚT FOLDER VÀ SAVE RÁC Ở ĐÂY */}
-
         
         <div className="w-px h-5 bg-border mx-2"></div>
 

@@ -20,7 +20,7 @@ import base64
 import shutil
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException,Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from worker import process_manga_page, lama_session, mocr, client, text_detector, celery_app
+# from worker import process_manga_page, lama_session, mocr, client, text_detector, celery_app
 from jose import jwt, JWTError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -30,12 +30,61 @@ import redis.asyncio as aioredis
 import json
 import asyncio
 # Sửa dòng import này (khoảng dòng 17)
-from worker import process_manga_page, lama_session, mocr, client, text_detector
-from celery.result import AsyncResult
+# from worker import process_manga_page, lama_session, mocr, client, text_detector
+# from celery.result import AsyncResult
 
 from pydantic import BaseModel
 from typing import List, Dict, Any
 
+# 1. KHỞI TẠO APP TRƯỚC
+app = FastAPI(title="Manga AI Backend API", version="2.0.0")
+
+
+
+# ... (Các import cũ của sếp) ...
+
+from fastapi import FastAPI
+# 🚀 IMPORT OPENTELEMETRY
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+# 1. KHỞI TẠO APP TRƯỚC
+app = FastAPI(title="Manga AI Backend API")
+
+# ==========================================
+# 🚀 KÍCH HOẠT TRACING BẮN VỀ TRACE2PROMPT
+# ==========================================
+provider = TracerProvider()
+# Bắn thẳng về cổng 4318 mà trace2prompt đang lắng nghe
+otlp_exporter = OTLPSpanExporter(endpoint="http://localhost:4318/v1/traces") 
+processor = BatchSpanProcessor(otlp_exporter)
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
+
+# 🚀 Tự động Tracking TOÀN BỘ các API Endpoint của FastAPI!
+FastAPIInstrumentor.instrument_app(app)
+
+# Khởi tạo Tracer thủ công cho các hàm nội bộ (nếu cần dùng)
+tracer = trace.get_tracer(__name__)
+# ==========================================
+os.environ["OTEL_SDK_DISABLED"] = "true"
+# ... (Các code setup CORS, DB cũ của sếp giữ nguyên) ...
+
+from openai import OpenAI
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+deepseek_client = OpenAI(
+    api_key=os.environ.get("DEEPSEEK_API_KEY"), 
+    base_url="https://api.deepseek.com"
+)
+
+
+# 2. RỒI MỚI GẮN LIMITER VÀO APP SAU
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -61,7 +110,7 @@ LENS_CACHE = {}
 
 
 # --- IMPORT WORKER TẠM THỜI CHƯA ĐỤNG TỚI ---
-from worker import process_manga_page, lama_session, mocr, client 
+# from worker import process_manga_page, lama_session, mocr, client 
 
 import urllib.request
 from fastapi import APIRouter, HTTPException
@@ -95,7 +144,6 @@ def get_comfyui_history(prompt_id):
     response = urllib.request.urlopen(req)
     return json.loads(response.read())
 
-app = FastAPI(title="Manga AI Backend API", version="2.0.0")
 
 
 app.add_middleware(
@@ -352,43 +400,154 @@ async def upload_page_to_project(
     
     return {"status": "success", "page_id": page_id}
 
+
+import httpx
+import base64
+import uuid
+import asyncio
+from fastapi import BackgroundTasks
+
+# ==========================================
+# CẤU HÌNH RUNPOD LẤY TỪ FILE .ENV (CHUẨN BẢO MẬT)
+# ==========================================
+RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY")
+RUNPOD_ENDPOINT_ID = os.getenv("RUNPOD_ENDPOINT_ID")
+
+# 🚀 THÊM DÒNG NÀY VÀO ĐẦU FILE (Dưới các dòng import)
+import redis
+redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+
+def broadcast_progress(task_id, progress, message, state="PROCESSING"):
+    """Hàm bắn SSE Realtime cho Frontend"""
+    payload = json.dumps({"progress": progress, "message": message, "state": state})
+    redis_client.publish(f"task_progress:{task_id}", payload)
+
+# Hàm chạy ngầm trong FastAPI
+async def runpod_translation_task(task_id: str, raw_path: str, clean_path: str, payload_data: dict, base_url: str):
+    try:
+        # Cập nhật tiến trình cho Frontend biết
+        broadcast_progress(task_id, 10, "Đang khởi động AI Serverless (Cold Start)...")
+        
+        # 1. Đọc ảnh và hóa thành Base64
+        with open(raw_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode('utf-8')
+
+        runpod_payload = {
+            "input": {
+                "image_base64": img_b64,
+                "genre": payload_data.get('genre'),
+                "tone": payload_data.get('tone'),
+                "pronouns": payload_data.get('pronouns'),
+                "glossary": payload_data.get('glossary')
+            }
+        }
+
+        headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
+        
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            # 2. Bắn Request Lên Runpod
+            res = await client.post(f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/run", json=runpod_payload, headers=headers)
+            job_data = res.json()
+            runpod_job_id = job_data.get("id")
+            
+            broadcast_progress(task_id, 30, "AI đang xóa nền và dịch...")
+
+            # 3. Vòng lặp Polling hỏi thăm sức khỏe (Cách nhau 3 giây để không bị limit)
+            while True:
+                status_res = await client.get(f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{runpod_job_id}", headers=headers)
+                status_data = status_res.json()
+                status = status_data.get("status")
+
+                if status == "COMPLETED":
+                    broadcast_progress(task_id, 90, "Đang tải ảnh sạch về máy...")
+                    
+                    output = status_data.get("output", {})
+                    clean_b64 = output.get("clean_image_base64")
+                    extracted_data = output.get("data", [])
+                    
+                    # Giải mã Base64 lưu thành ảnh JPG lên VPS
+                    with open(clean_path, "wb") as f:
+                        f.write(base64.b64decode(clean_b64))
+
+                    # 🚀 MẸO CHE MẮT FRONTEND: Lưu vào Redis để Frontend tưởng Celery vẫn đang chạy
+                    result_payload = {
+                        "status": "SUCCESS",
+                        "result": {
+                            "clean_url": clean_path.replace("./workspace", f"{base_url}/workspace"),
+                            "data": extracted_data
+                        }
+                    }
+                    redis_client.set(f"celery-task-meta-{task_id}", json.dumps(result_payload), ex=3600)
+                    
+                    broadcast_progress(task_id, 100, "Hoàn tất!", state="SUCCESS")
+                    break
+
+                elif status == "FAILED":
+                    broadcast_progress(task_id, 0, "Lỗi từ Runpod!", state="FAILURE")
+                    break
+                
+                # Chờ 3s rồi hỏi tiếp
+                await asyncio.sleep(3)
+
+    except Exception as e:
+        broadcast_progress(task_id, 0, f"Lỗi VPS: {str(e)}", state="FAILURE")
+
 # ==========================================
 # CÁC API CŨ (Tạm thời giữ nguyên để không làm gãy tính năng cũ)
 # ==========================================
 # ... (Các API /api/translate, /api/task, /api/quick-scan giữ nguyên như cũ, 
 # ở bước sau ta sẽ sửa chúng để móc nối với Database)
 # ==========================================
-# API THỜI GIAN THỰC (SSE + REDIS PUB/SUB)
+# 2. HÓNG KẾT QUẢ RUNPOD (Bản có Còi Báo Động in ra Terminal)
 # ==========================================
 @app.get("/api/stream/{task_id}")
-async def stream_task_progress(task_id: str):
-    """Đường ống Server-Sent Events (SSE) đẩy log trực tiếp về Frontend"""
+async def stream_progress(task_id: str):
     async def event_generator():
-        # Kết nối tới Redis
-        r = await aioredis.from_url("redis://localhost:6379/0")
-        pubsub = r.pubsub()
-        channel_name = f"task_progress:{task_id}"
-        await pubsub.subscribe(channel_name)
+        runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{task_id}"
+        headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
         
-        try:
-            # Liên tục lắng nghe kênh Redis
-            async for message in pubsub.listen():
-                if message['type'] == 'message':
-                    data_str = message['data'].decode('utf-8')
+        async with httpx.AsyncClient() as client:
+            while True:
+                try:
+                    res = await client.get(runpod_url, headers=headers, timeout=10.0)
+                    data = res.json()
+                    status = data.get("status")
                     
-                    # Trả data về Frontend theo đúng chuẩn SSE (bắt buộc có chữ data: và \n\n)
-                    yield f"data: {data_str}\n\n"
-                    
-                    # Nếu thành công hoặc thất bại thì tự động ngắt ống nước
-                    parsed = json.loads(data_str)
-                    if parsed.get('state') in ['SUCCESS', 'FAILURE']:
+                    if status == "COMPLETED":
+                        output = data.get("output", {})
+                        
+                        # 🚨 CÒI BÁO ĐỘNG SẼ KÊU Ở ĐÂY NẾU AI CRASH
+                        if isinstance(output, dict) and output.get("status") == "error":
+                            print(f"\n❌❌❌ AI TRÊN MÂY BỊ CRASH! LỖI LÀ:\n{output}\n❌❌❌\n")
+                            yield f"data: {json.dumps({'state': 'FAILURE', 'progress': 0, 'message': 'AI lỗi: ' + str(output.get('message', ''))})}\n\n"
+                        else:
+                            print("\n✅✅✅ AI DỊCH XONG! TRẢ KẾT QUẢ VỀ FRONTEND...\n")
+                            yield f"data: {json.dumps({'state': 'SUCCESS', 'progress': 100, 'message': 'Runpod hoàn tất!'})}\n\n"
+                        
+                        await asyncio.sleep(2.0) # Tăng lên 2s cho Frontend kịp đóng kết nối
                         break
-        finally:
-            await pubsub.unsubscribe(channel_name)
-            await r.close()
-
-    # StreamingResponse giữ HTTP connection mở liên tục
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+                        
+                    elif status in ["FAILED", "CANCELLED"]:
+                        print(f"\n❌❌❌ RUNPOD SẬP NGUỒN: {data}\n❌❌❌\n")
+                        yield f"data: {json.dumps({'state': 'FAILURE', 'progress': 0, 'message': 'AI trên mây báo lỗi!'})}\n\n"
+                        await asyncio.sleep(2.0)
+                        break
+                        
+                    elif status == "IN_PROGRESS":
+                        yield f"data: {json.dumps({'state': 'PROCESSING', 'progress': 60, 'message': 'Runpod đang dịch...'})}\n\n"
+                    elif status == "IN_QUEUE":
+                        yield f"data: {json.dumps({'state': 'PROCESSING', 'progress': 10, 'message': 'Đang chờ máy trống...'})}\n\n"
+                        
+                except Exception as e:
+                    yield f"data: {json.dumps({'state': 'PROCESSING', 'progress': 50, 'message': 'Đang đồng bộ mạng...'})}\n\n"
+                    
+                await asyncio.sleep(2)
+                
+    return StreamingResponse(
+        event_generator(), 
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
 
 # ==========================================
 # API DỊCH: KẾT NỐI DATABASE & WORKER
@@ -418,13 +577,7 @@ async def save_results(
         print("Lỗi save-results:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-# API TRẢ KẾT QUẢ SAU KHI DỊCH XONG
-@app.get("/api/task/{task_id}")
-async def get_task_result(task_id: str):
-    task = AsyncResult(task_id)
-    if task.state == 'SUCCESS':
-        return {"status": "SUCCESS", "result": task.result}
-    return {"status": task.state}
+
 
 
 # ==========================================
@@ -454,163 +607,150 @@ import numpy as np
 from PIL import Image
 from fastapi import HTTPException
 
+# ==========================================
+# CỤC DIỆN MỚI: BẮN LỆNH ĐỒNG BỘ LÊN RUNPOD
+# ==========================================
+
 @app.post("/api/quick-scan")
 @limiter.limit("20/minute")
-def quick_scan(request: Request,payload: QuickScanPayload): 
-    print("\n" + "="*50)
-    print("🚀 BẮT ĐẦU LỆNH QUICK-SCAN (SMART TEXT CACHE)")
-    t_start = time.time() 
-    
+async def quick_scan(request: Request, payload: QuickScanPayload): 
     try:
-        # -----------------------------------------
-        # 1. ĐỌC VÀ CẮT ẢNH CHÍNH XÁC 100% (Không làm tròn tọa độ)
-        # -----------------------------------------
         img_raw = payload.filename
-        
         if img_raw.startswith("data:image"):
-            encoded_data = img_raw.split(',')[1]
-            nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
+            nparr = np.frombuffer(base64.b64decode(img_raw.split(',')[1]), np.uint8)
             image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         else:
-            if "workspace/" in img_raw or "/" in img_raw:
-                img_path = img_raw.split('8000/')[-1] if '8000/' in img_raw else img_raw
-                img_path = img_path.split('?')[0] 
-            else:
-                img_path = img_raw if img_raw.startswith("Clean_") else f"Clean_{img_raw}"
-            
+            img_path = img_raw.split('8000/')[-1] if '8000/' in img_raw else img_raw
+            img_path = img_path.split('?')[0] 
             base_path, _ = os.path.splitext(img_path)
             matched_files = glob.glob(f"{base_path}.*")
-            
-            if matched_files:
-                img_path = matched_files[0]
-                if os.path.exists(img_path):
-                    os.utime(img_path, None) 
-            else:
-                print(f"⚠️ [QUICK-SCAN] Không tìm thấy file: {base_path}")
-
-            image = cv2.imread(img_path)
-            
-        if image is None:
-            raise HTTPException(status_code=404, detail="Không tìm thấy ảnh gốc để quét Lens!")
+            image = cv2.imread(matched_files[0] if matched_files else img_path)
             
         h, w = image.shape[:2]
         x1, x2 = sorted([max(0, min(payload.x1, w)), max(0, min(payload.x2, w))])
         y1, y2 = sorted([max(0, min(payload.y1, h)), max(0, min(payload.y2, h))])
         
-        # ... (phần lấy tọa độ x1, x2, y1, y2 giữ nguyên)
-        
-        if x2 - x1 < 10 or y2 - y1 < 10:
-            return {"status": "success", "japanese": "", "vietnamese": "Vùng quét quá nhỏ!"}
-        
-        # 🚀 BẢN VÁ: TỰ ĐỘNG NỚI RỘNG (PADDING) ĐỂ CHỐNG CẮT LẸM NÉT CHỮ
-        pad = 8 # Tự nới ra 8 pixel mỗi chiều để an toàn tuyệt đối
-        x1_pad = max(0, x1 - pad)
-        x2_pad = min(w, x2 + pad)
-        y1_pad = max(0, y1 - pad)
-        y2_pad = min(h, y2 + pad)
+        pad = 8 
+        x1_pad, x2_pad = max(0, x1 - pad), min(w, x2 + pad)
+        y1_pad, y2_pad = max(0, y1 - pad), min(h, y2 + pad)
 
         crop = image[y1_pad:y2_pad, x1_pad:x2_pad]
-        
-        t1 = time.time()
-
-        # 🚀 BẢN VÁ: TĂNG KÍCH THƯỚC VÀ XÓA NHIỄU NỀN TRUYỆN TRANH TRƯỚC KHI ĐỌC
         crop_large = cv2.resize(crop, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        
-        # Thêm một chút làm nét (Sharpen) để chữ Kanji rõ ràng hơn
-        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-        crop_sharp = cv2.filter2D(crop_large, -1, kernel)
+        crop_sharp = cv2.filter2D(crop_large, -1, np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]]))
 
-        # Chuyển vào MangaOCR
-        japanese_text = mocr(Image.fromarray(cv2.cvtColor(crop_sharp, cv2.COLOR_BGR2RGB))).strip()
+        # 🚀 BẮN SANG RUNPOD ĐỂ ĐỌC CHỮ (OCR)
+        _, buffer = cv2.imencode('.png', crop_sharp)
+        crop_b64 = base64.b64encode(buffer).decode('utf-8')
         
-        t3 = time.time()
-        # ... (Các phần lưu cache và gọi DeepSeek bên dưới giữ nguyên)
-        print(f"⏱️ [Trạm 1] Đọc chữ Nhật mất: {t3 - t_start:.2f} giây")
+        # Lưu ý: Dùng /runsync để nhận kết quả ngay lập tức
+        runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/runsync" 
+        headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
+        
+        async with httpx.AsyncClient() as client:
+            res = await client.post(runpod_url, json={"input": {"action": "scan", "image_base64": crop_b64}}, headers=headers, timeout=10.0)
+            japanese_text = res.json().get('output', {}).get('text', '')
 
         if not japanese_text: 
-            return {"status": "success", "japanese": "", "vietnamese": "AI không đọc được chữ trong vùng này"}
+            return {"status": "success", "japanese": "", "vietnamese": "AI không đọc được chữ!"}
         
-        # -----------------------------------------
-        # 3. SMART CACHE: KIỂM TRA TEXT TRƯỚC KHI GỌI DEEPSEEK
-        # -----------------------------------------
+        # 🚀 GỌI DEEPSEEK TRÊN VPS ĐỂ DỊCH (Giữ nguyên logic cache)
         glossary_hash = hashlib.md5(payload.glossary.encode('utf-8')).hexdigest() if payload.glossary else "none"
-        
-        # 🚀 Khóa Cache giờ đây là "Câu tiếng Nhật", chứ không phải tọa độ nữa!
         cache_key = f"{japanese_text}_{payload.genre}_{payload.tone}_{payload.pronouns}_{glossary_hash}"
         
         if cache_key in LENS_CACHE:
-            print(f"⚡ [CACHE HIT] Đã từng dịch câu này! Lấy từ RAM. Không tốn tiền gọi DeepSeek.")
-            result_data = LENS_CACHE[cache_key]
-            print(f"🏁 TỔNG THỜI GIAN: {time.time() - t_start:.2f} giây")
-            print("="*50 + "\n")
-            return result_data
+            return LENS_CACHE[cache_key]
 
-        # -----------------------------------------
-        # 4. GỌI API DEEPSEEK DỊCH (Nếu là câu mới)
-        # -----------------------------------------
-        glossary_instruction = f"\n\nBẢNG TỪ ĐIỂN ĐẶC BIỆT:\n{payload.glossary}" if payload.glossary else ""
-
-        system_prompt = f"""Bạn là một Biên dịch viên truyện tranh chuyên nghiệp.
-Thể loại truyện: {payload.genre}
-Văn phong: {payload.tone}
-Xưng hô: {payload.pronouns}
-
-QUY TẮC:
-1. Tuân thủ tuyệt đối cách xưng hô và văn phong ở trên.
-2. SIÊU NGẮN GỌN: Chắt lọc để nhét vừa bong bóng.
-3. CẢM XÚC: Giữ nguyên tiếng lóng, tiếng chửi thề (nếu có).{glossary_instruction}
-
-TRẢ VỀ JSON:
-{{
-    "context_reasoning": "Phân tích ngữ cảnh",
-    "vietnamese": "Câu dịch tiếng Việt."
-}}"""
-
-        try:
-            response = client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Dịch: {japanese_text}"}
-                ],
-                response_format={"type": "json_object"}, 
-                temperature=0.4 
-            )
-            
-            ai_response = json.loads(response.choices[0].message.content.strip())
-            vietnamese_text = ai_response.get("vietnamese", "Lỗi định dạng")
-            print(f"🧠 [SUY LUẬN]: {ai_response.get('context_reasoning')}")
-            
-        except Exception as e:
-            print(f"Lỗi API DeepSeek: {str(e)}")
-            vietnamese_text = "Lỗi kết nối AI."
-            
-        t4 = time.time()
-        print(f"⏱️ [Trạm 2] Gọi DeepSeek mất: {t4 - t3:.2f} giây")
+        system_prompt = f"Bạn là Biên dịch Manga.\nThể loại: {payload.genre}\nVăn phong: {payload.tone}\nXưng hô: {payload.pronouns}\n{f'TỪ ĐIỂN: {payload.glossary}' if payload.glossary else ''}\n\nTRẢ VỀ JSON: {{\"context_reasoning\": \"...\", \"vietnamese\": \"...\"}}"
         
-        # -----------------------------------------
-        # 5. LƯU KẾT QUẢ VÀO CACHE 
-        # -----------------------------------------
-        result_data = {
-            "status": "success",
-            "japanese": japanese_text,
-            "vietnamese": vietnamese_text
-        }
+        response = deepseek_client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Dịch: {japanese_text}"}],
+            response_format={"type": "json_object"}, temperature=0.4 
+        )
+        ai_response = json.loads(response.choices[0].message.content.strip())
+        
+        result_data = {"status": "success", "japanese": japanese_text, "vietnamese": ai_response.get("vietnamese", "Lỗi")}
         LENS_CACHE[cache_key] = result_data 
-        if len(LENS_CACHE) > 1000:
-            LENS_CACHE.pop(next(iter(LENS_CACHE)))
-            
-        print(f"🏁 TỔNG THỜI GIAN: {time.time() - t_start:.2f} giây")
-        print("="*50 + "\n")
         return result_data
         
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"Lỗi Quick Scan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-        
     
+class MaskPayload(BaseModel):
+    image_url: str
+    mask_base64: str
+    page_id: str = None
+
+@app.post("/api/erase-mask")
+async def erase_mask(payload: MaskPayload, db: AsyncSession = Depends(get_db)):
+    try:
+        img_raw = payload.image_url
+        if img_raw.startswith("data:image"):
+            nparr = np.frombuffer(base64.b64decode(img_raw.split(',')[1]), np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            clean_path = f"workspace/clean_{uuid.uuid4().hex}.png"
+        else:
+            img_path = img_raw.split('8000/')[-1] if '8000/' in img_raw else img_raw
+            img_path = img_path.split('?')[0]
+            base_path, _ = os.path.splitext(img_path)
+            matched_files = glob.glob(f"{base_path}.*")
+            img_path = matched_files[0] if matched_files else img_path
+            image = cv2.imread(img_path)
+            clean_path = img_path.replace("/raw/", "/clean/") if "/raw/" in img_path else f"workspace/clean_{uuid.uuid4().hex}.png"
+
+        encoded_data_mask = payload.mask_base64.split(',')[1]
+        nparr_mask = np.frombuffer(base64.b64decode(encoded_data_mask), np.uint8)
+        mask_rgba = cv2.imdecode(nparr_mask, cv2.IMREAD_UNCHANGED)
+        mask = mask_rgba[:, :, 3] if len(mask_rgba.shape) == 3 and mask_rgba.shape[2] == 4 else cv2.imdecode(nparr_mask, cv2.IMREAD_GRAYSCALE)
+
+        x, y, w, h = cv2.boundingRect(mask)
+        if w > 0 and h > 0:
+            pad = 80 
+            h_img, w_img = image.shape[:2]
+            x1, y1 = max(0, x-pad), max(0, y-pad)
+            x2, y2 = min(w_img, x+w+pad), min(h_img, y+h+pad)
+
+            crop_image = image[y1:y2, x1:x2]
+            crop_mask = mask[y1:y2, x1:x2]
+
+            # 🚀 BẮN MẨU ẢNH LÊN RUNPOD ĐỂ NÓ XÓA
+            _, buf_img = cv2.imencode('.png', crop_image)
+            _, buf_mask = cv2.imencode('.png', crop_mask)
+            
+            runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/runsync"
+            headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
+            
+            async with httpx.AsyncClient() as client:
+                res = await client.post(runpod_url, json={
+                    "input": {
+                        "action": "erase", 
+                        "image_base64": base64.b64encode(buf_img).decode('utf-8'),
+                        "mask_base64": base64.b64encode(buf_mask).decode('utf-8')
+                    }
+                }, headers=headers, timeout=20.0)
+            
+            clean_crop_b64 = res.json().get('output', {}).get('clean_crop_base64')
+            if clean_crop_b64:
+                clean_crop = cv2.imdecode(np.frombuffer(base64.b64decode(clean_crop_b64), np.uint8), cv2.IMREAD_COLOR)
+                mask_bool = crop_mask > 0
+                image[y1:y2, x1:x2][mask_bool] = clean_crop[mask_bool]
+
+        os.makedirs(os.path.dirname(clean_path), exist_ok=True)
+        cv2.imwrite(clean_path, image)
+        
+        if payload.page_id:
+            result = await db.execute(select(models.Page).where(models.Page.id == payload.page_id))
+            page = result.scalars().first()
+            if page:
+                page.clean_url = f"/{clean_path}"
+                page.status = "cleaned" 
+                await db.commit()
+
+        new_url = f"http://localhost:8000/{clean_path}" 
+        return {"status": "success", "new_url": new_url}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))    
 # ==========================================
 # API UPLOAD NGẦM CHO TÍNH NĂNG CŨ
 # ==========================================
@@ -623,10 +763,7 @@ async def upload_raw(file: UploadFile = File(...)):
 # ==========================================
 # CÁC CLASS MODEL NHẬN DỮ LIỆU
 # ==========================================
-class MaskPayload(BaseModel):
-    image_url: str
-    mask_base64: str
-    page_id: str = None  # 🚀 THÊM DÒNG NÀY ĐỂ NHẬN ID TỪ FRONTEND
+  # 🚀 THÊM DÒNG NÀY ĐỂ NHẬN ID TỪ FRONTEND
 
 class RedrawRequest(BaseModel):
     image_url: str
@@ -648,160 +785,16 @@ import uuid # Nhớ kiểm tra ở đầu file main.py xem có import uuid chưa
 
 import glob # Đảm bảo đã import glob ở đầu file main.py
 
-@app.post("/api/erase-mask")
-async def erase_mask(payload: MaskPayload, db: AsyncSession = Depends(get_db)): # 🚀 Đã bơm thêm db vào đây!
-    try:
-        img_path_raw = payload.image_url
-        
-        # 1. BỘ ĐỌC ẢNH ĐA NĂNG
-        if img_path_raw.startswith("data:image"):
-            encoded_data = img_path_raw.split(',')[1]
-            nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
-            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            clean_path = f"workspace/clean_{uuid.uuid4().hex}.png"
-        else:
-            # Lọc URL để lấy đúng đường dẫn tương đối trên ổ cứng
-            img_path = img_path_raw.split('8000/')[-1] if '8000/' in img_path_raw else img_path_raw
-            img_path = img_path.split('?')[0]
-            
-            # 🚀 THUẬT TOÁN MỚI: Quét đuôi file thông minh chống lệch định dạng (.png/.jpg/.webp)
-            # Tách lấy phần thư mục và tên file bỏ đuôi (Ví dụ: workspace/.../raw/483fc488-5efa-4c53-8afe-77e3660bf66d)
-            base_path, _ = os.path.splitext(img_path)
-            
-            # Dùng glob để tìm bất kỳ file nào khớp với tên đó bất kể đuôi là gì
-            matched_files = glob.glob(f"{base_path}.*")
-            
-            if matched_files:
-                # Nếu tìm thấy file thực tế trên ổ cứng, lấy luôn đường dẫn đó
-                img_path = matched_files[0]
-                if os.path.exists(img_path):
-                    os.utime(img_path, None) # Reset tuổi thọ 24h
-            else:
-                print(f"⚠️ [DEBUG] Không tìm thấy bất kỳ file nào khớp với tên: {base_path}")
-
-            image = cv2.imread(img_path)
-            clean_path = img_path.replace("/raw/", "/clean/") if "/raw/" in img_path else f"workspace/clean_{uuid.uuid4().hex}.png"
-
-        if image is None:
-            raise HTTPException(status_code=404, detail="Không tìm thấy file ảnh gốc trên hệ thống hoặc định dạng file bị hỏng!")
-
-        # 2. GIẢI MÃ MẶT NẠ (MASK)
-        encoded_data_mask = payload.mask_base64.split(',')[1]
-        nparr_mask = np.frombuffer(base64.b64decode(encoded_data_mask), np.uint8)
-        mask_rgba = cv2.imdecode(nparr_mask, cv2.IMREAD_UNCHANGED)
-        
-        # 🚀 Lấy kênh Alpha làm Mask trắng đen (Vì React gửi lên ảnh nền trong suốt, nét đỏ)
-        if len(mask_rgba.shape) == 3 and mask_rgba.shape[2] == 4:
-            mask = mask_rgba[:, :, 3] 
-        else:
-            mask = cv2.imdecode(nparr_mask, cv2.IMREAD_GRAYSCALE)
-
-        # 3. THUẬT TOÁN CẮT MẨU (CROP) & CHẠY LAMA ONNX SIÊU NÉT
-        x, y, w, h = cv2.boundingRect(mask)
-        if w > 0 and h > 0:
-            pad = 80 
-            h_img, w_img = image.shape[:2]
-            x1, y1 = max(0, x-pad), max(0, y-pad)
-            x2, y2 = min(w_img, x+w+pad), min(h_img, y+h+pad)
-
-            crop_image = image[y1:y2, x1:x2]
-            crop_mask = mask[y1:y2, x1:x2]
-
-            h_crop, w_crop = crop_image.shape[:2]
-            
-            # SỬA LỖI ONNX: Bắt buộc Scale/Pad thành 512x512
-            scale = 1.0
-            if h_crop > 512 or w_crop > 512:
-                scale = 512.0 / max(h_crop, w_crop)
-                new_w = int(w_crop * scale)
-                new_h = int(h_crop * scale)
-                crop_image = cv2.resize(crop_image, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-            else:
-                new_w, new_h = w_crop, h_crop
-
-            # Bù thêm pixel (Padding) để đạt ĐÚNG 512x512
-            pad_bottom = 512 - new_h
-            pad_right = 512 - new_w
-
-            if pad_bottom > 0 or pad_right > 0:
-                crop_image = cv2.copyMakeBorder(crop_image, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
-                crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
-
-            # 🚀 GỌI LẠI HỌA SĨ LAMA ONNX THẦN THÁNH
-            img_t = cv2.cvtColor(crop_image, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-            mask_t = (crop_mask > 0).astype(np.float32)[:, :, np.newaxis]
-            
-            img_t = np.transpose(img_t, (2, 0, 1))[np.newaxis, ...]
-            mask_t = np.transpose(mask_t, (2, 0, 1))[np.newaxis, ...]
-
-            ort_inputs = {
-                lama_session.get_inputs()[0].name: img_t,
-                lama_session.get_inputs()[1].name: mask_t
-            }
-            ort_outs = lama_session.run(None, ort_inputs)
-            
-            out_img = ort_outs[0][0] 
-            out_img = np.transpose(out_img, (1, 2, 0)) 
-            out_img = (out_img * 255).clip(0, 255).astype(np.uint8)
-            clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)
-
-            # Cắt bỏ phần bù (Padding) và Scale lại cho vừa khớp
-            clean_crop = clean_crop[0:new_h, 0:new_w]
-            crop_mask = crop_mask[0:new_h, 0:new_w] 
-
-            if scale != 1.0:
-                clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
-                crop_mask = cv2.resize(crop_mask, (w_crop, h_crop), interpolation=cv2.INTER_NEAREST)
-
-            # Dán khối ảnh đã vẽ bù siêu mượt trở lại ảnh chính
-            mask_bool = crop_mask > 0
-            image[y1:y2, x1:x2][mask_bool] = clean_crop[mask_bool]
-
-        # 4. Lưu và trả về URL
-        os.makedirs(os.path.dirname(clean_path), exist_ok=True)
-        cv2.imwrite(clean_path, image)
-        if payload.page_id:
-            result = await db.execute(select(models.Page).where(models.Page.id == payload.page_id))
-            page = result.scalars().first()
-            if page:
-                page.clean_url = f"/{clean_path}"
-                page.status = "cleaned" # Lưu lại cho lần F5 sau
-                await db.commit()
-
-        new_url = f"http://localhost:8000/{clean_path}" 
-        return {"status": "success", "new_url": new_url}
-        
-    except HTTPException:
-        # 🚀 BỔ SUNG: Bắt riêng lỗi HTTP (như cái 404 ở trên) và ném thẳng về Frontend
-        raise
-    except Exception as e:
-        # Chỉ các lỗi thực sự sập code (như chia cho 0, hết RAM) mới bị gom thành 500
-        print(f"Lỗi Erase: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 # ==========================================
-# GỌI LỆNH DỊCH (TRANSLATE)
+# GỌI LỆNH DỊCH (TRANSLATE) - ĐÃ ĐỔI SANG SERVERLESS
 # ==========================================
-# 🚀 VŨ KHÍ BẢO MẬT 2: Giới hạn Dịch Cả Trang
 class TranslateConfig(BaseModel):
     genre: str = Field(default="", max_length=100)
     tone: str = Field(default="", max_length=100)
     pronouns: str = Field(default="", max_length=100)
     glossary: str = Field(default="", max_length=1000)
 
-@app.post("/api/pages/{page_id}/translate")
-@limiter.limit("30/minute")
-async def translate_page(request: Request, page_id: str, config: TranslateConfig, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(models.Page).where(models.Page.id == page_id))
-    page = result.scalars().first()
-    if not page:
-        raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện")
-    
-    local_path = get_local_path_from_url(page.raw_url)
-    
-    # 🚀 Truyền đủ 5 tham số cho Celery
-    task = process_manga_page.delay(local_path, config.genre, config.tone, config.pronouns, config.glossary)
-    return {"status": "success", "task_id": task.id}
+
 
 # ==========================================
 # API VẼ LẠI BẰNG COMFYUI (REDRAW)
@@ -1108,10 +1101,10 @@ async def auto_cleanup_workspace():
         await asyncio.sleep(3600)
         # await asyncio.sleep(10)
 
-# Kích hoạt Bot dọn rác ngay khi FastAPI khởi động
+
 @app.on_event("startup")
 async def startup_event():
-    print("🚀 Khởi động Bot dọn rác tự động...")
+    print("🚀 Khởi động Bot dọn rác và Bot chống ngủ...")
     asyncio.create_task(auto_cleanup_workspace())
 
 @app.delete("/api/pages/{page_id}")
@@ -1317,13 +1310,270 @@ async def import_manga(
     return {"status": "success", "page_id": page_id}    
 
 # ==========================================
-# 🛑 API HỦY TIẾN TRÌNH DỊCH (CELERY REVOKE)
+# 🛑 API HỦY TIẾN TRÌNH DỊCH (SERVERLESS HACK)
 # ==========================================
 @app.post("/api/tasks/{task_id}/cancel")
 async def cancel_task(task_id: str):
     try:
-        # Lệnh terminate=True sẽ "Rút phích cắm" worker ngay lập tức, giải phóng RAM & CPU
-        celery_app.control.revoke(task_id, terminate=True)
+        # Với Serverless, ta không chọc vào tắt Runpod giữa chừng được.
+        # Nhưng ta sẽ đánh dấu LỖI vào Redis để Frontend dừng xoay vòng vòng!
+        error_payload = {"status": "FAILURE", "result": "Đã hủy bởi người dùng"}
+        redis_client.set(f"celery-task-meta-{task_id}", json.dumps(error_payload), ex=3600)
+        broadcast_progress(task_id, 0, "Tiến trình đã bị hủy!", state="FAILURE")
+        
         return {"status": "success", "message": "Đã hủy tiến trình thành công!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+import httpx # Nhớ đảm bảo có dòng này ở đầu file
+
+# ==========================================
+# 1. BẮN LỆNH LÊN RUNPOD (Thay Celery)
+# ==========================================
+@app.post("/api/pages/{page_id}/translate")
+async def translate_page(page_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy.future import select
+    
+    # 1. Lấy thông tin trang truyện từ DB
+    result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+    page = result.scalar_one_or_none()
+    if not page:
+        raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện")
+
+    # 2. Đọc ảnh và chuyển thành Base64
+    img_path = f".{page.raw_url}"
+    try:
+        with open(img_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Không đọc được file ảnh gốc")
+
+    config = await request.json()
+
+    # 3. Gửi sang Runpod Serverless
+    runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/run"
+    headers = {
+        "Authorization": f"Bearer {RUNPOD_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "input": {
+            "image_base64": img_b64,
+            "genre": config.get("genre", ""),
+            "tone": config.get("tone", ""),
+            "pronouns": config.get("pronouns", ""),
+            "glossary": config.get("glossary", "")
+        }
+    }
+
+    async with httpx.AsyncClient() as client:
+        # Bắn lệnh đi (timeout 60s phòng đứt cáp)
+        response = await client.post(runpod_url, json=payload, headers=headers, timeout=60.0)
+        data = response.json()
+
+    # Trả về Job ID của Runpod cho Frontend
+    return {"task_id": data["id"]}
+
+
+
+
+
+# ==========================================
+# 3. NHẬN ẢNH SẠCH TỪ RUNPOD (Thay Celery AsyncResult)
+# ==========================================
+# ==========================================
+# 3. NHẬN KẾT QUẢ TỪ RUNPOD VÀ GỌI DEEPSEEK TẠI VPS (TỐI ƯU CHI PHÍ)
+# ==========================================
+@app.get("/api/task/{task_id}")
+async def get_task_result(task_id: str):
+    runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{task_id}"
+    headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
+    
+    async with httpx.AsyncClient() as client:
+        res = await client.get(runpod_url, headers=headers, timeout=30.0)
+        data = res.json()
+        
+    if data.get("status") == "COMPLETED":
+        output = data.get("output", {})
+        if isinstance(output, dict) and output.get("status") == "error":
+            return {"status": "FAILURE", "message": str(output)}
+            
+        clean_b64 = output.get("clean_image_base64")
+        extracted_data = output.get("data", [])
+        context = output.get("context", {}) # Lấy lại ngữ cảnh Runpod dội về
+        
+        # 🚀 BỘ NÃO DEEPSEEK HOẠT ĐỘNG MIỄN PHÍ TRÊN VPS TẠI ĐÂY
+        if extracted_data:
+            try:
+                ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
+                prompt = f"Thể loại: {context.get('genre', '')}. Xưng hô: {context.get('pronouns', '')}. Văn phong: {context.get('tone', '')}. Dịch JSON sau và TRẢ VỀ ĐÚNG FORMAT {{\\\"translations\\\": [<kết quả>]}}: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+                
+                if context.get("glossary"):
+                    prompt = f"5. TỪ ĐIỂN: {context.get('glossary')}\n" + prompt
+
+                response = deepseek_client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[{"role": "system", "content": "You output strict JSON containing a 'translations' array."}, {"role": "user", "content": prompt}],
+                    response_format={'type': 'json_object'}
+                )
+                
+                ai_response = json.loads(response.choices[0].message.content)
+                translated_array = ai_response if isinstance(ai_response, list) else ai_response.get("translations", ai_response.get("data", []))
+
+                for item in extracted_data:
+                    for trans in translated_array:
+                        if isinstance(trans, dict) and str(trans.get("id")) == str(item["id"]):
+                            item["vietnamese"] = trans.get("vietnamese", "Lỗi dịch")
+            except Exception as e:
+                print(f"❌ Lỗi DeepSeek trên VPS: {e}")
+                for item in extracted_data:
+                    item["vietnamese"] = "Lỗi dịch thuật (VPS)"
+        
+        # LƯU ẢNH SẠCH LÊN Ổ CỨNG VPS
+        clean_url = ""
+        if clean_b64:
+            clean_img_data = base64.b64decode(clean_b64)
+            os.makedirs("workspace", exist_ok=True) 
+            file_path = f"workspace/temp_clean_{task_id}.jpg"
+            with open(file_path, "wb") as f:
+                f.write(clean_img_data)
+            clean_url = f"/{file_path}"
+            
+        # Trả cục dữ liệu ĐÃ ĐƯỢC DỊCH HOÀN CHỈNH về cho React vẽ
+        return {
+            "status": "SUCCESS", 
+            "result": {
+                "clean_url": clean_url,
+                "data": extracted_data 
+            }
+        }
+    
+    return {"status": data.get("status")}
+
+import zipfile
+import io
+
+@app.post("/api/projects/{project_id}/import-manga")
+async def import_manga_file(
+    project_id: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Kiểm tra đuôi file xem có chuẩn không
+    if not file.filename.lower().endswith('.manga'):
+        raise HTTPException(status_code=400, detail="Chỉ chấp nhận file định dạng .manga")
+
+    try:
+        # Đọc toàn bộ file vào bộ nhớ
+        file_bytes = await file.read()
+        
+        # 2. Mở file nén ZIP (.manga thực chất là file zip gom ảnh + json)
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+            # Đọc file meta dữ liệu chữ (bubbles.json)
+            if 'bubbles.json' not in z.namelist():
+                raise HTTPException(status_code=400, detail="Cấu trúc file .manga bị lỗi (Thiếu bubbles.json)")
+                
+            meta_content = z.read('bubbles.json').decode('utf-8')
+            meta_data = json.loads(meta_content) # Chứa thông tin ảnh và đống ô thoại cũ
+            
+            # 3. Tạo một Trang truyện mới (Page) trong Database dựa trên dữ liệu giải nén
+            page_id = str(uuid.uuid4())
+            os.makedirs("workspace", exist_ok=True)
+            
+            # Giải nén ảnh gốc (raw) và ảnh sạch (clean) ra ổ cứng của VPS
+            raw_filename = f"workspace/raw_{page_id}.jpg"
+            if 'raw.jpg' in z.namelist():
+                with open(raw_filename, "wb") as f:
+                    f.write(z.read('raw.jpg'))
+            
+            clean_url = None
+            if 'clean.jpg' in z.namelist():
+                clean_filename = f"workspace/clean_{page_id}.jpg"
+                with open(clean_filename, "wb") as f:
+                    f.write(z.read('clean.jpg'))
+                clean_url = f"/{clean_filename}"
+
+            # 4. Ghi nhận vào Database phân phòng an toàn
+            db_page = models.Page(
+                id=page_id,
+                project_id=project_id,
+                filename=meta_data.get("filename", file.filename.replace('.manga', '.jpg')),
+                status="completed" if clean_url else "pending",
+                raw_url=f"/{raw_filename}",
+                clean_url=clean_url,
+                bubbles_data=json.dumps(meta_data.get("bubbles", [])) # Trả lại toàn bộ đống chữ cũ
+            )
+            
+            db.add(db_page)
+            await db.commit()
+            
+            return {
+                "status": "success",
+                "page": {
+                    "id": page_id,
+                    "filename": db_page.filename,
+                    "status": db_page.status,
+                    "raw_url": db_page.raw_url,
+                    "clean_url": db_page.clean_url,
+                    "bubbles": meta_data.get("bubbles", [])
+                }
+            }
+            
+    except Exception as e:
+        print(f"❌ Lỗi import file .manga: {e}")
+        raise HTTPException(status_code=500, detail=f"Không thể đọc file .manga này: {str(e)}")
+    
+
+# 🚀 API BỔ SUNG: CHỈ DỊCH LẠI CHỮ (TIẾT KIỆM KHÔNG GỌI RUNPOD)
+@app.post("/api/pages/{page_id}/retry-text-translation")
+async def retry_text_translation(page_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        # 1. Tìm thông tin trang trong DB
+        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+        page = result.scalars().first()
+        if not page:
+            raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện này!")
+        
+        # Nếu chưa từng có dữ liệu ô chữ Nhật, bắt buộc phải chạy luồng dịch cả trang
+        if not page.bubbles_data or page.bubbles_data == "[]":
+            raise HTTPException(status_code=400, detail="Trang chưa có dữ liệu chữ Nhật. Vui lòng bấm dịch lại toàn bộ trang!")
+
+        extracted_data = json.loads(page.bubbles_data)
+
+        # 2. GOM TOÀN BỘ CHỮ NHẬT ĐANG CÓ GỬI LÊN DEEPSEEK TRÊN VPS
+        ocr_batch_payload = [{"id": item["id"], "japanese": item.get("japanese", item.get("text", ""))} for item in extracted_data]
+        
+        prompt = f"Bạn là biên dịch viên Manga chuyên nghiệp. Hãy dịch mảng JSON sau sang tiếng Việt chuẩn văn phong truyện tranh và TRẢ VỀ ĐÚNG FORMAT {{\\\"translations\\\": [<kết quả>]}}: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+        
+        response = deepseek_client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "You output strict JSON containing a 'translations' array with 'id' and 'vietnamese'."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={'type': 'json_object'}
+        )
+        
+        ai_response = json.loads(response.choices[0].message.content)
+        translated_array = ai_response.get("translations", [])
+
+        # 3. CẬP NHẬT LẠI CHỮ TIẾNG VIỆT MỚI
+        for item in extracted_data:
+            for trans in translated_array:
+                if str(trans.get("id")) == str(item["id"]):
+                    item["vietnamese"] = trans.get("vietnamese", "Lỗi dịch")
+                    if "text" in item: 
+                        item["text"] = trans.get("vietnamese", "Lỗi dịch") # Đồng bộ font chữ Frontend
+
+        # 4. Chốt sổ lưu lại vào Database
+        page.bubbles_data = json.dumps(extracted_data)
+        if page.status != "completed":
+            page.status = "translating"
+            
+        await db.commit()
+        return {"status": "success", "bubbles": extracted_data}
+
+    except Exception as e:
+        print(f"❌ Lỗi dịch lại chữ: {e}")
+        raise HTTPException(status_code=500, detail=f"DeepSeek VPS lỗi: {str(e)}")

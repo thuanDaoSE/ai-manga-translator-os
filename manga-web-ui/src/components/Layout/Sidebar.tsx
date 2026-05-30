@@ -13,9 +13,10 @@ import { mangaApi } from '../../services/api';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 
-// COMPONENT CON: Thẻ bài kéo thả
-// 🚀 BỔ SUNG: prop onCancel
-function SortableItem({ id, file, isActive, status, displayImg, progress, onClick, onTranslate, onDelete, onCancel }: any) {
+// ==========================================
+// 1. COMPONENT CON: THẺ TRANG TRUYỆN
+// ==========================================
+function SortableItem({ id, file, isActive, status, displayImg, progress, onClick, onTranslate, onDelete, onCancel, onRetry }: any) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: id });
   
   const style = {
@@ -26,13 +27,13 @@ function SortableItem({ id, file, isActive, status, displayImg, progress, onClic
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <button
+      <div
         onClick={onClick}
-        className={`w-full text-left rounded-xl flex items-center gap-2 p-2 transition-colors border group relative ${
+        className={`w-full text-left rounded-xl flex items-center gap-2 p-2 transition-colors border group relative cursor-pointer ${
           isDragging ? 'opacity-50 shadow-2xl scale-105 border-primary bg-primary/20 cursor-grabbing' : 
           isActive ? 'bg-primary/10 border-primary/40 shadow-lg' : 
           status === 'error' ? 'bg-danger/5 border-danger/30 hover:bg-danger/10' : 
-          'bg-panel/40 border-transparent hover:border-border hover:bg-panel/60 cursor-grab'
+          'bg-panel/40 border-transparent hover:border-border hover:bg-panel/60'
         }`}
       >
         <GripVertical size={14} className="text-text-muted opacity-50 group-hover:opacity-100 shrink-0" />
@@ -78,24 +79,29 @@ function SortableItem({ id, file, isActive, status, displayImg, progress, onClic
           {status === 'error' && <span className="flex items-center gap-1 text-[9px] text-danger font-black uppercase"><AlertTriangle size={10} /> Dịch thất bại</span>}
         </div>
 
-        {/* Nút X (Xóa trang) */}
-        <div 
-          className="absolute right-1 top-1 opacity-0 group-hover:opacity-100 transition-opacity z-20"
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <div 
+        {/* 🚀 FIXED UX: NÚT CÔNG CỤ (DỊCH LẠI & XÓA) ĐƯỢC CHỐT Ở GÓC TRÊN CÙNG */}
+        <div className="absolute top-2 right-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/95 p-1.5 rounded-lg border border-border shadow-lg z-10 backdrop-blur-sm">
+          <button
+            onClick={(e) => { e.stopPropagation(); onRetry(); }}
+            className="p-1.5 text-text-muted hover:text-primary hover:bg-border rounded-md transition-all cursor-pointer hover:scale-110"
+            title="Dịch lại (Tự động tối ưu chi phí)"
+          >
+            <RefreshCw size={15} className={status === 'processing' ? 'animate-spin' : ''} />
+          </button>
+          <div className="w-px h-4 bg-border/80"></div>
+          <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="p-1 text-text-muted hover:text-white hover:bg-danger rounded cursor-pointer transition-colors shadow-sm"
+            className="p-1.5 text-text-muted hover:text-danger hover:bg-danger/20 rounded-md transition-all cursor-pointer hover:scale-110"
             title="Xóa trang này"
           >
-            <X size={14} />
-          </div>
+            <X size={15} />
+          </button>
         </div>
 
-        {/* Nút Hover Dịch / Thử lại */}
+        {/* 🚀 FIXED UX: NÚT DỊCH / THỬ LẠI CHÍNH ĐƯỢC CHỐT Ở GÓC DƯỚI CÙNG (bottom-2) */}
         {(status === 'unprocessed' || status === 'error') && (
           <div 
-            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onTranslate(); }}
           >
@@ -106,10 +112,10 @@ function SortableItem({ id, file, isActive, status, displayImg, progress, onClic
           </div>
         )}
 
-        {/* 🚀 BẢN VÁ: Nút Hover DỪNG LẠI khi đang chạy */}
+        {/* 🚀 FIXED UX: NÚT DỪNG TASK ĐƯỢC CHỐT Ở GÓC DƯỚI CÙNG (bottom-2) */}
         {status === 'processing' && (
           <div 
-            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onCancel(); }}
           >
@@ -119,12 +125,14 @@ function SortableItem({ id, file, isActive, status, displayImg, progress, onClic
           </div>
         )}
 
-      </button>
+      </div>
     </div>
   );
 }
 
-// COMPONENT CHÍNH
+// ==========================================
+// 2. COMPONENT CHÍNH: SIDEBAR
+// ==========================================
 export default function Sidebar() {
   const projectStore = useProjectStore();
   const { fileQueue, currentIndex, setCurrentIndex, pageStatuses, processedUrls, uploadProjectFiles, reorderFiles, progresses } = projectStore;
@@ -132,71 +140,49 @@ export default function Sidebar() {
   const [previews, setPreviews] = useState<Record<number, string>>({});
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  // 🚀 BẢN VÁ: Lưu trữ các Task đang chạy để có thể Hủy
   const activeTasksRef = useRef<Record<number, { taskId: string, eventSource: EventSource }>>({});
-
+  const deleteTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
   const importMangaRef = useRef<HTMLInputElement>(null);
 
+  const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
+
+  // LOGIC IMPORT MANGA
   const handleImportManga = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
     const projectId = useProjectStore.getState().projectId;
-    if (!projectId) return toast.error("Vui lòng tạo Dự án trước!");
+    if (!projectId) return toast.error("Vui lòng chọn hoặc tạo Dự án trước!");
 
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const loadId = toast.loading("Đang khôi phục dự án...");
+    const loadId = toast.loading(`Đang khôi phục dự án: ${file.name}...`);
     try {
-      const token = localStorage.getItem("access_token");
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/projects/${projectId}/import-manga`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: formData,
-      });
-
-      if (!res.ok) throw new Error("File không hợp lệ hoặc lỗi mạng!");
-      
+      await mangaApi.importManga(projectId, file);
       toast.success("Khôi phục thành công! Đang tải lại trang...", { id: loadId });
       setTimeout(() => window.location.reload(), 1000); 
-
     } catch (error: any) {
       toast.error(error.message, { id: loadId });
     }
     e.target.value = '';
   };
 
-  const totalPages = fileQueue.length;
-  const completedPages = fileQueue.filter((_, i) => pageStatuses[i] === 'completed').length;
-  const errorPages = fileQueue.filter((_, i) => pageStatuses[i] === 'error').length;
-  const processingPages = fileQueue.filter((_, i) => pageStatuses[i] === 'processing').length;
-  const progressPercent = totalPages === 0 ? 0 : ((completedPages + errorPages) / totalPages) * 100;
-
-  // 🚀 BẢN VÁ: Hàm Hủy Task
+  // LOGIC HỦY TASK (DỪNG DỊCH)
   const handleCancelTask = async (pageIndex: number) => {
     const task = activeTasksRef.current[pageIndex];
     if (task) {
-      // 1. Ngắt kết nối SSE (Không nhận phần trăm tiến trình nữa)
       task.eventSource.close();
-      
-      // 2. Bắn API chọc vào Backend để hủy Celery
       try {
         await fetch(`${API_URL}/tasks/${task.taskId}/cancel`, { method: "POST" });
         toast.success(`Đã hủy dịch trang ${fileQueue[pageIndex]?.name}`);
       } catch (err) {
-        console.error("Lỗi khi hủy task:", err);
+        console.error("Lỗi hủy task:", err);
       }
-
-      // 3. Xóa khỏi danh sách theo dõi
       delete activeTasksRef.current[pageIndex];
     }
-    
-    // 4. Trả về trạng thái như chưa từng có cuộc chia ly
     projectStore.clearProgress(pageIndex);
     projectStore.setPageStatus(pageIndex, "unprocessed");
   };
 
+  // LOGIC XỬ LÝ 1 TRANG (DỊCH FULL)
   const processSinglePage = async (pageIndex: number) => {
     const pageId = projectStore.pageIds[pageIndex];
     if (!pageId) return;
@@ -222,21 +208,18 @@ export default function Sidebar() {
         const taskId = data.task_id;
         projectStore.startListeningProgress(pageIndex, taskId);
         const eventSource = new EventSource(`${API_URL}/stream/${taskId}`);
-
-        // 🚀 BẢN VÁ: Lưu EventSource và Task ID vào Ref để có thể Cancel
         activeTasksRef.current[pageIndex] = { taskId, eventSource };
 
         eventSource.onmessage = async (event) => {
           const sseData = JSON.parse(event.data);
           if (sseData.state === "SUCCESS") {
             eventSource.close();
-            delete activeTasksRef.current[pageIndex]; // Dọn dẹp Ref
+            delete activeTasksRef.current[pageIndex];
             
             let taskData = null;
-            for (let i = 0; i < 10; i++) {
+            for (let i = 0; i < 15; i++) {
               const taskRes = await fetch(`${API_URL}/task/${taskId}`);
               const data = await taskRes.json();
-              
               if (data.status === "SUCCESS" && data.result) {
                 taskData = data; 
                 break;
@@ -246,21 +229,30 @@ export default function Sidebar() {
 
             if (taskData && taskData.result) {
               const result = taskData.result;
-              projectStore.setProcessedUrl(pageIndex, result.clean_url);
+              const fullCleanUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${result.clean_url}?t=${Date.now()}`;
+              projectStore.setProcessedUrl(pageIndex, fullCleanUrl);
 
               const toolState = useToolStore.getState();
+              
+              // 🚀 THUẬT TOÁN ĐỊNH VỊ KHÔNG GIAN TÂM ĐỐI XỨNG 100%
+              // 🚀 THUẬT TOÁN ĐỊNH VỊ 3.0: BAO PHỦ ĐƯỜNG CHÉO
               const newBubbles = result.data.map((item: any) => {
-                const w = item.box_coordinates.x2 - item.box_coordinates.x1;
-                const h = item.box_coordinates.y2 - item.box_coordinates.y1;
-                const centerX = item.box_coordinates.x1 + w / 2;
-                const centerY = item.box_coordinates.y1 + h / 2;
+                // 1. Tính toán Kích thước khung gốc do AI quét
+                const origW = item.box_coordinates.x2 - item.box_coordinates.x1;
+                const origH = item.box_coordinates.y2 - item.box_coordinates.y1;
                 
-                const newSize = Math.max(w, h, 80); 
-                
+                // 2. Tìm TÂM ĐIỂM của bong bóng thoại
+                const centerX = item.box_coordinates.x1 + (origW / 2);
+                const centerY = item.box_coordinates.y1 + (origH / 2);
+
+                // 3. Ép thành hình vuông (Lấy cạnh dài nhất + 20% đệm để chữ Việt có chỗ thở)
+                const newSize = Math.max(origW, origH) * 1.2;
+
                 return {
                   id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-                  x: centerX - newSize / 2, 
-                  y: centerY - newSize / 2,
+                  // 4. Lùi tọa độ X, Y lại để khối chữ vuông nằm ngay chính giữa Tâm AI
+                  x: centerX - (newSize / 2),
+                  y: centerY - (newSize / 2),
                   w: newSize,
                   h: newSize,
                   text: item.vietnamese,
@@ -271,7 +263,7 @@ export default function Sidebar() {
                   sfxClass: "",
                 };
               });
-
+              
               if (pageIndex === useProjectStore.getState().currentIndex) {
                 const canvasStore = useCanvasStore.getState();
                 canvasStore.clearBubbles();
@@ -281,23 +273,24 @@ export default function Sidebar() {
               }
 
               projectStore.setPageStatus(pageIndex, "completed");
-
               await fetch(`${API_URL}/pages/${pageId}/save-results?clean_url=${encodeURIComponent(result.clean_url)}`, {
-                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(result.data),
+                method: "POST", 
+                headers: { "Content-Type": "application/json" }, 
+                body: JSON.stringify(newBubbles), // 🚀 SỬA CHỖ NÀY (CŨ LÀ result.data)
               });
             }
             setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
             
           } else if (sseData.state === "FAILURE") {
             eventSource.close();
-            delete activeTasksRef.current[pageIndex]; // Dọn dẹp Ref
+            delete activeTasksRef.current[pageIndex]; 
             projectStore.clearProgress(pageIndex);
             projectStore.setPageStatus(pageIndex, "error"); 
           }
         };
         eventSource.onerror = () => {
           eventSource.close();
-          delete activeTasksRef.current[pageIndex]; // Dọn dẹp Ref
+          delete activeTasksRef.current[pageIndex]; 
           projectStore.clearProgress(pageIndex);
           projectStore.setPageStatus(pageIndex, "error"); 
         };
@@ -308,11 +301,97 @@ export default function Sidebar() {
     }
   };
 
-  const handleTranslateAll = () => {
-    if (fileQueue.length === 0) return;
-    for (let i = 0; i < fileQueue.length; i++) {
-      if (projectStore.pageStatuses[i] === 'unprocessed' || projectStore.pageStatuses[i] === 'error') {
-        processSinglePage(i);
+  // LOGIC SMART RETRY (Chỉ dịch lại chữ)
+  const handleRetrySinglePage = async (pageIndex: number, currentStatus: string) => {
+    const pageId = projectStore.pageIds[pageIndex];
+    if (!pageId) return;
+
+    if (currentStatus === 'completed' || currentStatus === 'translating' || currentStatus === 'cleaned') {
+      const loadId = toast.loading("Đang gọi DeepSeek dịch lại đống chữ cũ...");
+      try {
+        const result = await mangaApi.retryTextTranslation(pageId);
+        
+        if (projectStore.currentIndex === pageIndex) {
+          useCanvasStore.getState().setBubbles(result.bubbles);
+        }
+        
+        toast.success("Đã hồi sinh đống chữ dịch lỗi thành công!", { id: loadId });
+        setTimeout(() => window.location.reload(), 800);
+      } catch (err: any) {
+        toast.error(err.message, { id: loadId });
+      }
+    } else {
+      processSinglePage(pageIndex); 
+    }
+  };
+
+  // LOGIC XÓA (CÓ ĐẾM NGƯỢC VÀ TÀNG HÌNH)
+  const handleDeletePage = (index: number) => {
+    const file = fileQueue[index];
+    const fileName = file.name;
+
+    if (deleteTimeoutsRef.current[fileName]) return;
+
+    setPendingDeletes(prev => new Set(prev).add(fileName));
+
+    toast((t) => (
+      <div className="flex items-center gap-3">
+        <span className="text-sm">Đang xóa <b>{fileName}</b>...</span>
+        <button
+          onClick={() => {
+            clearTimeout(deleteTimeoutsRef.current[fileName]);
+            delete deleteTimeoutsRef.current[fileName];
+            
+            setPendingDeletes(prev => {
+              const next = new Set(prev);
+              next.delete(fileName);
+              return next;
+            });
+            
+            toast.dismiss(t.id);
+            toast.success("Đã hoàn tác! Giữ lại trang.");
+          }}
+          className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+        >
+          ↩️ Hoàn tác
+        </button>
+      </div>
+    ), { duration: 5000, id: `delete-${fileName}`, icon: '⏳' });
+
+    deleteTimeoutsRef.current[fileName] = setTimeout(() => {
+      const state = useProjectStore.getState();
+      const realIndex = state.fileQueue.findIndex(f => f.name === fileName);
+      
+      if (realIndex !== -1) {
+        if (state.pageStatuses[realIndex] === 'processing') {
+          handleCancelTask(realIndex);
+        }
+        state.removePage(realIndex);
+        toast.success(`Đã xóa vĩnh viễn trang truyện!`);
+      }
+      delete deleteTimeoutsRef.current[fileName];
+      
+      setPendingDeletes(prev => {
+        const next = new Set(prev);
+        next.delete(fileName);
+        return next;
+      });
+    }, 5000);
+  }
+
+  // LOGIC KÉO THẢ (SỬ DỤNG PAGE ID LÀM ĐỊNH DANH)
+  // 🚀 BẢN VÁ: SỬA LỖI TÌM KIẾM TRÊN OBJECT (RECORD) KHI KÉO THẢ
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const pageIdsObj = projectStore.pageIds as Record<number, string>;
+      
+      // Tìm khóa (index) dựa trên giá trị (id)
+      const oldIndexStr = Object.keys(pageIdsObj).find(key => pageIdsObj[Number(key)] === active.id);
+      const newIndexStr = Object.keys(pageIdsObj).find(key => pageIdsObj[Number(key)] === over.id);
+      
+      if (oldIndexStr !== undefined && newIndexStr !== undefined) {
+        reorderFiles(Number(oldIndexStr), Number(newIndexStr));
       }
     }
   };
@@ -320,27 +399,9 @@ export default function Sidebar() {
   const handlePageClick = (index: number) => {
     const currentPageId = projectStore.pageIds[projectStore.currentIndex];
     if (currentPageId) {
-      mangaApi.savePageBubbles(currentPageId, useCanvasStore.getState().bubbles)
-        .catch(err => console.error("Lỗi tự động lưu chữ:", err));
+      mangaApi.savePageBubbles(currentPageId, useCanvasStore.getState().bubbles).catch(console.error);
     }
     projectStore.setCurrentIndex(index);
-  };
-
-  // 🚀 BẢN VÁ: Nếu xóa trang đang chạy, ép nó Cancel luôn!
-  const handleDeletePage = (index: number) => {
-    if (pageStatuses[index] === 'processing') {
-      handleCancelTask(index);
-    }
-    projectStore.removePage(index);
-  }
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      const oldIndex = fileQueue.findIndex(f => f.name === active.id);
-      const newIndex = fileQueue.findIndex(f => f.name === over.id);
-      if (oldIndex !== -1 && newIndex !== -1) reorderFiles(oldIndex, newIndex);
-    }
   };
 
   useEffect(() => {
@@ -369,10 +430,30 @@ export default function Sidebar() {
     };
   }, [fileQueue, projectStore.processedUrls]);
 
-  if (fileQueue.length === 0) return null;
+  // LỌC CÁC FILE KHÔNG BỊ TÀNG HÌNH VÀ TÍNH TOÁN TIẾN ĐỘ
+  const visibleFiles = fileQueue
+    .map((file, index) => ({ file, index }))
+    .filter(({ file }) => !pendingDeletes.has(file.name));
 
-  const itemIds = fileQueue.map(file => file.name);
-  const hasUnprocessed = fileQueue.some((_, i) => pageStatuses[i] === 'unprocessed' || pageStatuses[i] === 'error');
+  const itemIds = visibleFiles.map(({ index }) => projectStore.pageIds[index]);
+
+  const totalPages = visibleFiles.length;
+  const completedPages = visibleFiles.filter(({ index }) => pageStatuses[index] === 'completed').length;
+  const errorPages = visibleFiles.filter(({ index }) => pageStatuses[index] === 'error').length;
+  const processingPages = visibleFiles.filter(({ index }) => pageStatuses[index] === 'processing').length;
+  const progressPercent = totalPages === 0 ? 0 : ((completedPages + errorPages) / totalPages) * 100;
+  const hasUnprocessed = visibleFiles.some(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'error');
+
+  const handleTranslateAll = () => {
+    if (visibleFiles.length === 0) return;
+    for (const { index } of visibleFiles) {
+      if (projectStore.pageStatuses[index] === 'unprocessed' || projectStore.pageStatuses[index] === 'error') {
+        processSinglePage(index);
+      }
+    }
+  };
+
+  if (fileQueue.length === 0) return null;
 
   return (
     <div className="w-64 bg-sidebar border-r border-border flex flex-col h-full shadow-2xl z-20 shrink-0 select-none relative">
@@ -392,19 +473,13 @@ export default function Sidebar() {
                 type="file" 
                 multiple 
                 className="hidden" 
-                accept="image/jpeg, image/png, image/webp"
+                accept="image/jpeg, image/png, image/webp,.manga"
                 onChange={(e) => {
                   const files = Array.from(e.target.files || []);
                   if (files.length === 0) return;
                   if (files.length > 20) {
                      toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 20 trang mỗi lần!");
                      e.target.value = '';
-                     return;
-                  }
-                  const badFile = files.find(f => f.size > 10 * 1024 * 1024);
-                  if (badFile) {
-                     toast.error(`File ${badFile.name} vượt quá 10MB!`);
-                     e.target.value = ''; 
                      return;
                   }
                   uploadProjectFiles(files.sort((a, b) => a.name.localeCompare(b.name)));
@@ -458,21 +533,26 @@ export default function Sidebar() {
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
             <div className="space-y-1.5">
-              {fileQueue.map((file, index) => (
-                <SortableItem
-                  key={file.name} 
-                  id={file.name}  
-                  file={file}
-                  isActive={index === currentIndex}
-                  status={pageStatuses[index] || 'unprocessed'}
-                  displayImg={processedUrls[index] || previews[index]}
-                  progress={progresses[index]}
-                  onClick={() => handlePageClick(index)}
-                  onTranslate={() => processSinglePage(index)} 
-                  onDelete={() => handleDeletePage(index)} 
-                  onCancel={() => handleCancelTask(index)} // 🚀 TRUYỀN HÀM DỪNG VÀO NÚT
-                />
-              ))}
+              {visibleFiles.map(({ file, index }) => {
+                const uniquePageId = projectStore.pageIds[index];
+                return (
+                  <SortableItem
+                    // 🚀 THÊM PHẦN BACKUP NÀY ĐỂ REACT KHÔNG KÊU GÀO:
+                    key={uniquePageId || `page-${index}-${file.name}`} 
+                    id={uniquePageId || `page-${index}`}
+                    file={file}
+                    isActive={index === currentIndex}
+                    status={pageStatuses[index] || 'unprocessed'}
+                    displayImg={processedUrls[index] || previews[index]}
+                    progress={progresses[index]}
+                    onClick={() => handlePageClick(index)}
+                    onTranslate={() => processSinglePage(index)} 
+                    onDelete={() => handleDeletePage(index)} 
+                    onCancel={() => handleCancelTask(index)} 
+                    onRetry={() => handleRetrySinglePage(index, pageStatuses[index] || 'unprocessed')}
+                  />
+                );
+              })}
             </div>
           </SortableContext>
         </DndContext>
@@ -501,12 +581,6 @@ export default function Sidebar() {
           </p>
         </div>
         <p className="text-[11px] text-text-muted font-medium mb-2">🤖 Server gồng lỗ chạy Free 100%</p>
-        <img 
-          src="https://via.placeholder.com/150" 
-          alt="QR MoMo Donate" 
-          className="w-28 h-28 mx-auto rounded border border-border shadow-inner mb-2 p-1 bg-white opacity-90 hover:opacity-100 transition-opacity"
-        />
-        <p className="text-[10px] text-cyan-500 font-semibold animate-pulse">Mời Admin cốc cafe để duy trì GPU nhé sếp!</p>
       </div>
     </div>
   );

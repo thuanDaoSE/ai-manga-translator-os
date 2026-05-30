@@ -17,19 +17,24 @@ export interface TextBubble {
   isLocked?: boolean;
   tailDirection?: 'none' | 'left' | 'right';
   
-  // 🚀 BỘ VŨ KHÍ STYLE MỚI
   isBold?: boolean;
   isItalic?: boolean;
   isUppercase?: boolean;
   outlineColor?: string;
   outlineWidth?: number;
   hasShadow?: boolean;
+
+  rawBox?: { x1: number, y1: number, x2: number, y2: number };
 }
 
 interface CanvasState {
   bubbles: TextBubble[];
   activeBubbleId: string | null;
   hoveredBubbleId: string | null;
+  
+  // 🚀 BỔ SUNG: KHO LƯU TRỮ LỊCH SỬ
+  past: TextBubble[][];
+  future: TextBubble[][];
   
   setBubbles: (bubbles: TextBubble[]) => void;
   addBubble: (bubble: Omit<TextBubble, 'id'>) => void;
@@ -38,40 +43,92 @@ interface CanvasState {
   setActiveBubble: (id: string | null) => void;
   setHoveredBubble: (id: string | null) => void;
   clearBubbles: () => void;
+  
+  // 🚀 BỔ SUNG: HÀM UNDO / REDO
+  undo: () => void;
+  redo: () => void;
+  saveHistory: () => void; // Hàm nội bộ để chốt sổ lịch sử
 }
 
 export const useCanvasStore = create<CanvasState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       bubbles: [],
+      past: [],
+      future: [],
       activeBubbleId: null,
       hoveredBubbleId: null,
 
-      setBubbles: (bubbles) => set({ bubbles }),
+      // 🚀 LƯU LẠI TRẠNG THÁI TRƯỚC KHI THAY ĐỔI
+      saveHistory: () => set((state) => ({
+        past: [...state.past, state.bubbles],
+        future: [], // Hễ có hành động mới là tương lai bị xóa bỏ
+      })),
+
+      // Khi nạp trang mới, xóa sạch lịch sử của trang cũ đi
+      setBubbles: (bubbles) => set({ bubbles, past: [], future: [] }),
       
-      addBubble: (bubbleData) => set((state) => ({
-        bubbles: [...state.bubbles, { ...bubbleData, id: Date.now().toString() }]
-      })),
+      addBubble: (bubbleData) => {
+        get().saveHistory();
+        set((state) => ({
+          bubbles: [...state.bubbles, { ...bubbleData, id: Date.now().toString() }]
+        }));
+      },
 
-      // 🚀 BẢN VÁ QUAN TRỌNG NHẤT: Dùng spread operator {...b, ...data} để cập nhật ĐỘNG mọi thuộc tính
-      updateBubble: (id, data) => set((state) => ({
-    bubbles: state.bubbles.map((b) => 
-      // 🚀 SỬA THÀNH DÒNG NÀY: Gom toàn bộ dữ liệu cũ (...b) và đè dữ liệu mới lên (...data)
-      b.id === id ? { ...b, ...data } : b
-    )
-  })),
+      updateBubble: (id, data) => {
+        get().saveHistory();
+        set((state) => ({
+          bubbles: state.bubbles.map((b) => b.id === id ? { ...b, ...data } : b)
+        }));
+      },
 
-      removeBubble: (id) => set((state) => ({
-        bubbles: state.bubbles.filter((b) => b.id !== id)
-      })),
+      removeBubble: (id) => {
+        get().saveHistory();
+        set((state) => ({
+          bubbles: state.bubbles.filter((b) => b.id !== id)
+        }));
+      },
 
       setActiveBubble: (id) => set({ activeBubbleId: id }),
       setHoveredBubble: (id) => set({ hoveredBubbleId: id }),
-      clearBubbles: () => set({ bubbles: [] })
+      
+      clearBubbles: () => {
+        get().saveHistory();
+        set({ bubbles: [] });
+      },
+
+      // 🚀 HÀM QUAY LẠI QUÁ KHỨ (UNDO)
+      undo: () => set((state) => {
+        if (state.past.length === 0) return state; // Không có quá khứ thì thôi
+        
+        const previous = state.past[state.past.length - 1];
+        const newPast = state.past.slice(0, state.past.length - 1);
+        
+        return {
+          past: newPast,
+          future: [state.bubbles, ...state.future], // Đẩy hiện tại vào tương lai
+          bubbles: previous, // Kéo quá khứ lên làm hiện tại
+        };
+      }),
+
+      // 🚀 HÀM TIẾN TỚI TƯƠNG LAI (REDO)
+      redo: () => set((state) => {
+        if (state.future.length === 0) return state; // Không có tương lai thì thôi
+        
+        const next = state.future[0];
+        const newFuture = state.future.slice(1);
+        
+        return {
+          past: [...state.past, state.bubbles], // Đẩy hiện tại về quá khứ
+          future: newFuture,
+          bubbles: next, // Kéo tương lai về làm hiện tại
+        };
+      }),
     }),
     {
-      name: 'manga-canvas-storage',
-      partialize: (state) => ({ bubbles: state.bubbles }),
+      name: 'manga-canvas-storage-v3', // 🚀 ĐỔI THÀNH V3 ĐỂ RESET CACHE TRÁNH LỖI MÀN HÌNH ĐEN
+      // BÍ QUYẾT TỐI ƯU: Tuyệt đối không lưu past/future vào ổ cứng để tránh nặng trình duyệt!
+      partialize: (state) => ({ bubbles: state.bubbles }), 
     }
   )
 );

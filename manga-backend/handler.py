@@ -2,18 +2,13 @@ import runpod
 import base64
 import cv2
 import numpy as np
-import json
 import os
 import torch
 import onnxruntime as ort
-from openai import OpenAI 
 import sys
+from PIL import Image
 
-# ==========================================
-# KHỞI TẠO AI (Sẽ chạy 1 lần lúc Cold Start)
-# ==========================================
 print("Khởi động AI Engine...")
-client = OpenAI(api_key=os.environ.get("DEEPSEEK_API_KEY"), base_url="https://api.deepseek.com")
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "comic_text_detector"))
 from manga_ocr import MangaOcr
@@ -29,47 +24,112 @@ lama_session = ort.InferenceSession(os.path.join(os.path.dirname(__file__), "lam
 def extract_text_manga_ocr(crop_bgr):
     return mocr(Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB))).strip()
 
-# ==========================================
-# HÀM XỬ LÝ CHÍNH CỦA SERVERLESS
-# ==========================================
 def handler(job):
     job_input = job['input']
-    
-    # 1. Giải mã ảnh Base64 từ FastAPI gửi sang
+    action = job_input.get('action', 'translate') # Mặc định là dịch nguyên trang
+
+    # 🟢 1. LỆNH PING: Giữ máy luôn thức
+    if action == 'ping':
+        return {"status": "success", "message": "pong"}
+
+    # 🟢 2. LỆNH SCAN: Chỉ quét chữ MangaOCR
+    elif action == 'scan':
+        img_b64 = job_input['image_base64']
+        nparr = np.frombuffer(base64.b64decode(img_b64), np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        return {"status": "success", "text": extract_text_manga_ocr(image)}
+
+    # 🟢 3. LỆNH ERASE: Chỉ xóa mảng nhỏ (LaMa)
+    elif action == 'erase':
+        img_b64 = job_input['image_base64']
+        mask_b64 = job_input['mask_base64']
+        crop_img = cv2.imdecode(np.frombuffer(base64.b64decode(img_b64), np.uint8), cv2.IMREAD_COLOR)
+        crop_mask = cv2.imdecode(np.frombuffer(base64.b64decode(mask_b64), np.uint8), cv2.IMREAD_GRAYSCALE)
+
+        h_crop, w_crop = crop_img.shape[:2]
+        
+        # Xử lý tự scale và padding cho LaMa
+        scale = 1.0
+        if h_crop > 512 or w_crop > 512:
+            scale = 512.0 / max(h_crop, w_crop)
+            new_w, new_h = int(w_crop * scale), int(h_crop * scale)
+            crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+        else:
+            new_w, new_h = w_crop, h_crop
+
+        pad_bottom, pad_right = 512 - new_h, 512 - new_w
+        if pad_bottom > 0 or pad_right > 0:
+            crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+            crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+
+        img_t = np.transpose(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
+        mask_t = np.transpose((crop_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
+
+        ort_outs = lama_session.run(None, {lama_session.get_inputs()[0].name: img_t, lama_session.get_inputs()[1].name: mask_t})
+        out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
+        clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+
+        if scale != 1.0:
+            clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+
+        _, buffer = cv2.imencode('.png', clean_crop)
+        return {"status": "success", "clean_crop_base64": base64.b64encode(buffer).decode('utf-8')}
+
+    # 🟢 4. LỆNH TRANSLATE: Dịch toàn bộ trang truyện (Giữ nguyên code cũ của sếp)
     img_b64 = job_input['image_base64']
     img_data = base64.b64decode(img_b64)
     nparr = np.frombuffer(img_data, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    
     clean_image = image.copy()
     h_img, w_img = image.shape[:2]
 
+    # ... (Các đoạn trước giữ nguyên)
     try:
-        # 2. Xử lý CTD (Mặt nạ)
         result = text_detector(image)
         ctd_mask = result[0] if isinstance(result, tuple) else result
         if ctd_mask.max() <= 1.0: ctd_mask = (ctd_mask * 255).astype(np.uint8)
         else: ctd_mask = ctd_mask.astype(np.uint8)
-        _, ctd_mask = cv2.threshold(ctd_mask, 127, 255, cv2.THRESH_BINARY)
-        mask = cv2.dilate(ctd_mask, np.ones((7, 7), np.uint8), iterations=2)
         
-        # 3. Lấy chữ và xóa nền LaMa (Thuật toán cũ của sếp giữ nguyên)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        _, ctd_mask = cv2.threshold(ctd_mask, 127, 255, cv2.THRESH_BINARY)
+        
+        # 🚀 BƯỚC 1: Lấy mặt nạ Vùng Trắng (Bong bóng thoại)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        _, white_regions = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        
+        # 🚀 BƯỚC 2: Thuật toán Flood-Fill / Dilation để "Nở" từ chữ ra đầy bong bóng
+        # Phóng to mask chữ gốc lên để nó chạm vào viền trắng của bong bóng
+        fat_mask = cv2.dilate(ctd_mask, np.ones((7, 7), np.uint8), iterations=3) 
+        
+        # Giao thoa: Chỉ lấy những vùng trắng mà có chứa mask chữ bên trong
+        smart_mask = cv2.bitwise_and(white_regions, fat_mask)
+        
+        # Nở thêm lần cuối để lấp đầy các khoảng trống nhỏ bên trong bong bóng
+        smart_mask = cv2.dilate(smart_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)), iterations=2)
+        
+        # 🚀 BƯỚC 3: Hợp nhất lại với mask gốc (Phòng trường hợp chữ không nằm trong nền trắng)
+        final_mask = cv2.bitwise_or(ctd_mask, smart_mask)
+        
+        # Tìm Contours trên cái Mask Bong Bóng (Final Mask) thay vì Mask Chữ (ctd_mask)
+        contours, _ = cv2.findContours(final_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
         extracted_data = []
-        ocr_batch_payload = []
         count = 1
 
         for cnt in contours:
             x, y, w, h = cv2.boundingRect(cnt)
-            if w < 16 or h < 16: continue # Lọc bụi
+            if w < 16 or h < 16: continue 
             
-            # OCR
+            # 🚀 LƯU Ý QUAN TRỌNG: Cắt ảnh để OCR thì vẫn dùng tọa độ này
+            # Nhưng vì nó rộng hơn (bao cả bong bóng) nên OCR có thể nhận diện tốt hơn
             japanese_text = extract_text_manga_ocr(image[y:y+h, x:x+w])
+            
+            # 🚀 TỌA ĐỘ BÂY GIỜ LÀ CỦA TOÀN BỘ BONG BÓNG, TRỌNG TÂM LÀ TRỌNG TÂM BONG BÓNG!
             extracted_data.append({"id": count, "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h}, "japanese": japanese_text, "vietnamese": ""})
-            ocr_batch_payload.append({"id": count, "type": "Chưa phân loại", "japanese": japanese_text})
             count += 1
             
-            # LaMa Xóa nền
+            # ... (Phần LaMa Inpainting bên dưới giữ nguyên)
+            
             pad_x, pad_y = max(40, min(int(w * 0.5), 150)), max(40, min(int(h * 0.5), 150))
             x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
             x2_pad, y2_pad = min(w_img, x + w + pad_x), min(h_img, y + h + pad_y)
@@ -78,36 +138,49 @@ def handler(job):
             
             if cv2.countNonZero(crop_mask) == 0: continue
             
-            # (Phần Resize ảnh cho LaMa... sếp chép nguyên code cũ của LaMa vào đây cho gọn)
-            # ... 
+            h_crop, w_crop = crop_img.shape[:2]
+            original_crop_mask = crop_mask.copy()
             
-        # 4. Gọi DeepSeek Dịch
-        glossary_instruction = f"5. TỪ ĐIỂN: {job_input.get('glossary', '')}"
-        prompt = f"Thể loại: {job_input.get('genre', '')}. Xưng hô: {job_input.get('pronouns', '')}. Dịch JSON: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
-        
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[{"role": "system", "content": "You output strict JSON."}, {"role": "user", "content": prompt}],
-            response_format={'type': 'json_object'}
-        )
-        translated_array = json.loads(response.choices[0].message.content).get("translations", [])
-        for item in extracted_data:
-            for trans in translated_array:
-                if str(trans.get("id")) == str(item["id"]):
-                    item["vietnamese"] = trans.get("vietnamese", "Lỗi dịch")
+            scale = 1.0
+            if h_crop > 512 or w_crop > 512:
+                scale = 512.0 / max(h_crop, w_crop)
+                new_w, new_h = int(w_crop * scale), int(h_crop * scale)
+                crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+            else:
+                new_w, new_h = w_crop, h_crop
 
-        # 5. MÃ HÓA ẢNH SẠCH THÀNH BASE64 ĐỂ TRẢ VỀ CHO VPS
+            pad_bottom, pad_right = 512 - new_h, 512 - new_w
+            if pad_bottom > 0 or pad_right > 0:
+                crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+                crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+
+            img_t = np.transpose(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
+            mask_t = np.transpose((crop_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
+
+            ort_outs = lama_session.run(None, {lama_session.get_inputs()[0].name: img_t, lama_session.get_inputs()[1].name: mask_t})
+            out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
+            clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+            
+            if scale != 1.0: clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+            mask_bool = original_crop_mask > 0
+            clean_image[y1_pad:y2_pad, x1_pad:x2_pad][mask_bool] = clean_crop[mask_bool]
+            
         _, buffer = cv2.imencode('.jpg', clean_image)
         clean_b64 = base64.b64encode(buffer).decode('utf-8')
 
         return {
             "status": "success",
             "clean_image_base64": clean_b64,
-            "data": extracted_data
+            "data": extracted_data,
+            "context": {
+                "genre": job_input.get("genre", ""),
+                "tone": job_input.get("tone", ""),
+                "pronouns": job_input.get("pronouns", ""),
+                "glossary": job_input.get("glossary", "")
+            }
         }
-
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# Kích hoạt SDK Serverless
 runpod.serverless.start({"handler": handler})

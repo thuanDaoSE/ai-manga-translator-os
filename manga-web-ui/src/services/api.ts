@@ -248,4 +248,26 @@ export const mangaApi = {
     await handleApiError(response, "Lỗi tải dữ liệu dự án");
     return await response.json();
   },
+
+  importManga: async (projectId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch(`${API_URL}/projects/${projectId}/import-manga`, {
+      method: "POST",
+      headers: await getAuthHeaders(true), 
+      body: formData,
+    });
+    await handleApiError(response, "Lỗi khi import dự án .manga");
+    return await response.json();
+  },
+  
+  // 🚀 KHAI BÁO HÀM DỊCH LẠI CHỮ MỚI
+  retryTextTranslation: async (pageId: string) => {
+    const response = await fetch(`${API_URL}/pages/${pageId}/retry-text-translation`, {
+      method: "POST",
+      headers: await getAuthHeaders() // Tự động gắn Token bảo mật của sếp
+    });
+    await handleApiError(response, "Lỗi khi gọi lệnh dịch lại chữ");
+    return await response.json();
+  },
 };
