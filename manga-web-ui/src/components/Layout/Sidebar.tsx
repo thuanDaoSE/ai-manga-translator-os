@@ -240,27 +240,25 @@ export default function Sidebar() {
                 // 1. Tính toán Kích thước khung gốc do AI quét
                 const origW = item.box_coordinates.x2 - item.box_coordinates.x1;
                 const origH = item.box_coordinates.y2 - item.box_coordinates.y1;
-                
-                // 2. Tìm TÂM ĐIỂM của bong bóng thoại
-                const centerX = item.box_coordinates.x1 + (origW / 2);
-                const centerY = item.box_coordinates.y1 + (origH / 2);
-
-                // 3. Ép thành hình vuông (Lấy cạnh dài nhất + 20% đệm để chữ Việt có chỗ thở)
-                const newSize = Math.max(origW, origH) * 1.2;
 
                 return {
                   id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-                  // 4. Lùi tọa độ X, Y lại để khối chữ vuông nằm ngay chính giữa Tâm AI
-                  x: centerX - (newSize / 2),
-                  y: centerY - (newSize / 2),
-                  w: newSize,
-                  h: newSize,
+                  // 🚀 FIX: Dùng trực tiếp tọa độ góc trên-trái từ AI, không ép vuông
+                  x: item.box_coordinates.x1,
+                  y: item.box_coordinates.y1,
+                  w: origW,
+                  h: origH,
                   text: item.vietnamese,
                   fontSize: toolState.fontSize,
                   fontColor: toolState.fontColor,
                   fontFamily: toolState.fontFamily,
                   rotation: 0,
                   sfxClass: "",
+                  rawBox: item.box_coordinates, // Lưu lại bbox gốc để đối chiếu
+                  boxX: item.box_coordinates.x1,
+                  boxY: item.box_coordinates.y1,
+                  boxW: origW,
+                  boxH: origH,
                 };
               });
               

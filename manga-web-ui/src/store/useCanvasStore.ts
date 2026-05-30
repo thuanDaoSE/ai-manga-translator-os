@@ -25,6 +25,11 @@ export interface TextBubble {
   hasShadow?: boolean;
 
   rawBox?: { x1: number, y1: number, x2: number, y2: number };
+
+  boxX?: number;
+  boxY?: number;
+  boxW?: number;
+  boxH?: number;
 }
 
 interface CanvasState {

@@ -386,20 +386,43 @@ export default function Workspace() {
           >
 
             {/* Lớp RAW (Gốc) - Nằm dưới cùng */}
-            <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block max-w-none m-0 p-0 pointer-events-none select-none" onLoad={handleImageLoad} />
+            <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} onLoad={handleImageLoad} />
 
             {/* Lớp CLEAN (Đã xóa) - Nằm giữa - Áp dụng hiệu ứng mờ Onion Skin */}
             <img
               src={displayUrl || undefined}  
               crossOrigin="anonymous"
               alt="Manga Clean"
-              className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity}`}
+              className={`absolute top-0 left-0 block m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity}`}
+              style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : '100%', height: imgSize.h > 0 ? `${imgSize.h}px` : '100%' }}
             />
 
             {/* Lớp DRAW (Cọ) và CHỮ - Nằm trên cùng */}
+            {/* Lớp DRAW (Cọ) và CHỮ - Nằm trên cùng */}
             <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
               <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} />
-              <MangaTextEngine /> 
+
+              {/* 🚀 LỚP DEBUG: ÉP HIỂN THỊ KHUNG XANH LÁ CÂY ĐỘC LẬP */}
+              {currentBubbles.map((b) => (
+                (b.boxX !== undefined) && (
+                  <div
+                    key={`debug-box-${b.id}`}
+                    style={{
+                      position: 'absolute',
+                      left: `${b.boxX}px`,
+                      top: `${b.boxY}px`,
+                      width: `${b.boxW}px`,
+                      height: `${b.boxH}px`,
+                      border: '4px solid #00ff00', // Đóng khung xanh lá cây thật đậm
+                      backgroundColor: 'rgba(0, 255, 0, 0.3)',
+                      pointerEvents: 'none', // Không cản trở click
+                      zIndex: 99999, // 🚀 Cao nhất hệ mặt trời, đè lên mọi thứ
+                    }}
+                  />
+                )
+              ))}
+
+              <MangaTextEngine imgWidth={imgSize.w} imgHeight={imgSize.h} /> 
               <FloatingTextToolbar /> 
             </div>
           </div>

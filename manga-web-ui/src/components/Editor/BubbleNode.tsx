@@ -198,27 +198,25 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
       onMouseLeave={() => setHoveredBubble(null)}
       className={`absolute pointer-events-auto group ${isActive ? 'z-50' : 'z-40'}`}
       style={{
-        // 🚀 CỐT LÕI NẰM Ở ĐÂY: DÙNG LEFT / TOP ĐỂ ĐỊNH VỊ CHUẨN XÁC 1:1 VỚI BACKEND
         left: `${localPos.x}px`,
         top: `${localPos.y}px`,
         width: `${localSize.w}px`,
         height: `${localSize.h}px`,
         transform: `rotate(${bubble.rotation || 0}deg)`,
-        transformOrigin: 'center center'
+        transformOrigin: 'center center',
+        
+        // 🚀 1. BẬT ĐÈN ĐỎ SÁNG RỰC TOÀN BỘ COMPONENT
+        backgroundColor: 'rgba(255, 0, 0, 0.3)', 
+        border: '2px dashed red',
+        
+        // 🚀 2. THUẬT TOÁN ÉP CHỮ RA CHÍNH GIỮA (Y HỆT BẢN HTML CŨ)
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxSizing: 'border-box'
       }}
     >
-      {/* 1. KHUNG FOCUS BẢO VỆ */}
-      <div 
-        data-html2canvas-ignore="true" 
-        className={`absolute inset-0 pointer-events-none transition-all duration-200 rounded-sm
-          ${isActive && !isEditing ? 'border-2 border-indigo-500 bg-indigo-500/10' : ''}
-          ${!isActive && !bubble.isLocked && isHovered ? 'border-2 border-indigo-400 border-dashed bg-indigo-400/10 shadow-lg' : ''}
-          ${isEditing ? 'border-2 border-rose-500 bg-rose-500/10 shadow-[0_0_15px_rgba(244,63,94,0.3)]' : ''}
-          ${!isActive && !isEditing && !isHovered && !bubble.isLocked ? 'border border-dashed border-gray-400/50' : ''} 
-        `}
-      />
-
-      {/* 2. CẦN GẠT XOAY (TOP CENTER) */}
+      {/* CẦN GẠT XOAY & NÚM KÉO SIZE (GIỮ NGUYÊN) */}
       {isActive && !isEditing && !bubble.isLocked && (
         <div data-html2canvas-ignore="true" className="absolute -top-10 left-1/2 -translate-x-1/2 flex flex-col items-center">
           <div 
@@ -230,8 +228,6 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
           <div className="w-[1.5px] h-4 bg-indigo-500"></div>
         </div>
       )}
-
-      {/* 3. NÚM KÉO KÍCH THƯỚC (BOTTOM RIGHT) */}
       {isActive && !isEditing && !bubble.isLocked && (
         <div 
           data-html2canvas-ignore="true"
@@ -240,35 +236,32 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
         />
       )}
 
-      {/* 4. TEXT ĐƯỢC ÉP GIỮA BẰNG CƠ CHẾ CỦA HTML CŨ */}
-      <div className="w-full h-full flex items-center justify-center">
-        <div
-          ref={textRef}
-          contentEditable={isEditing ? "plaintext-only" : false}
-          suppressContentEditableWarning={true}
-          onMouseDown={(e) => {
-            if (isEditing) e.stopPropagation(); // Khóa kéo thả để cho phép bôi đen text
-          }} 
-          className={`w-full outline-none text-center break-words whitespace-pre-wrap
-            ${bubble.isLocked ? 'cursor-not-allowed' : (isEditing ? 'cursor-text' : 'cursor-move')}
-          `}
-          style={{
-            fontSize: `${bubble.fontSize}px`,
-            lineHeight: 1.15, 
-            color: bubble.fontColor,
-            fontFamily: bubble.fontFamily,
-            fontWeight: bubble.isBold ? 900 : 400,
-            fontStyle: bubble.isItalic ? 'italic' : 'normal',
-            textTransform: bubble.isUppercase ? 'uppercase' : 'none',
-            WebkitTextStroke: `${bubble.outlineWidth ?? 0}px ${bubble.outlineColor || (bubble.fontColor === '#000000' ? '#ffffff' : '#000000')}`,
-            textShadow: bubble.hasShadow ? '2px 4px 6px rgba(0,0,0,0.5)' : 'none',
-            userSelect: isEditing ? 'text' : 'none',
-            pointerEvents: isEditing ? 'auto' : 'none',
-            paintOrder: 'stroke fill',
-          }}
-        >
-          {bubble.text}
-        </div>
+      {/* 🚀 3. LÕI CHỮ: VỨT BỎ HẾT CÁC THẺ DIV DƯ THỪA ĐỂ TRÁNH BỊ ĐẨY BASELINE */}
+      <div
+        ref={textRef}
+        contentEditable={isEditing ? "plaintext-only" : false}
+        suppressContentEditableWarning={true}
+        onMouseDown={(e) => {
+          if (isEditing) e.stopPropagation();
+        }} 
+        className={`w-full outline-none text-center break-words whitespace-pre-wrap
+          ${bubble.isLocked ? 'cursor-not-allowed' : (isEditing ? 'cursor-text' : 'cursor-move')}
+        `}
+        style={{
+          fontSize: `${bubble.fontSize}px`,
+          lineHeight: 1.15, 
+          color: bubble.fontColor,
+          fontFamily: bubble.fontFamily,
+          fontWeight: bubble.isBold ? 900 : 400,
+          fontStyle: bubble.isItalic ? 'italic' : 'normal',
+          textTransform: bubble.isUppercase ? 'uppercase' : 'none',
+          WebkitTextStroke: `${bubble.outlineWidth ?? 0}px ${bubble.outlineColor || (bubble.fontColor === '#000000' ? '#ffffff' : '#000000')}`,
+          textShadow: bubble.hasShadow ? '2px 4px 6px rgba(0,0,0,0.5)' : 'none',
+          userSelect: isEditing ? 'text' : 'none',
+          pointerEvents: isEditing ? 'auto' : 'none',
+        }}
+      >
+        {bubble.text}
       </div>
     </div>
   );

@@ -9,7 +9,12 @@ const ROTATE_ICON_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000
 const rotateImg = new Image();
 rotateImg.src = ROTATE_ICON_SVG;
 
-export default function MangaTextEngine() {
+interface MangaTextEngineProps {
+  imgWidth: number;
+  imgHeight: number;
+}
+
+export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null); 
   const fabricCanvas = useRef<fabric.Canvas | null>(null);
@@ -24,9 +29,12 @@ export default function MangaTextEngine() {
     const htmlCanvas = document.createElement('canvas');
     wrapperRef.current.appendChild(htmlCanvas);
 
+    // 🚀 FIX: Dùng kích thước pixel thật của ảnh (1:1) thay vì CSS clientWidth
+    const initW = imgWidth > 0 ? imgWidth : containerRef.current.clientWidth;
+    const initH = imgHeight > 0 ? imgHeight : containerRef.current.clientHeight;
     const canvas = new fabric.Canvas(htmlCanvas, {
-      width: containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight,
+      width: initW,
+      height: initH,
       selection: false, 
     });
     fabricCanvas.current = canvas;
@@ -131,13 +139,16 @@ export default function MangaTextEngine() {
       useCanvasStore.getState().setActiveBubble(null);
     });
 
+    // 🚀 FIX: Chỉ resize theo CSS nếu chưa có kích thước ảnh thật
     const resizeObserver = new ResizeObserver((entries) => {
       for (let entry of entries) {
-        canvas.setDimensions({
-          width: entry.contentRect.width,
-          height: entry.contentRect.height
-        });
-        canvas.renderAll();
+        // Nếu đã có kích thước ảnh thật, ưu tiên dùng nó
+        const w = imgWidth > 0 ? imgWidth : entry.contentRect.width;
+        const h = imgHeight > 0 ? imgHeight : entry.contentRect.height;
+        if (w > 0 && h > 0) {
+          canvas.setDimensions({ width: w, height: h });
+          canvas.renderAll();
+        }
       }
     });
     resizeObserver.observe(containerRef.current);
@@ -148,7 +159,7 @@ export default function MangaTextEngine() {
       if (wrapperRef.current) wrapperRef.current.innerHTML = ''; 
       useCanvasStore.getState().setHoveredBubble(null);
     };
-  }, []);
+  }, [imgWidth, imgHeight]);
 
   // ĐỒNG BỘ ZUSTAND SANG FABRIC
   // ĐỒNG BỘ ZUSTAND SANG FABRIC
@@ -171,22 +182,30 @@ export default function MangaTextEngine() {
         // 🚀 BẢN VÁ 1: Bỏ hàm ép chữ nhỏ, đặt mặc định chữ to, rõ ràng (28px)
         const defaultFontSize = bubble.fontSize || 28;
 
-        const textObj = new fabric.Textbox(safeText, { // Không cần wrappedText nữa vì Fabric tự bẻ dòng
-          left: bubble.x,
-          top: bubble.y,
-          width: Math.max(bubble.w, 150), // Ép chiều rộng tối thiểu để chữ không bị bóp nghẹt
+        const textObj = new fabric.Textbox(safeText, { 
+          // 🚀 1. TÍNH TOÁN ĐIỂM GIỮA CỦA KHUNG XANH LÁ (Tọa độ tuyệt đối)
+          left: bubble.x + (bubble.w / 2),
+          top: bubble.y + (bubble.h / 2),
+          width: bubble.w, 
           angle: bubble.rotation || 0,
           fontFamily: bubble.fontFamily.replace(/'/g, ''),
           fontSize: defaultFontSize,
           
+          // 🚀 2. DỜI ĐIỂM NEO CỦA KHUNG ĐỎ VÀO CHÍNH GIỮA (Origin Point)
+          originX: 'center',
+          originY: 'center',
+          
+          // Các cấu hình cũ giữ nguyên
           fill: safeColor,
           stroke: safeStroke,
           strokeWidth: Math.max(3, Math.round(defaultFontSize * 0.15)), 
           paintFirst: 'stroke',     
           strokeLineJoin: 'round',
           textAlign: 'center',
-          
-          // 🚀 BẢN VÁ 2: ĐỘ LẠI CHẤM KÉO CHO CHUẨN FIGMA
+
+          // Vẫn giữ lại Nền Đỏ để soi cho dễ
+          backgroundColor: 'rgba(255, 0, 0, 0.4)', 
+
           snapAngle: 45,       
           snapThreshold: 5,    
           transparentCorners: false,
@@ -203,7 +222,8 @@ export default function MangaTextEngine() {
           editingBorderColor: '#f43f5e', 
           cursorColor: '#f43f5e',        
           cursorWidth: 3,                
-          cursorDuration: 500,           
+          cursorDuration: 500,     
+                
         });
 
         // 🚀 BẢN VÁ 3: KHÓA KÉO CẠNH (Tắt trên, dưới, trái, phải) - BẮT BUỘC RA MŨI TÊN CHÉO!
@@ -254,7 +274,7 @@ export default function MangaTextEngine() {
       } else {
          const existingObj = canvas.getObjects().find((obj: any) => obj.id === bubble.id) as fabric.Textbox;
          if (existingObj && !existingObj.isEditing) {
-            const defaultFontSize = bubble.fontSize || 28; // Giữ cỡ chữ ổn định
+            const defaultFontSize = bubble.fontSize || 28; 
             
             existingObj.set({
               text: safeText,
@@ -264,10 +284,18 @@ export default function MangaTextEngine() {
               strokeWidth: Math.max(3, Math.round(defaultFontSize * 0.15)),
               paintFirst: 'stroke',
               fontSize: defaultFontSize,
+
+              // 🚀 ÉP LẠI TÂM CHO CHỮ ĐÃ CÓ SẴN
+              left: bubble.x + (bubble.w / 2),
+              top: bubble.y + (bubble.h / 2),
+              originX: 'center',
+              originY: 'center',
+
               cornerSize: 16,        
               touchCornerSize: 36,   
               padding: 16,           
               cornerStyle: 'circle',
+              backgroundColor: 'rgba(255, 0, 0, 0.4)',
             });
             existingObj.setControlsVisibility({
               mt: false, 

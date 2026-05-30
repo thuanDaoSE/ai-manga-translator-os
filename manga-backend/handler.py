@@ -76,41 +76,44 @@ def handler(job):
         _, buffer = cv2.imencode('.png', clean_crop)
         return {"status": "success", "clean_crop_base64": base64.b64encode(buffer).decode('utf-8')}
 
-    # 🟢 4. LỆNH TRANSLATE: Dịch toàn bộ trang truyện (Giữ nguyên code cũ của sếp)
+    # 🟢 4. LỆNH TRANSLATE: Dịch toàn bộ trang truyện
     img_b64 = job_input['image_base64']
     img_data = base64.b64decode(img_b64)
     nparr = np.frombuffer(img_data, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    clean_image = image.copy()
-    h_img, w_img = image.shape[:2]
+    
+    # 🚀 LƯU TRỮ KÍCH THƯỚC GỐC CỦA ẢNH ĐỂ ĐỐI CHIẾU
+    original_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    orig_h, orig_w = original_image.shape[:2]
+    clean_image = original_image.copy()
 
-    # ... (Các đoạn trước giữ nguyên)
     try:
-        result = text_detector(image)
+        # 🚀 TRUYỀN BẢN COPY VÀO ĐỂ TRÁNH DETECTOR BÓP MÉO ẢNH GỐC
+        result = text_detector(original_image.copy())
         ctd_mask = result[0] if isinstance(result, tuple) else result
-        if ctd_mask.max() <= 1.0: ctd_mask = (ctd_mask * 255).astype(np.uint8)
-        else: ctd_mask = ctd_mask.astype(np.uint8)
+        
+        if ctd_mask.max() <= 1.0: 
+            ctd_mask = (ctd_mask * 255).astype(np.uint8)
+        else: 
+            ctd_mask = ctd_mask.astype(np.uint8)
+        
+        # 🚀 TRỌNG TÂM FIX LỖI: RESIZE LẠI MẶT NẠ AI VỀ ĐÚNG KÍCH THƯỚC ẢNH GỐC (TỶ LỆ 1:1)
+        ctd_mask = cv2.resize(ctd_mask, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
         
         _, ctd_mask = cv2.threshold(ctd_mask, 127, 255, cv2.THRESH_BINARY)
         
-        # 🚀 BƯỚC 1: Lấy mặt nạ Vùng Trắng (Bong bóng thoại)
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # BƯỚC 1: Lấy mặt nạ Vùng Trắng (Bong bóng thoại) TRÊN ẢNH GỐC
+        gray = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
         _, white_regions = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
         
-        # 🚀 BƯỚC 2: Thuật toán Flood-Fill / Dilation để "Nở" từ chữ ra đầy bong bóng
-        # Phóng to mask chữ gốc lên để nó chạm vào viền trắng của bong bóng
+        # BƯỚC 2: Thuật toán Flood-Fill / Dilation
         fat_mask = cv2.dilate(ctd_mask, np.ones((7, 7), np.uint8), iterations=3) 
-        
-        # Giao thoa: Chỉ lấy những vùng trắng mà có chứa mask chữ bên trong
         smart_mask = cv2.bitwise_and(white_regions, fat_mask)
-        
-        # Nở thêm lần cuối để lấp đầy các khoảng trống nhỏ bên trong bong bóng
         smart_mask = cv2.dilate(smart_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)), iterations=2)
         
-        # 🚀 BƯỚC 3: Hợp nhất lại với mask gốc (Phòng trường hợp chữ không nằm trong nền trắng)
+        # BƯỚC 3: Hợp nhất
         final_mask = cv2.bitwise_or(ctd_mask, smart_mask)
         
-        # Tìm Contours trên cái Mask Bong Bóng (Final Mask) thay vì Mask Chữ (ctd_mask)
+        # Tìm Contours (Giờ đây nó sẽ trả về tọa độ trên hệ trục gốc 1:1)
         contours, _ = cv2.findContours(final_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         extracted_data = []
@@ -120,21 +123,24 @@ def handler(job):
             x, y, w, h = cv2.boundingRect(cnt)
             if w < 16 or h < 16: continue 
             
-            # 🚀 LƯU Ý QUAN TRỌNG: Cắt ảnh để OCR thì vẫn dùng tọa độ này
-            # Nhưng vì nó rộng hơn (bao cả bong bóng) nên OCR có thể nhận diện tốt hơn
-            japanese_text = extract_text_manga_ocr(image[y:y+h, x:x+w])
+            japanese_text = extract_text_manga_ocr(original_image[y:y+h, x:x+w])
             
-            # 🚀 TỌA ĐỘ BÂY GIỜ LÀ CỦA TOÀN BỘ BONG BÓNG, TRỌNG TÂM LÀ TRỌNG TÂM BONG BÓNG!
-            extracted_data.append({"id": count, "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h}, "japanese": japanese_text, "vietnamese": ""})
+            # Tọa độ gửi về Frontend giờ đã siêu chuẩn xác
+            extracted_data.append({
+                "id": count, 
+                "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h}, 
+                "japanese": japanese_text, 
+                "vietnamese": ""
+            })
             count += 1
             
-            # ... (Phần LaMa Inpainting bên dưới giữ nguyên)
-            
+            # LaMa Inpainting
             pad_x, pad_y = max(40, min(int(w * 0.5), 150)), max(40, min(int(h * 0.5), 150))
             x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
-            x2_pad, y2_pad = min(w_img, x + w + pad_x), min(h_img, y + h + pad_y)
+            x2_pad, y2_pad = min(orig_w, x + w + pad_x), min(orig_h, y + h + pad_y)
+            
             crop_img = clean_image[y1_pad:y2_pad, x1_pad:x2_pad]
-            crop_mask = mask[y1_pad:y2_pad, x1_pad:x2_pad]
+            crop_mask = final_mask[y1_pad:y2_pad, x1_pad:x2_pad]
             
             if cv2.countNonZero(crop_mask) == 0: continue
             
@@ -162,7 +168,9 @@ def handler(job):
             out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
             clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
             
-            if scale != 1.0: clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+            if scale != 1.0: 
+                clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+            
             mask_bool = original_crop_mask > 0
             clean_image[y1_pad:y2_pad, x1_pad:x2_pad][mask_bool] = clean_crop[mask_bool]
             
