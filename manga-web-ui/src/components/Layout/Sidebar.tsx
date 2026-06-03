@@ -3,6 +3,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useEffect, useRef, useState } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { Download, Package } from 'lucide-react';
 import { CSS } from '@dnd-kit/utilities';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
@@ -130,6 +131,8 @@ function SortableItem({ id, file, isActive, status, displayImg, progress, onClic
   );
 }
 
+
+
 // ==========================================
 // 2. COMPONENT CHÍNH: SIDEBAR
 // ==========================================
@@ -145,6 +148,43 @@ export default function Sidebar() {
   const importMangaRef = useRef<HTMLInputElement>(null);
 
   const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
+
+
+
+  const handleExportBatch = async (type: 'raw' | 'clean' | 'psd') => {
+    if (!projectStore.projectId) return toast.error("Vui lòng lưu dự án trước!");
+    if (projectStore.fileQueue.length === 0) return toast.error("Dự án chưa có ảnh nào!");
+
+    const loadingToast = toast.loading(`📦 Đang đóng gói file ${type.toUpperCase()}... Việc này có thể mất vài chục giây.`);
+    
+    try {
+      const token = localStorage.getItem("token"); // Hoặc cách sếp lưu token
+      
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/projects/${projectStore.projectId}/export-batch?export_type=${type}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) throw new Error("Lỗi khi tạo file nén");
+
+      // Xử lý stream blob để tải file về
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Project_${type.toUpperCase()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast.success("✅ Tải file thành công!", { id: loadingToast });
+    } catch (error: any) {
+      toast.error(`❌ Tải thất bại: ${error.message}`, { id: loadingToast });
+    }
+  };
 
   // LOGIC IMPORT MANGA
   const handleImportManga = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -324,11 +364,19 @@ export default function Sidebar() {
   };
 
   // LOGIC XÓA (CÓ ĐẾM NGƯỢC VÀ TÀNG HÌNH)
+  // LOGIC XÓA (CÓ ĐẾM NGƯỢC VÀ TÀNG HÌNH)
   const handleDeletePage = (index: number) => {
     const file = fileQueue[index];
     const fileName = file.name;
 
     if (deleteTimeoutsRef.current[fileName]) return;
+
+    // 🚀 BẢN VÁ 1: Chuẩn UX - Chuyển sang xem trang khác ngay lập tức nếu đang xóa trang hiện tại
+    if (index === projectStore.currentIndex) {
+      // Tìm một trang bất kỳ không bị xóa để hiển thị tạm
+      const nextIndex = fileQueue.findIndex((f, i) => i !== index && !pendingDeletes.has(f.name));
+      projectStore.setCurrentIndex(nextIndex !== -1 ? nextIndex : -1);
+    }
 
     setPendingDeletes(prev => new Set(prev).add(fileName));
 
@@ -356,7 +404,8 @@ export default function Sidebar() {
       </div>
     ), { duration: 5000, id: `delete-${fileName}`, icon: '⏳' });
 
-    deleteTimeoutsRef.current[fileName] = setTimeout(() => {
+    // 🚀 BẢN VÁ 2: Thêm async/await - Đợi API xóa dứt điểm xong mới gỡ trạng thái tàng hình (Chống nháy hình)
+    deleteTimeoutsRef.current[fileName] = setTimeout(async () => {
       const state = useProjectStore.getState();
       const realIndex = state.fileQueue.findIndex(f => f.name === fileName);
       
@@ -364,8 +413,7 @@ export default function Sidebar() {
         if (state.pageStatuses[realIndex] === 'processing') {
           handleCancelTask(realIndex);
         }
-        state.removePage(realIndex);
-        toast.success(`Đã xóa vĩnh viễn trang truyện!`);
+        await state.removePage(realIndex); // ⏳ Đợi server xóa dứt điểm
       }
       delete deleteTimeoutsRef.current[fileName];
       
@@ -456,6 +504,10 @@ export default function Sidebar() {
   return (
     <div className="w-64 bg-sidebar border-r border-border flex flex-col h-full shadow-2xl z-20 shrink-0 select-none relative">
       <div className="p-4 border-b border-border bg-panel/50 backdrop-blur-md flex flex-col gap-3">
+        
+        {/* ========================================== */}
+        {/* TẦNG 1: TIÊU ĐỀ & CÁC NÚT UPLOAD/ĐÓNG PANEL */}
+        {/* ========================================== */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-bold text-text-main flex items-center gap-2 uppercase tracking-tight">
@@ -463,7 +515,7 @@ export default function Sidebar() {
             </h2>
             <p className="text-[10px] text-text-muted mt-1 font-medium">{totalPages} TRANG TẤT CẢ</p>
           </div>
-          
+
           <div className="flex gap-1.5 items-center">
             <label className="p-2 bg-border/40 hover:bg-border text-text-muted hover:text-text-main rounded-md cursor-pointer transition-colors" title="Tải trang truyện lên">
               <Upload size={16} />
@@ -510,6 +562,40 @@ export default function Sidebar() {
           </div>
         </div>
 
+        {/* ========================================== */}
+        {/* TẦNG 2: CÁC NÚT TẢI XUỐNG HÀNG LOẠT        */}
+        {/* ========================================== */}
+        {projectStore.fileQueue.length > 0 && (
+          <div className="flex flex-col gap-2 p-3 bg-panel/50 rounded-xl border border-border shadow-sm">
+            <span className="text-xs font-bold text-text-muted flex items-center gap-1.5 uppercase">
+              <Package size={14} /> Tải Hàng Loạt ({projectStore.fileQueue.length} trang)
+            </span>
+            <div className="grid grid-cols-3 gap-2">
+              <button 
+                onClick={() => handleExportBatch('clean')}
+                className="px-2 py-1.5 text-[11px] font-semibold bg-primary/10 text-primary hover:bg-primary hover:text-white rounded-lg transition-colors border border-primary/20 flex flex-col items-center justify-center gap-1"
+              >
+                <Download size={14} /> JPG Sạch
+              </button>
+              <button 
+                onClick={() => handleExportBatch('psd')}
+                className="px-2 py-1.5 text-[11px] font-semibold bg-blue-500/10 text-blue-400 hover:bg-blue-500 hover:text-white rounded-lg transition-colors border border-blue-500/20 flex flex-col items-center justify-center gap-1"
+              >
+                <Download size={14} /> File PSD
+              </button>
+              <button 
+                onClick={() => handleExportBatch('raw')}
+                className="px-2 py-1.5 text-[11px] font-semibold bg-gray-500/10 text-gray-400 hover:bg-gray-500 hover:text-white rounded-lg transition-colors border border-gray-500/20 flex flex-col items-center justify-center gap-1"
+              >
+                <Download size={14} /> JPG Gốc
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================== */}
+        {/* TẦNG 3: THANH TIẾN ĐỘ TỔNG QUAN           */}
+        {/* ========================================== */}
         <div className="w-full bg-background/50 rounded-lg p-2 border border-border">
           <div className="flex justify-between items-end mb-1">
             <span className="text-[10px] font-bold text-text-muted uppercase">Tiến độ chung</span>
@@ -527,6 +613,7 @@ export default function Sidebar() {
         </div>
       </div>
 
+      {/* DANH SÁCH ẢNH (KÉO THẢ) */}
       <div className="flex-1 overflow-y-auto p-2 custom-scrollbar pb-20">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
@@ -535,7 +622,6 @@ export default function Sidebar() {
                 const uniquePageId = projectStore.pageIds[index];
                 return (
                   <SortableItem
-                    // 🚀 THÊM PHẦN BACKUP NÀY ĐỂ REACT KHÔNG KÊU GÀO:
                     key={uniquePageId || `page-${index}-${file.name}`} 
                     id={uniquePageId || `page-${index}`}
                     file={file}

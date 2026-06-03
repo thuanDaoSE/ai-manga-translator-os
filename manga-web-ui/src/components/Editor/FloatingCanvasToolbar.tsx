@@ -1,36 +1,37 @@
 import React from 'react';
-import { useToolStore } from '../../store/useToolStore';
-import { useCanvasStore } from '../../store/useCanvasStore';
-import { MousePointer2, Eraser, Paintbrush, ScanSearch, Undo2, Redo2, Type } from 'lucide-react';
-
+import { useToolStore } from '../../store/useToolStore'; //[cite: 12]
+import { useCanvasStore } from '../../store/useCanvasStore'; //[cite: 12]
+// 🚀 Thêm icon ScanLine vào đây
+import { MousePointer2, Eraser, Paintbrush, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff } from 'lucide-react';
 export const FloatingCanvasToolbar: React.FC = () => {
-  const { activeMode, setActiveMode, brushSize, setBrushSize, restoreType, toggleRestoreType } = useToolStore();
+  // 🚀 Lấy thêm showAiGuides và toggleAiGuides từ store
+const { activeMode, setActiveMode, brushSize, setBrushSize, restoreType, toggleRestoreType, showAiGuides, toggleAiGuides, showText, setShowText } = useToolStore();
   
-  const isBrushMode = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw';
+  const isBrushMode = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw'; //[cite: 12]
 
-  const handleUndo = () => useCanvasStore.temporal?.getState().undo() || useCanvasStore.getState().undo();
-  const handleRedo = () => useCanvasStore.temporal?.getState().redo() || useCanvasStore.getState().redo();
 
-  // 🚀 TÍNH NĂNG MỚI: HÀM THÊM CHỮ THỦ CÔNG
+  const handleUndo = () => useCanvasStore.getState().undo();
+  const handleRedo = () => useCanvasStore.getState().redo();
+  // 🚀 TÍNH NĂNG MỚI: HÀM THÊM CHỮ THỦ CÔNG[cite: 12]
   const handleAddText = () => {
-    const toolState = useToolStore.getState();
+    const toolState = useToolStore.getState(); //[cite: 12]
     useCanvasStore.getState().addBubble({
-      x: 200, 
-      y: 200, 
-      w: 200, 
-      h: 80,
-      text: "Gõ chữ vào đây...",
-      fontSize: toolState.fontSize || 18,
-      fontColor: toolState.fontColor || '#000000',
-      fontFamily: toolState.fontFamily || "'Comic Neue', cursive",
-      rotation: 0
+      x: 200, //[cite: 12]
+      y: 200, //[cite: 12]
+      w: 200, //[cite: 12]
+      h: 80, //[cite: 12]
+      text: "Gõ chữ vào đây...", //[cite: 12]
+      fontSize: toolState.fontSize || 18, //[cite: 12]
+      fontColor: toolState.fontColor || '#000000', //[cite: 12]
+      fontFamily: toolState.fontFamily || "'Comic Neue', cursive", //[cite: 12]
+      rotation: 0 //[cite: 12]
     });
-    // Tự động chuyển về con trỏ chuột để sếp có thể kéo chữ luôn
-    setActiveMode('none'); 
+    // Tự động chuyển về con trỏ chuột để sếp có thể kéo chữ luôn[cite: 12]
+    setActiveMode('none');  //[cite: 12]
   };
 
-  const ToolButton = ({ mode, icon: Icon, label, shortLabel }: { mode: any, icon: any, label: string, shortLabel: string }) => {
-    const isActive = activeMode === mode;
+  const ToolButton = ({ mode, icon: Icon, label, shortLabel }: { mode: any, icon: any, label: string, shortLabel: string }) => { //[cite: 12]
+    const isActive = activeMode === mode; //[cite: 12]
     return (
       <div className="relative flex flex-col items-center group">
         <div className="absolute -top-10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 px-2.5 py-1.5 bg-panel text-white text-[11px] font-bold rounded-lg shadow-xl whitespace-nowrap pointer-events-none border border-border z-50">
@@ -42,8 +43,8 @@ export const FloatingCanvasToolbar: React.FC = () => {
           onClick={() => setActiveMode(mode)}
           className={`w-10 h-10 rounded-full transition-colors duration-200 flex items-center justify-center relative
             ${isActive 
-              ? 'bg-primary text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]' 
-              : 'text-text-muted hover:bg-border hover:text-text-main'}`}
+              ? 'bg-primary text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]' //[cite: 12]
+              : 'text-text-muted hover:bg-border hover:text-text-main'}`} //[cite: 12]
         >
           <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
         </button>
@@ -61,18 +62,18 @@ export const FloatingCanvasToolbar: React.FC = () => {
         {activeMode === 'restore' && (
           <div className="flex items-center gap-1 bg-background/50 p-1 rounded-lg border border-border mr-1 shadow-inner">
             <button
-              onClick={() => restoreType !== 'raw' && toggleRestoreType()}
-              className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                restoreType === 'raw' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main hover:bg-border'
-              }`}
+              onClick={() => restoreType !== 'raw' && toggleRestoreType()} //[cite: 12]
+              className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${ //[cite: 12]
+                restoreType === 'raw' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main hover:bg-border' //[cite: 12]
+              }`} //[cite: 12]
             >
               Bản Gốc
             </button>
             <button
-              onClick={() => restoreType !== 'clean' && toggleRestoreType()}
-              className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                restoreType === 'clean' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main hover:bg-border'
-              }`}
+              onClick={() => restoreType !== 'clean' && toggleRestoreType()} //[cite: 12]
+              className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${ //[cite: 12]
+                restoreType === 'clean' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main hover:bg-border' //[cite: 12]
+              }`} //[cite: 12]
             >
               Bản Sạch
             </button>
@@ -81,8 +82,8 @@ export const FloatingCanvasToolbar: React.FC = () => {
 
         <div className="w-1.5 h-1.5 bg-text-muted rounded-full"></div>
         <input 
-          type="range" min="5" max="150" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))}
-          className="w-32 h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-primary border border-border"
+          type="range" min="5" max="150" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} //[cite: 12]
+          className="w-32 h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-primary border border-border" //[cite: 12]
         />
         <div className="w-3 h-3 bg-text-muted rounded-full"></div>
         <span className="text-xs text-text-main w-8 text-right font-bold tabular-nums">{brushSize} px</span>
@@ -110,8 +111,8 @@ export const FloatingCanvasToolbar: React.FC = () => {
               <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 border-4 border-transparent border-t-border"></div>
             </div>
             <button
-              onClick={handleAddText}
-              className="w-10 h-10 rounded-full text-text-muted hover:bg-border hover:text-text-main transition-colors duration-200 flex items-center justify-center relative cursor-pointer"
+              onClick={handleAddText} //[cite: 12]
+              className="w-10 h-10 rounded-full text-text-muted hover:bg-border hover:text-text-main transition-colors duration-200 flex items-center justify-center relative cursor-pointer" //[cite: 12]
             >
               <Type size={20} strokeWidth={2} />
             </button>
@@ -122,6 +123,45 @@ export const FloatingCanvasToolbar: React.FC = () => {
           <ToolButton mode="erase" icon={Eraser} label="Tẩy nền (E)" shortLabel="Tẩy nền (E)" />
           <ToolButton mode="restore" icon={Paintbrush} label="Phục hồi (B)" shortLabel="Phục hồi (B)" />
           <ToolButton mode="scan" icon={ScanSearch} label="Dịch Lens (S)" shortLabel="Dịch Lens (S)" />
+
+          <div className="w-px h-6 bg-border mx-1"></div>
+
+          {/* 🚀 NÚT MỚI: BẬT TẮT VÙNG BÁO AI XỬ LÝ */}
+          <div className="relative flex flex-col items-center group">
+            <div className="absolute -top-10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 px-2.5 py-1.5 bg-panel text-white text-[11px] font-bold rounded-lg shadow-xl whitespace-nowrap pointer-events-none border border-border z-50">
+              {showAiGuides ? "Tắt vùng báo AI" : "Hiện vùng AI xử lý"}
+              <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 border-4 border-transparent border-t-border"></div>
+            </div>
+            <button
+              onClick={toggleAiGuides}
+              className={`w-10 h-10 rounded-full transition-colors duration-200 flex items-center justify-center relative cursor-pointer
+                ${showAiGuides 
+                  ? 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]' 
+                  : 'text-text-muted hover:bg-border hover:text-text-main'}`}
+            >
+              <ScanLine size={20} strokeWidth={showAiGuides ? 2.5 : 2} className={showAiGuides ? "animate-pulse" : ""} />
+            </button>
+          </div>
+
+          <div className="w-px h-6 bg-border mx-1"></div>
+
+          {/* 🚀 NÚT MỚI: ẨN / HIỆN CHỮ (TÀNG HÌNH) */}
+          <div className="relative flex flex-col items-center group">
+            <div className="absolute -top-10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 px-2.5 py-1.5 bg-panel text-white text-[11px] font-bold rounded-lg shadow-xl whitespace-nowrap pointer-events-none border border-border z-50">
+              {showText ? "Ẩn toàn bộ chữ" : "Hiện toàn bộ chữ"}
+              <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 border-4 border-transparent border-t-border"></div>
+            </div>
+            <button
+              onClick={() => setShowText(!showText)}
+              className={`w-10 h-10 rounded-full transition-colors duration-200 flex items-center justify-center relative cursor-pointer
+                ${!showText 
+                  ? 'bg-primary/10 text-primary border border-primary/30 shadow-[0_0_15px_rgba(99,102,241,0.2)]' 
+                  : 'text-text-muted hover:bg-border hover:text-text-main'}`}
+            >
+              {showText ? <Eye size={20} strokeWidth={2} /> : <EyeOff size={20} strokeWidth={2.5} />}
+            </button>
+          </div>
+
         </div>
 
       </div>

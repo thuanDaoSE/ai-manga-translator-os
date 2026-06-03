@@ -8,7 +8,7 @@ model_path = "detector.onnx"
 session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
 
 print("🖼️ [Bước 2] Phân tích ảnh với thuật toán Letterbox...")
-image_path = "test2.jpg"
+image_path = "test4.jpg"
 image_bgr = cv2.imread(image_path)
 h_orig, w_orig = image_bgr.shape[:2]
 

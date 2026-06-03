@@ -30,6 +30,8 @@ export interface TextBubble {
   boxY?: number;
   boxW?: number;
   boxH?: number;
+
+  isRestored?: boolean;
 }
 
 interface CanvasState {
@@ -71,12 +73,34 @@ export const useCanvasStore = create<CanvasState>()(
       })),
 
       // Khi nạp trang mới, xóa sạch lịch sử của trang cũ đi
-      setBubbles: (bubbles) => set({ bubbles, past: [], future: [] }),
+      // 🚀 BẢN VÁ 1: BÁC SĨ TỰ CHỮA LÀNH (LỌC TRÙNG ID)
+      // Khi nạp trang mới, xóa sạch lịch sử của trang cũ đi và CHỮA LÀNH các ID bị trùng
+      setBubbles: (bubbles) => {
+        const seenIds = new Set();
+        const healedBubbles = bubbles.map((b) => {
+          if (seenIds.has(b.id)) {
+            // Nếu phát hiện ID bị trùng, lập tức rèn cho nó một ID mới tinh
+            return { ...b, id: `healed_${Date.now()}_${Math.random().toString(36).substring(2, 9)}` };
+          }
+          seenIds.add(b.id);
+          return b;
+        });
+        
+        set({ bubbles: healedBubbles, past: [], future: [] });
+      },
       
+      // 🚀 BẢN VÁ 2: SINH ID ĐỘC LẬP TUYỆT ĐỐI (Chống trùng lặp mili-giây)
       addBubble: (bubbleData) => {
         get().saveHistory();
         set((state) => ({
-          bubbles: [...state.bubbles, { ...bubbleData, id: Date.now().toString() }]
+          bubbles: [
+            ...state.bubbles, 
+            { 
+              ...bubbleData, 
+              // Ưu tiên dùng ID có sẵn, nếu không có thì nối thêm chuỗi Random dài để chống trùng
+              id: bubbleData.id || `bubble_${Date.now()}_${Math.random().toString(36).substring(2, 9)}` 
+            }
+          ]
         }));
       },
 

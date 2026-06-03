@@ -22,7 +22,6 @@ interface ToolState {
   fontFamily: string;
   setFontFamily: (font: string) => void;
   
-  // 🚀 ĐÃ BỔ SUNG ĐẦY ĐỦ CÁC HÀM STYLE
   isBold: boolean;
   setIsBold: (val: boolean) => void;
   isItalic: boolean;
@@ -52,6 +51,10 @@ interface ToolState {
 
   actionPosition: { x: number, y: number } | null;
   setActionPosition: (pos: { x: number, y: number } | null) => void;
+
+  // 🚀 BIẾN MỚI DÀNH CHO NÚT BẬT/TẮT VIỀN ĐỎ
+  showAiGuides: boolean;
+  toggleAiGuides: () => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
@@ -73,7 +76,6 @@ export const useToolStore = create<ToolState>((set) => ({
   fontFamily: "'Comic Neue', cursive",
   setFontFamily: (font) => set({ fontFamily: font }),
   
-  // 🚀 ĐÃ BỔ SUNG GIÁ TRỊ THỰC THI CHO CÁC HÀM STYLE
   isBold: false,
   setIsBold: (val) => set({ isBold: val }),
   isItalic: false,
@@ -102,5 +104,9 @@ export const useToolStore = create<ToolState>((set) => ({
   setIsComparing: (val) => set({ isComparing: val }),
 
   actionPosition: null,
-  setActionPosition: (pos) => set({ actionPosition: pos })
+  setActionPosition: (pos) => set({ actionPosition: pos }),
+
+  // 🚀 KHỞI TẠO BIẾN CHO NÚT BẬT/TẮT VIỀN ĐỎ
+  showAiGuides: false,
+  toggleAiGuides: () => set((state) => ({ showAiGuides: !state.showAiGuides }))
 }));

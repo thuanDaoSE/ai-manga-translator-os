@@ -5,17 +5,18 @@ import { useConfigStore } from '../../store/useConfigStore';
 import { mangaApi } from '../../services/api';
 import toast from 'react-hot-toast';
 
-
 interface Props { 
   rawUrl: string | null; 
   displayUrl: string | null; 
+  originalCleanUrl: string | null; // 🚀 Két sắt chứa ảnh Sạch nguyên thủy
 }
 
-export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
+export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Props) {
   const drawRef = useRef<HTMLCanvasElement>(null);      
   const committedRef = useRef<HTMLCanvasElement>(null); 
   const rawRef = useRef<HTMLCanvasElement>(null);
   const cleanRef = useRef<HTMLCanvasElement>(null);
+  const originalCleanRef = useRef<HTMLCanvasElement>(null); // 🚀 Thêm ref Két sắt
 
   const { activeMode, brushSize, currentZoom } = useToolStore();
   
@@ -24,10 +25,11 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
   const scanStart = useRef({ x: 0, y: 0 });
   const currentPos = useRef({ x: 0, y: 0 });
 
+  // 1. Tải ảnh Gốc
   useEffect(() => {
     if (!rawUrl) return;
     const img = new Image();
-    img.crossOrigin = "anonymous";
+    if (!rawUrl.startsWith('blob:') && !rawUrl.startsWith('data:')) img.crossOrigin = "anonymous";
     img.src = rawUrl;
     img.onload = () => {
       if (rawRef.current) {
@@ -38,10 +40,11 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
     };
   }, [rawUrl]);
 
+  // 2. Tải ảnh hiển thị hiện tại
   useEffect(() => {
     if (!displayUrl) return;
     const img = new Image();
-    img.crossOrigin = "anonymous";
+    if (!displayUrl.startsWith('blob:') && !displayUrl.startsWith('data:')) img.crossOrigin = "anonymous";
     img.src = displayUrl;
     img.onload = () => {
       const w = img.naturalWidth;
@@ -52,6 +55,21 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
       cleanRef.current?.getContext('2d')?.drawImage(img, 0, 0);
     };
   }, [displayUrl]);
+
+  // 🚀 3. Tải và khóa chặt Ảnh Sạch nguyên thủy vào Két sắt
+  useEffect(() => {
+    if (!originalCleanUrl) return;
+    const img = new Image();
+    if (!originalCleanUrl.startsWith('blob:') && !originalCleanUrl.startsWith('data:')) img.crossOrigin = "anonymous";
+    img.src = originalCleanUrl;
+    img.onload = () => {
+      if (originalCleanRef.current) {
+        originalCleanRef.current.width = img.naturalWidth;
+        originalCleanRef.current.height = img.naturalHeight;
+        originalCleanRef.current.getContext('2d')?.drawImage(img, 0, 0);
+      }
+    };
+  }, [originalCleanUrl]);
 
   useEffect(() => {
     if (activeMode === 'none') {
@@ -79,10 +97,8 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
       };
     };
 
-    // Nét cọ mượt Bezier
     const drawStroke = (ctx: CanvasRenderingContext2D, points: {x: number, y: number}[], size: number, color: string) => {
       if (points.length === 0) return;
-      
       ctx.beginPath();
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -129,8 +145,11 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
             if (mode === 'erase' || mode === 'redraw') {
                drawStroke(ctx, currentPoints.current, currentBrushSize, "rgba(255, 0, 0, 0.5)");
             } else if (mode === 'restore') {
-               const sourceCanvas = useToolStore.getState().restoreType === 'clean' ? cleanRef.current : rawRef.current;
-               if (sourceCanvas) {
+               // 🚀 LẤY NGUỒN CỌ CHUẨN XÁC DỰA VÀO NÚT BẤM
+               const restoreType = useToolStore.getState().restoreType;
+               const sourceCanvas = restoreType === 'clean' ? originalCleanRef.current : rawRef.current;
+               
+               if (sourceCanvas && sourceCanvas.width > 0) {
                   ctx.save();
                   drawStroke(ctx, currentPoints.current, currentBrushSize, "rgba(0, 0, 0, 1)");
                   ctx.globalCompositeOperation = 'source-in';
@@ -180,32 +199,48 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
          const committedCtx = committedRef.current?.getContext('2d');
          if (committedCtx) {
             if (mode === 'erase' || mode === 'redraw') {
-               // Lưu cứng nét vẽ vào canvas ẩn (committedCanvas)
                drawStroke(committedCtx, currentPoints.current, currentBrushSize, "rgba(255, 0, 0, 0.5)");
-               
-               // 🚀 NÂNG CẤP UX: Hiện nút Action ngay tại vị trí thả chuột (trên màn hình)
                useToolStore.getState().setActionPosition({ x: e.clientX, y: e.clientY });
-               
             } else if (mode === 'restore') {
-               const sourceCanvas = useToolStore.getState().restoreType === 'clean' ? cleanRef.current : rawRef.current;
-               if (sourceCanvas) {
-                  const tempCanvas = document.createElement('canvas');
-                  tempCanvas.width = committedRef.current!.width;
-                  tempCanvas.height = committedRef.current!.height;
-                  const tCtx = tempCanvas.getContext('2d')!;
-                  
-                  drawStroke(tCtx, currentPoints.current, currentBrushSize, "rgba(0,0,0,1)");
-                  tCtx.globalCompositeOperation = 'source-in';
-                  tCtx.drawImage(sourceCanvas, 0, 0);
-                  
-                  committedCtx.drawImage(tempCanvas, 0, 0);
+               
+               // 🚀 LƯU NÉT VẼ TỪ NGUỒN CỌ CHUẨN XÁC
+               const restoreType = useToolStore.getState().restoreType;
+               const sourceCanvas = restoreType === 'clean' ? originalCleanRef.current : rawRef.current;
+               const targetCanvas = cleanRef.current;
+               
+               if (sourceCanvas && targetCanvas && sourceCanvas.width > 0) {
+                  try {
+                      const tempCanvas = document.createElement('canvas');
+                      tempCanvas.width = targetCanvas.width;
+                      tempCanvas.height = targetCanvas.height;
+                      const tCtx = tempCanvas.getContext('2d')!;
+
+                      drawStroke(tCtx, currentPoints.current, currentBrushSize, "rgba(0,0,0,1)");
+                      tCtx.globalCompositeOperation = 'source-in';
+                      tCtx.drawImage(sourceCanvas, 0, 0);
+
+                      const finalCanvas = document.createElement('canvas');
+                      finalCanvas.width = targetCanvas.width;
+                      finalCanvas.height = targetCanvas.height;
+                      const fCtx = finalCanvas.getContext('2d')!;
+                      
+                      fCtx.drawImage(targetCanvas, 0, 0);
+                      fCtx.drawImage(tempCanvas, 0, 0);
+                      
+                      const newUrl = finalCanvas.toDataURL("image/png");
+                      useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
+                  } catch (err) {
+                      console.error("Canvas Crash:", err);
+                      toast.error("Lỗi trình duyệt: Không thể lưu (Chặn CORS ảnh).");
+                  }
+               } else {
+                   toast.error("Vui lòng đợi ảnh tải xong trước khi cọ!");
                }
-               // Với cọ khôi phục thì có thể không cần hiện bảng Action vì vẽ tới đâu AI gốc lộ ra tới đó luôn (hoặc sếp có thể bật lên tùy ý)
                useToolStore.getState().setActionPosition(null); 
             }
          }
          currentPoints.current = []; 
-         renderCanvas(); 
+         renderCanvas();
       } else if (mode === 'scan') {
          const pos = getPointerPos(e);
          useToolStore.getState().setScanModal({
@@ -216,16 +251,13 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
          try {
             const config = useConfigStore.getState();
             const pStore = useProjectStore.getState();
-            
-            // 🚀 BẮT CHUẨN ĐƯỜNG DẪN ẢNH 
             const originalName = pStore.fileQueue[pStore.currentIndex]?.name || "";
             const fileExt = originalName.includes('.') ? originalName.split('.').pop() : 'jpg'; 
             const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${pStore.projectId}/raw/${pStore.pageIds[pStore.currentIndex]}.${fileExt}`;
             const targetUrl = pStore.processedUrls[pStore.currentIndex] || serverRawUrl;
 
-            // 🚀 ĐÃ SỬA: Thêm .split('?')[0] để CHẶT ĐỨT cái đuôi chống cache (?t=...) trước khi gửi cho OpenCV
             const relativePath = targetUrl.replace(`${import.meta.env.VITE_API_URL}/`, '').split('?')[0];
-            const cleanTargetUrl = targetUrl.split('?')[0]; // Chặt luôn đuôi ở URL gốc gửi đi cho chắc cú
+            const cleanTargetUrl = targetUrl.split('?')[0];
 
             const result = await mangaApi.quickScan({
                filename: relativePath, 
@@ -237,7 +269,6 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
                genre: config.genre, 
                tone: config.tone, 
                pronouns: config.pronoun,
-               // 🚀 BỔ SUNG DÒNG NÀY ĐỂ GỬI TỪ ĐIỂN LÊN SERVER
                glossary: config.glossary 
             });
             
@@ -274,7 +305,8 @@ export default function MangaCanvas({ rawUrl, displayUrl }: Props) {
       <canvas ref={rawRef} className="hidden" />
       <canvas ref={cleanRef} className="hidden" />
       <canvas ref={committedRef} className="hidden" /> 
-      
+      {/* 🚀 Thêm Két sắt vào HTML để vẽ ẩn */}
+      <canvas ref={originalCleanRef} className="hidden" /> 
       <canvas 
         ref={drawRef} 
         id="draw-layer"

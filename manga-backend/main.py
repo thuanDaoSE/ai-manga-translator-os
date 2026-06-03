@@ -83,6 +83,70 @@ deepseek_client = OpenAI(
     base_url="https://api.deepseek.com"
 )
 
+import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ==========================================
+# 🛡️ ÁO GIÁP BẢO VỆ JSON TỪ DEEPSEEK
+# ==========================================
+def sanitize_dirty_json(dirty_string: str) -> str:
+    """ Máy lọc rác: Dọn dẹp lỗi cú pháp kinh điển của LLM """
+    cleaned = dirty_string.strip(" \n\r\t`")
+    # Cắt dấu phẩy thừa ở cuối mảng/object
+    cleaned = re.sub(r',\s*([\]}])', r'\1', cleaned)
+    # Sửa lỗi boolean của Python thành chuẩn JSON
+    cleaned = re.sub(r'\bNone\b', 'null', cleaned)
+    cleaned = re.sub(r'\bTrue\b', 'true', cleaned)
+    cleaned = re.sub(r'\bFalse\b', 'false', cleaned)
+    # Sửa ngoặc kép dị dạng
+    cleaned = re.sub(r'[“”]', '"', cleaned)
+    # Ép key có ngoặc kép (trường hợp LLM quên)
+    cleaned = re.sub(r'([{,]\s*)([a-zA-Z0-9_]+)(\s*:)', r'\1"\2"\3', cleaned)
+    
+    # Sửa lỗi cụt đuôi (Truncation)
+    if cleaned.count('"') % 2 != 0:
+        cleaned += '"'
+    open_brackets = cleaned.count('[')
+    close_brackets = cleaned.count(']')
+    if open_brackets > close_brackets:
+        cleaned += ']' * (open_brackets - close_brackets)
+    open_braces = cleaned.count('{')
+    close_braces = cleaned.count('}')
+    if open_braces > close_braces:
+        cleaned += '}' * (open_braces - close_braces)
+        
+    return cleaned
+
+def robust_json_parse(llm_response: str) -> dict:
+    """ Máy quét ranh giới: Bóc tách chính xác cục JSON bất chấp Markdown """
+    # Ưu tiên tìm Object {...} vì prompt của sếp thường yêu cầu {"translations": ...}
+    match = re.search(r'\{.*\}', llm_response, flags=re.DOTALL)
+    if not match:
+        # Nếu không có dấu {}, thử tìm mảng [...]
+        match = re.search(r'\[.*\]', llm_response, flags=re.DOTALL)
+        
+    if match:
+        extracted_str = match.group(0)
+    else:
+        # Fallback: Tự dọn dẹp chuỗi thủ công
+        extracted_str = llm_response.strip(" \n\r\t`").replace("```json", "").replace("```", "")
+
+    try:
+        return json.loads(extracted_str)
+    except json.JSONDecodeError:
+        pass # Chuyển sang máy lọc rác
+
+    sanitized_str = sanitize_dirty_json(extracted_str)
+    try:
+        return json.loads(sanitized_str)
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ CRITICAL JSON PARSE FAILURE: {e}")
+        logger.error(f"Original LLM Response: {llm_response}")
+        return {} # Hạ cánh an toàn, không sập Server
+# ==========================================
+
 
 # 2. RỒI MỚI GẮN LIMITER VÀO APP SAU
 limiter = Limiter(key_func=get_remote_address)
@@ -667,8 +731,10 @@ async def quick_scan(request: Request, payload: QuickScanPayload):
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Dịch: {japanese_text}"}],
             response_format={"type": "json_object"}, temperature=0.4 
         )
-        ai_response = json.loads(response.choices[0].message.content.strip())
         
+        # 🚀 BẢN VÁ: Dùng hàm Parse chống đạn
+        ai_response = robust_json_parse(response.choices[0].message.content)
+       
         result_data = {"status": "success", "japanese": japanese_text, "vietnamese": ai_response.get("vietnamese", "Lỗi")}
         LENS_CACHE[cache_key] = result_data 
         return result_data
@@ -1418,9 +1484,9 @@ async def get_task_result(task_id: str):
                     response_format={'type': 'json_object'}
                 )
                 
-                ai_response = json.loads(response.choices[0].message.content)
+                # 🚀 BẢN VÁ: Dùng hàm Parse chống đạn
+                ai_response = robust_json_parse(response.choices[0].message.content)
                 translated_array = ai_response if isinstance(ai_response, list) else ai_response.get("translations", ai_response.get("data", []))
-
                 for item in extracted_data:
                     for trans in translated_array:
                         if isinstance(trans, dict) and str(trans.get("id")) == str(item["id"]):
@@ -1525,7 +1591,7 @@ async def import_manga_file(
         raise HTTPException(status_code=500, detail=f"Không thể đọc file .manga này: {str(e)}")
     
 
-# 🚀 API BỔ SUNG: CHỈ DỊCH LẠI CHỮ (TIẾT KIỆM KHÔNG GỌI RUNPOD)
+# 🚀 API BỔ SUNG: CHỈ DỊCH LẠI CHỮ (BẢN VÁ LỖI CHỐNG ĐẠN)
 @app.post("/api/pages/{page_id}/retry-text-translation")
 async def retry_text_translation(page_id: str, db: AsyncSession = Depends(get_db)):
     try:
@@ -1535,16 +1601,24 @@ async def retry_text_translation(page_id: str, db: AsyncSession = Depends(get_db
         if not page:
             raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện này!")
         
-        # Nếu chưa từng có dữ liệu ô chữ Nhật, bắt buộc phải chạy luồng dịch cả trang
         if not page.bubbles_data or page.bubbles_data == "[]":
             raise HTTPException(status_code=400, detail="Trang chưa có dữ liệu chữ Nhật. Vui lòng bấm dịch lại toàn bộ trang!")
 
         extracted_data = json.loads(page.bubbles_data)
 
-        # 2. GOM TOÀN BỘ CHỮ NHẬT ĐANG CÓ GỬI LÊN DEEPSEEK TRÊN VPS
-        ocr_batch_payload = [{"id": item["id"], "japanese": item.get("japanese", item.get("text", ""))} for item in extracted_data]
-        
-        prompt = f"Bạn là biên dịch viên Manga chuyên nghiệp. Hãy dịch mảng JSON sau sang tiếng Việt chuẩn văn phong truyện tranh và TRẢ VỀ ĐÚNG FORMAT {{\\\"translations\\\": [<kết quả>]}}: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+        # 🚀 BẢN VÁ 1: LỌC DỮ LIỆU SẠCH (Chỉ lấy những ô thực sự CÓ tiếng Nhật)
+        ocr_batch_payload = []
+        for item in extracted_data:
+            jap_text = item.get("japanese", "").strip()
+            # Bỏ qua những ô do user tự vẽ thêm hoặc không có chữ
+            if jap_text:
+                ocr_batch_payload.append({"id": item["id"], "japanese": jap_text})
+
+        if not ocr_batch_payload:
+            raise HTTPException(status_code=400, detail="Không có chữ tiếng Nhật nào để dịch lại!")
+
+        # 2. GOM LÊN DEEPSEEK TRÊN VPS VỚI PROMPT MẠNH HƠN
+        prompt = f"Bạn là biên dịch viên Manga chuyên nghiệp. Dịch mảng JSON sau sang tiếng Việt. BẮT BUỘC TRẢ VỀ ĐÚNG FORMAT {{\\\"translations\\\": [<kết quả>]}}: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
         
         response = deepseek_client.chat.completions.create(
             model="deepseek-chat",
@@ -1555,18 +1629,23 @@ async def retry_text_translation(page_id: str, db: AsyncSession = Depends(get_db
             response_format={'type': 'json_object'}
         )
         
-        ai_response = json.loads(response.choices[0].message.content)
-        translated_array = ai_response.get("translations", [])
+        # 3. DÙNG HÀM PARSE CHỐNG ĐẠN 
+        ai_response = robust_json_parse(response.choices[0].message.content)
+        
+        # 🚀 BẢN VÁ 2: Xử lý an toàn mọi cấu trúc JSON LLM trả về (Tránh lỗi Crash List)
+        translated_array = ai_response if isinstance(ai_response, list) else ai_response.get("translations", ai_response.get("data", []))
 
-        # 3. CẬP NHẬT LẠI CHỮ TIẾNG VIỆT MỚI
+        # 4. CẬP NHẬT LẠI CHỮ TIẾNG VIỆT MỚI
         for item in extracted_data:
-            for trans in translated_array:
-                if str(trans.get("id")) == str(item["id"]):
-                    item["vietnamese"] = trans.get("vietnamese", "Lỗi dịch")
-                    if "text" in item: 
-                        item["text"] = trans.get("vietnamese", "Lỗi dịch") # Đồng bộ font chữ Frontend
+            # Tìm bản dịch có ID khớp
+            trans = next((t for t in translated_array if str(t.get("id")) == str(item["id"])), None)
+            if trans:
+                new_text = trans.get("vietnamese", "Lỗi dịch")
+                item["vietnamese"] = new_text
+                if "text" in item: 
+                    item["text"] = new_text # Đồng bộ font chữ Frontend
 
-        # 4. Chốt sổ lưu lại vào Database
+        # 5. CHỐT SỔ LƯU DATABASE
         page.bubbles_data = json.dumps(extracted_data)
         if page.status != "completed":
             page.status = "translating"
@@ -1576,4 +1655,94 @@ async def retry_text_translation(page_id: str, db: AsyncSession = Depends(get_db
 
     except Exception as e:
         print(f"❌ Lỗi dịch lại chữ: {e}")
-        raise HTTPException(status_code=500, detail=f"DeepSeek VPS lỗi: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Lỗi AI Server: {str(e)}")
+
+
+from fastapi import BackgroundTasks, Query
+from fastapi.responses import FileResponse
+import tempfile
+import os
+
+# 🚀 API XUẤT HÀNG LOẠT (BATCH EXPORT) CHỐNG TRÀN RAM
+@app.get("/api/projects/{project_id}/export-batch")
+async def export_batch(
+    project_id: str, 
+    export_type: str = Query("clean", description="Loại xuất: raw, clean, psd"),
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bảo mật: Chỉ chủ dự án mới được tải
+):
+    try:
+        # 1. Kiểm tra quyền sở hữu Dự án
+        proj_result = await db.execute(select(models.Project).where(models.Project.id == project_id, models.Project.user_id == user_id))
+        project = proj_result.scalars().first()
+        if not project:
+            raise HTTPException(status_code=403, detail="Không có quyền truy cập dự án này")
+
+        # 2. Lấy danh sách toàn bộ trang truyện của Dự án
+        page_result = await db.execute(select(models.Page).where(models.Page.project_id == project_id))
+        pages = page_result.scalars().all()
+        
+        if not pages:
+            raise HTTPException(status_code=404, detail="Dự án chưa có ảnh nào để tải!")
+
+        # 3. Tạo một file ZIP tạm thời trên Ổ cứng (Thay vì nhồi vào RAM)
+        temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+        temp_zip_path = temp_zip.name
+        temp_zip.close() # Đóng file để zipfile có thể mở và ghi vào
+
+        # 4. Gom hàng nén file
+        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for i, page in enumerate(pages):
+                # Format tên file trong cục ZIP cho đẹp (Ví dụ: 001_TenAnh.jpg)
+                safe_name = f"{i:03d}_{page.filename.split('.')[0]}" 
+                
+                raw_path = get_local_path_from_url(page.raw_url) if page.raw_url else None
+                clean_path = get_local_path_from_url(page.clean_url) if page.clean_url else raw_path
+                
+                # Bỏ qua nếu file vật lý không tồn tại
+                if not raw_path or not os.path.exists(raw_path):
+                    continue
+
+                if export_type == "raw":
+                    ext = raw_path.split('.')[-1]
+                    zipf.write(raw_path, arcname=f"{safe_name}_RAW.{ext}")
+                    
+                elif export_type == "clean":
+                    if not os.path.exists(clean_path): clean_path = raw_path
+                    ext = clean_path.split('.')[-1]
+                    zipf.write(clean_path, arcname=f"{safe_name}_CLEAN.{ext}")
+                    
+                elif export_type == "psd":
+                    # Sinh file PSD trực tiếp rồi nhét vào ZIP
+                    if not os.path.exists(clean_path): clean_path = raw_path
+                    psd_temp_path = f"workspace/temp_{page.id}.psd"
+                    
+                    try:
+                        create_manga_psd(raw_path, clean_path, psd_temp_path)
+                        zipf.write(psd_temp_path, arcname=f"{safe_name}.psd")
+                    except Exception as e:
+                        print(f"Lỗi tạo PSD trang {page.id}: {e}")
+                    finally:
+                        # Tạo xong nhét vào Zip là xóa file PSD rác luôn cho nhẹ máy
+                        if os.path.exists(psd_temp_path):
+                            os.remove(psd_temp_path)
+
+        # 5. Background Task: Tải xong tự động xóa cục ZIP để dọn rác ổ cứng
+        def cleanup_temp_zip(path: str):
+            if os.path.exists(path):
+                os.remove(path)
+                
+        background_tasks = BackgroundTasks()
+        background_tasks.add_task(cleanup_temp_zip, temp_zip_path)
+
+        # 6. Stream file về cho trình duyệt
+        return FileResponse(
+            path=temp_zip_path,
+            filename=f"Project_{project.name}_{export_type.upper()}.zip",
+            media_type="application/zip",
+            background=background_tasks
+        )
+
+    except Exception as e:
+        print(f"❌ Lỗi Export Batch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
