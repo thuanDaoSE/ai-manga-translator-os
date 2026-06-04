@@ -2,19 +2,27 @@
 
 @theme {
   /* Bảng màu Slate chuyên nghiệp từ Research */
-  --color-background: #0f172a; /* Slate 950 - Nền sâu */
-  --color-panel: #1e293b;     /* Slate 800 - Các thanh công cụ */
+  --color-background: #0f172a;
+  /* Slate 950 - Nền sâu */
+  --color-panel: #1e293b;
+  /* Slate 800 - Các thanh công cụ */
   --color-sidebar: #0f172a;
-  --color-border: #334155;    /* Slate 700 */
-  
+  --color-border: #334155;
+  /* Slate 700 */
+
   /* Màu Accent duy nhất: Indigo (Xanh tím) */
-  --color-primary: #6366f1;   /* Indigo 500 */
+  --color-primary: #6366f1;
+  /* Indigo 500 */
   --color-primary-hover: #4f46e5;
-  
-  --color-danger: #ef4444;    /* Rose 500 */
-  --color-accent: #8b5cf6;    /* Violet 500 */
-  --color-text-main: #f8fafc; /* Slate 50 */
-  --color-text-muted: #94a3b8; /* Slate 400 */
+
+  --color-danger: #ef4444;
+  /* Rose 500 */
+  --color-accent: #8b5cf6;
+  /* Violet 500 */
+  --color-text-main: #f8fafc;
+  /* Slate 50 */
+  --color-text-muted: #94a3b8;
+  /* Slate 400 */
 }
 
 @layer base {
@@ -29,15 +37,16 @@
 }
 
 @layer components {
+
   /* Nút bấm thiết kế lại theo phong cách hiện đại */
   .btn-base {
     @apply px-4 py-2 rounded-md font-medium transition-all duration-200 flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
   }
-  
+
   .btn-primary {
     @apply px-4 py-2 rounded-md font-medium transition-all duration-200 flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-primary text-white hover:bg-primary-hover shadow-sm shadow-indigo-500/20 active:scale-95;
   }
-  
+
   .btn-ghost {
     @apply px-4 py-2 rounded-md font-medium transition-all duration-200 flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-transparent border border-border hover:bg-panel text-text-main;
   }
@@ -57,14 +66,16 @@
 
 /* Tầng phòng thủ số 1: Ngăn chặn thao tác vuốt cuộn, phóng to của trình duyệt trên iPad/Mobile */
 body {
-  overscroll-behavior-y: none; /* Chống kéo xuống để làm mới trang (Pull-to-refresh) */
+  overscroll-behavior-y: none;
+  /* Chống kéo xuống để làm mới trang (Pull-to-refresh) */
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
 }
 
 canvas {
-  touch-action: none; /* Trả lại toàn bộ quyền kiểm soát cử chỉ cho JavaScript PointerEvent */
+  touch-action: none;
+  /* Trả lại toàn bộ quyền kiểm soát cử chỉ cho JavaScript PointerEvent */
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -76,16 +87,60 @@ canvas {
 
 /* 🚀 Hiệu ứng chớp sáng lướt qua thẻ Thumbnail khi dịch xong */
 @keyframes scanner-sweep {
-  0% { transform: translateX(-100%) skewX(-15deg); opacity: 0; }
-  50% { opacity: 1; }
-  100% { transform: translateX(200%) skewX(-15deg); opacity: 0; }
+  0% {
+    transform: translateX(-100%) skewX(-15deg);
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(200%) skewX(-15deg);
+    opacity: 0;
+  }
 }
 
 .animate-scanner::after {
   content: '';
   position: absolute;
-  top: 0; left: 0; width: 30%; height: 100%;
+  top: 0;
+  left: 0;
+  width: 30%;
+  height: 100%;
   background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.4), transparent);
   animation: scanner-sweep 1s ease-out;
   pointer-events: none;
+}
+
+/* Tùy chỉnh thanh cuộn Dark Mode */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #6366f1;
+  /* Đổi sang màu xanh Primary của sếp khi hover */
+}
+
+@layer utilities {
+
+  /* Ultra-low contrast checkerboard cho Dark Mode (Chống Moiré Pattern) */
+  .bg-canvas-checkerboard {
+    background-image: repeating-conic-gradient(#202020 0% 25%,
+        #181818 0% 50%);
+    background-size: 24px 24px;
+    background-position: center center;
+  }
 }

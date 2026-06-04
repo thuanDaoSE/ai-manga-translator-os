@@ -1,9 +1,8 @@
-import { CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Wand2, Sparkles, AlertTriangle, RefreshCw, PanelLeftClose, X, Square } from 'lucide-react';
+import { CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Wand2, Sparkles, AlertTriangle, RefreshCw, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package } from 'lucide-react';
 import { useProjectStore } from '../../store/useProjectStore';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
-import { Download, Package } from 'lucide-react';
 import { CSS } from '@dnd-kit/utilities';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
@@ -17,9 +16,18 @@ const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 // ==========================================
 // 1. COMPONENT CON: THẺ TRANG TRUYỆN
 // ==========================================
-function SortableItem({ id, file, isActive, status, displayImg, progress, onClick, onTranslate, onDelete, onCancel, onRetry }: any) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: id });
-  
+function SortableItem({
+  id, file, isActive, status, displayImg, progress,
+  onClick, onTranslate, onDelete, onCancel, onRetry,
+  isSelected, isSelectionMode, onToggleSelection // 🚀 PROPS MỚI CHO MULTI-SELECT
+}: any) {
+
+  // 🚀 Vô hiệu hóa Kéo-Thả nếu đang ở Chế độ Chọn (Selection Mode)
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: id,
+    disabled: isSelectionMode
+  });
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -27,28 +35,50 @@ function SortableItem({ id, file, isActive, status, displayImg, progress, onClic
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} {...attributes} {...(!isSelectionMode ? listeners : {})}>
       <div
-        onClick={onClick}
-        className={`w-full text-left rounded-xl flex items-center gap-2 p-2 transition-colors border group relative cursor-pointer ${
-          isDragging ? 'opacity-50 shadow-2xl scale-105 border-primary bg-primary/20 cursor-grabbing' : 
-          isActive ? 'bg-primary/10 border-primary/40 shadow-lg' : 
-          status === 'error' ? 'bg-danger/5 border-danger/30 hover:bg-danger/10' : 
-          'bg-panel/40 border-transparent hover:border-border hover:bg-panel/60'
-        }`}
+        onClick={(e) => {
+          // 🚀 Nếu đang ở chế độ chọn, click vào thẻ sẽ là Tick chọn thay vì Đổi ảnh
+          if (isSelectionMode) {
+            e.stopPropagation();
+            onToggleSelection();
+          } else {
+            onClick(e);
+          }
+        }}
+        className={`w-full text-left rounded-xl flex items-center gap-2 p-2 transition-colors border group relative ${isSelectionMode ? 'cursor-pointer' : 'cursor-grab'} ${isDragging ? 'opacity-50 shadow-2xl scale-105 border-primary bg-primary/20' :
+          isSelected ? 'bg-primary/15 border-primary/50 shadow-md ring-1 ring-primary/50' :
+            isActive ? 'bg-primary/10 border-primary/40 shadow-lg' :
+              status === 'error' ? 'bg-danger/5 border-danger/30 hover:bg-danger/10' :
+                'bg-panel/40 border-transparent hover:border-border hover:bg-panel/60'
+          }`}
       >
-        <GripVertical size={14} className="text-text-muted opacity-50 group-hover:opacity-100 shrink-0" />
+        {/* ICON KÉO THẢ (Ẩn đi khi đang ở chế độ chọn) */}
+        {!isSelectionMode && (
+          <GripVertical size={14} className="text-text-muted opacity-50 group-hover:opacity-100 shrink-0" />
+        )}
 
-        <div className="relative w-12 h-16 shrink-0 rounded-md overflow-hidden border border-border bg-black/40">
+        {/* 🚀 CHECKBOX TÀNG HÌNH (Two-Step Hover) */}
+        <div
+          onClick={(e) => { e.stopPropagation(); onToggleSelection(); }}
+          className={`absolute left-2 z-20 w-5 h-5 rounded-md flex items-center justify-center transition-all cursor-pointer shadow-sm border ${isSelected
+            ? 'bg-primary border-primary text-white opacity-100 scale-100'
+            : 'bg-background/90 border-border text-transparent hover:border-primary opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100'
+            } ${isSelectionMode && !isSelected ? 'opacity-100' : ''}`} // Ép hiện nếu đang trong Selection Mode
+        >
+          <Check size={14} strokeWidth={3} className={isSelected ? 'opacity-100' : 'opacity-0'} />
+        </div>
+
+        <div className={`relative w-12 h-16 shrink-0 rounded-md overflow-hidden border border-border bg-black/40 transition-transform ${isSelectionMode && !isSelected ? 'ml-6' : isSelected ? 'ml-6' : ''}`}>
           {displayImg ? (
             <img src={displayImg} className={`w-full h-full object-cover ${(status === 'processing' || status === 'error') ? 'blur-[2px] opacity-50 scale-110' : ''}`} alt="thumb" crossOrigin="anonymous" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gray-800"><Loader2 className="animate-spin text-gray-600" size={14} /></div>
           )}
-          
+
           {status === 'processing' && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={16} /></div>}
           {status === 'completed' && <div className="absolute top-1 right-1 bg-emerald-500 rounded-full p-0.5"><CheckCircle2 size={8} className="text-white" /></div>}
-          
+
           {status === 'error' && (
             <div className="absolute inset-0 flex items-center justify-center bg-danger/20">
               <AlertTriangle size={18} className="text-danger drop-shadow-md" />
@@ -57,80 +87,64 @@ function SortableItem({ id, file, isActive, status, displayImg, progress, onClic
         </div>
 
         <div className="flex flex-col gap-1 overflow-hidden w-full">
-          <span className={`text-[11px] font-bold truncate ${isActive ? 'text-primary' : status === 'error' ? 'text-danger' : 'text-text-main'}`}>{file.name}</span>
-          
+          <span className={`text-[11px] font-bold truncate ${isActive || isSelected ? 'text-primary' : status === 'error' ? 'text-danger' : 'text-text-main'}`}>{file.name}</span>
+
           {status === 'unprocessed' && <span className="flex items-center gap-1 text-[9px] text-text-muted font-bold uppercase"><Clock size={10} /> Đợi dịch</span>}
-          
+
           {status === 'processing' && (
             <div className="flex flex-col gap-1 mt-0.5 w-full">
               <span className="flex items-center gap-1 text-[9px] text-amber-400 font-black uppercase truncate">
                 {progress ? `${Math.round(progress.percent)}% - ${progress.message}` : "Đang tải AI..."}
               </span>
               <div className="w-full bg-background/50 rounded-full h-1 border border-border overflow-hidden">
-                <div 
+                <div
                   className="bg-amber-400 h-full rounded-full transition-all duration-500 ease-out"
                   style={{ width: `${progress ? progress.percent : 0}%` }}
                 ></div>
               </div>
             </div>
           )}
-          
+
           {status === 'completed' && <span className="flex items-center gap-1 text-[9px] text-emerald-400 font-black uppercase">Hoàn tất</span>}
-          
+
           {status === 'error' && <span className="flex items-center gap-1 text-[9px] text-danger font-black uppercase"><AlertTriangle size={10} /> Dịch thất bại</span>}
         </div>
 
-        {/* 🚀 FIXED UX: NÚT CÔNG CỤ (DỊCH LẠI & XÓA) ĐƯỢC CHỐT Ở GÓC TRÊN CÙNG */}
-        <div className="absolute top-2 right-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/95 p-1.5 rounded-lg border border-border shadow-lg z-10 backdrop-blur-sm">
-          <button
-            onClick={(e) => { e.stopPropagation(); onRetry(); }}
-            className="p-1.5 text-text-muted hover:text-primary hover:bg-border rounded-md transition-all cursor-pointer hover:scale-110"
-            title="Dịch lại (Tự động tối ưu chi phí)"
-          >
-            <RefreshCw size={15} className={status === 'processing' ? 'animate-spin' : ''} />
-          </button>
-          <div className="w-px h-4 bg-border/80"></div>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="p-1.5 text-text-muted hover:text-danger hover:bg-danger/20 rounded-md transition-all cursor-pointer hover:scale-110"
-            title="Xóa trang này"
-          >
-            <X size={15} />
-          </button>
-        </div>
-
-        {/* 🚀 FIXED UX: NÚT DỊCH / THỬ LẠI CHÍNH ĐƯỢC CHỐT Ở GÓC DƯỚI CÙNG (bottom-2) */}
-        {(status === 'unprocessed' || status === 'error') && (
-          <div 
-            className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); onTranslate(); }}
-          >
-            <div className={`text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 shadow-lg font-bold cursor-pointer ${status === 'error' ? 'bg-danger hover:bg-red-600' : 'bg-primary hover:bg-primary-hover'}`}>
-              {status === 'error' ? <RefreshCw size={12} /> : <Wand2 size={12} />} 
-              {status === 'error' ? 'Thử lại' : 'Dịch'}
+        {/* Các nút công cụ ẨN TRONG QUÁ TRÌNH SELECT MODE để tránh click nhầm */}
+        {!isSelectionMode && (
+          <>
+            <div className="absolute top-2 right-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/95 p-1.5 rounded-lg border border-border shadow-lg z-10 backdrop-blur-sm">
+              <button onClick={(e) => { e.stopPropagation(); onRetry(); }} className="p-1.5 text-text-muted hover:text-primary hover:bg-border rounded-md transition-all cursor-pointer hover:scale-110" title="Dịch lại (Tự động tối ưu chi phí)">
+                <RefreshCw size={15} className={status === 'processing' ? 'animate-spin' : ''} />
+              </button>
+              <div className="w-px h-4 bg-border/80"></div>
+              <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-1.5 text-text-muted hover:text-danger hover:bg-danger/20 rounded-md transition-all cursor-pointer hover:scale-110" title="Xóa trang này">
+                <X size={15} />
+              </button>
             </div>
-          </div>
-        )}
 
-        {/* 🚀 FIXED UX: NÚT DỪNG TASK ĐƯỢC CHỐT Ở GÓC DƯỚI CÙNG (bottom-2) */}
-        {status === 'processing' && (
-          <div 
-            className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); onCancel(); }}
-          >
-            <div className="text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 shadow-lg font-bold cursor-pointer bg-danger hover:bg-red-700">
-              <Square size={10} className="fill-current" /> Dừng
-            </div>
-          </div>
-        )}
+            {(status === 'unprocessed' || status === 'error') && (
+              <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onTranslate(); }}>
+                <div className={`text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 shadow-lg font-bold cursor-pointer ${status === 'error' ? 'bg-danger hover:bg-red-600' : 'bg-primary hover:bg-primary-hover'}`}>
+                  {status === 'error' ? <RefreshCw size={12} /> : <Wand2 size={12} />}
+                  {status === 'error' ? 'Thử lại' : 'Dịch'}
+                </div>
+              </div>
+            )}
 
+            {status === 'processing' && (
+              <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onCancel(); }}>
+                <div className="text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 shadow-lg font-bold cursor-pointer bg-danger hover:bg-red-700">
+                  <Square size={10} className="fill-current" /> Dừng
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
 }
-
 
 
 // ==========================================
@@ -139,58 +153,111 @@ function SortableItem({ id, file, isActive, status, displayImg, progress, onClic
 export default function Sidebar() {
   const projectStore = useProjectStore();
   const { fileQueue, currentIndex, setCurrentIndex, pageStatuses, processedUrls, uploadProjectFiles, reorderFiles, progresses } = projectStore;
-  
+
   const [previews, setPreviews] = useState<Record<number, string>>({});
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const activeTasksRef = useRef<Record<number, { taskId: string, eventSource: EventSource }>>({});
   const deleteTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
   const importMangaRef = useRef<HTMLInputElement>(null);
-
   const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
 
+  // 🚀 STATE MỚI CHO MULTI-SELECT & FAB BAR
+  const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
+  const isSelectionMode = selectedPages.size > 0;
+
+
+  const [sidebarWidth, setSidebarWidth] = useState(256); // Mặc định 256px
+  const isResizing = useRef(false);
+
+  const startResizing = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizing.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none'; // Chống bôi đen chữ khi kéo
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    isResizing.current = false;
+    document.body.style.cursor = 'default';
+    document.body.style.userSelect = '';
+  }, []);
+
+  const resize = useCallback((e: MouseEvent) => {
+    if (isResizing.current) {
+      let newWidth = e.clientX;
+      if (newWidth < 220) newWidth = 220; // Ép kích thước tối thiểu
+      if (newWidth > 600) newWidth = 600; // Ép kích thước tối đa
+      setSidebarWidth(newWidth);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('mousemove', resize);
+    window.addEventListener('mouseup', stopResizing);
+    return () => {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+    };
+  }, [resize, stopResizing]);
+
+  const toggleSelection = (pageId: string) => {
+    setSelectedPages(prev => {
+      const next = new Set(prev);
+      if (next.has(pageId)) next.delete(pageId);
+      else next.add(pageId);
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedPages(new Set());
+    setIsExportMenuOpen(false);
+  };
 
   const handleExportBatch = async (type: 'raw' | 'clean' | 'psd') => {
     if (!projectStore.projectId) return toast.error("Vui lòng lưu dự án trước!");
-    if (projectStore.fileQueue.length === 0) return toast.error("Dự án chưa có ảnh nào!");
 
-    const loadingToast = toast.loading(`📦 Đang đóng gói file ${type.toUpperCase()}... Việc này có thể mất vài chục giây.`);
-    
+    // Đóng menu và hiển thị Toast
+    setIsExportMenuOpen(false);
+    const loadingToast = toast.loading(`📦 Đang đóng gói ${selectedPages.size} file ${type.toUpperCase()}...`);
+
     try {
-      const token = localStorage.getItem("token"); // Hoặc cách sếp lưu token
-      
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/projects/${projectStore.projectId}/export-batch?export_type=${type}`, {
+      const token = localStorage.getItem("token");
+      // 🚀 Truyền danh sách ID đã chọn lên API (Backend có thể đọc query này để lọc file)
+      const selectedIdsParam = Array.from(selectedPages).join(',');
+      const url = `${import.meta.env.VITE_API_URL}/projects/${projectStore.projectId}/export-batch?export_type=${type}&page_ids=${selectedIdsParam}`;
+
+      const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (!response.ok) throw new Error("Lỗi khi tạo file nén");
 
-      // Xử lý stream blob để tải file về
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const objectUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `Project_${type.toUpperCase()}.zip`;
+      a.href = objectUrl;
+      a.download = `Export_${type.toUpperCase()}_${selectedPages.size}_Pages.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(objectUrl);
 
       toast.success("✅ Tải file thành công!", { id: loadingToast });
+      clearSelection(); // Reset UI sau khi tải xong
     } catch (error: any) {
       toast.error(`❌ Tải thất bại: ${error.message}`, { id: loadingToast });
     }
   };
 
-  // LOGIC IMPORT MANGA
   const handleImportManga = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     const projectId = useProjectStore.getState().projectId;
     if (!projectId) return toast.error("Vui lòng chọn hoặc tạo Dự án trước!");
 
@@ -198,14 +265,13 @@ export default function Sidebar() {
     try {
       await mangaApi.importManga(projectId, file);
       toast.success("Khôi phục thành công! Đang tải lại trang...", { id: loadId });
-      setTimeout(() => window.location.reload(), 1000); 
+      setTimeout(() => window.location.reload(), 1000);
     } catch (error: any) {
       toast.error(error.message, { id: loadId });
     }
     e.target.value = '';
   };
 
-  // LOGIC HỦY TASK (DỪNG DỊCH)
   const handleCancelTask = async (pageIndex: number) => {
     const task = activeTasksRef.current[pageIndex];
     if (task) {
@@ -222,7 +288,6 @@ export default function Sidebar() {
     projectStore.setPageStatus(pageIndex, "unprocessed");
   };
 
-  // LOGIC XỬ LÝ 1 TRANG (DỊCH FULL)
   const processSinglePage = async (pageIndex: number) => {
     const pageId = projectStore.pageIds[pageIndex];
     if (!pageId) return;
@@ -231,8 +296,8 @@ export default function Sidebar() {
 
     try {
       const configStore = useConfigStore.getState();
-      
-      const res = await fetch(`${API_URL}/pages/${pageId}/translate`, { 
+
+      const res = await fetch(`${API_URL}/pages/${pageId}/translate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -255,16 +320,16 @@ export default function Sidebar() {
           if (sseData.state === "SUCCESS") {
             eventSource.close();
             delete activeTasksRef.current[pageIndex];
-            
+
             let taskData = null;
             for (let i = 0; i < 15; i++) {
               const taskRes = await fetch(`${API_URL}/task/${taskId}`);
               const data = await taskRes.json();
               if (data.status === "SUCCESS" && data.result) {
-                taskData = data; 
+                taskData = data;
                 break;
               }
-              await new Promise(resolve => setTimeout(resolve, 1000)); 
+              await new Promise(resolve => setTimeout(resolve, 1000));
             }
 
             if (taskData && taskData.result) {
@@ -273,9 +338,7 @@ export default function Sidebar() {
               projectStore.setProcessedUrl(pageIndex, fullCleanUrl);
 
               const toolState = useToolStore.getState();
-              
-              // 🚀 THUẬT TOÁN ĐỊNH VỊ KHÔNG GIAN TÂM ĐỐI XỨNG 100%
-              // 🚀 THUẬT TOÁN ĐỊNH VỊ 3.0: BAO PHỦ ĐƯỜNG CHÉO
+
               const newBubbles = result.data.map((item: any) => {
                 // 1. Tính toán Kích thước khung gốc do AI quét
                 const origW = item.box_coordinates.x2 - item.box_coordinates.x1;
@@ -283,25 +346,28 @@ export default function Sidebar() {
 
                 return {
                   id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-                  // 🚀 FIX: Dùng trực tiếp tọa độ góc trên-trái từ AI, không ép vuông
                   x: item.box_coordinates.x1,
                   y: item.box_coordinates.y1,
                   w: origW,
                   h: origH,
                   text: item.vietnamese,
+
+                  // 🚀 FIX: BỔ SUNG DÒNG NÀY ĐỂ DATABASE NHỚ ĐƯỢC CHỮ TIẾNG NHẬT GỐC
+                  japanese: item.japanese,
+
                   fontSize: toolState.fontSize,
                   fontColor: toolState.fontColor,
                   fontFamily: toolState.fontFamily,
                   rotation: 0,
                   sfxClass: "",
-                  rawBox: item.box_coordinates, // Lưu lại bbox gốc để đối chiếu
+                  rawBox: item.box_coordinates,
                   boxX: item.box_coordinates.x1,
                   boxY: item.box_coordinates.y1,
                   boxW: origW,
                   boxH: origH,
                 };
               });
-              
+
               if (pageIndex === useProjectStore.getState().currentIndex) {
                 const canvasStore = useCanvasStore.getState();
                 canvasStore.clearBubbles();
@@ -312,68 +378,70 @@ export default function Sidebar() {
 
               projectStore.setPageStatus(pageIndex, "completed");
               await fetch(`${API_URL}/pages/${pageId}/save-results?clean_url=${encodeURIComponent(result.clean_url)}`, {
-                method: "POST", 
-                headers: { "Content-Type": "application/json" }, 
-                body: JSON.stringify(newBubbles), // 🚀 SỬA CHỖ NÀY (CŨ LÀ result.data)
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(newBubbles),
               });
             }
             setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
-            
+
           } else if (sseData.state === "FAILURE") {
             eventSource.close();
-            delete activeTasksRef.current[pageIndex]; 
+            delete activeTasksRef.current[pageIndex];
             projectStore.clearProgress(pageIndex);
-            projectStore.setPageStatus(pageIndex, "error"); 
+            projectStore.setPageStatus(pageIndex, "error");
           }
         };
         eventSource.onerror = () => {
           eventSource.close();
-          delete activeTasksRef.current[pageIndex]; 
+          delete activeTasksRef.current[pageIndex];
           projectStore.clearProgress(pageIndex);
-          projectStore.setPageStatus(pageIndex, "error"); 
+          projectStore.setPageStatus(pageIndex, "error");
         };
       }
     } catch (error) {
       projectStore.clearProgress(pageIndex);
-      projectStore.setPageStatus(pageIndex, "error"); 
+      projectStore.setPageStatus(pageIndex, "error");
     }
   };
 
-  // LOGIC SMART RETRY (Chỉ dịch lại chữ)
   const handleRetrySinglePage = async (pageIndex: number, currentStatus: string) => {
     const pageId = projectStore.pageIds[pageIndex];
     if (!pageId) return;
 
     if (currentStatus === 'completed' || currentStatus === 'translating' || currentStatus === 'cleaned') {
-      const loadId = toast.loading("Đang gọi DeepSeek dịch lại đống chữ cũ...");
+      const loadId = toast.loading("Đang gọi DeepSeek dịch lại chữ...");
       try {
         const result = await mangaApi.retryTextTranslation(pageId);
-        
-        if (projectStore.currentIndex === pageIndex) {
+
+        // Cập nhật State: React sẽ tự động vẽ lại chữ ngay lập tức mà không cần F5
+        // 🚀 BẢN VÁ: Lấy vị trí trang THỰC TẾ ở thời điểm hiện tại từ kho tổng
+        const realTimeIndex = useProjectStore.getState().currentIndex;
+
+        // Chỉ dán chữ lên màn hình NẾU user vẫn đang đứng ở đúng trang đó
+        if (realTimeIndex === pageIndex) {
           useCanvasStore.getState().setBubbles(result.bubbles);
         }
-        
-        toast.success("Đã hồi sinh đống chữ dịch lỗi thành công!", { id: loadId });
-        setTimeout(() => window.location.reload(), 800);
+
+        toast.success("Tái sinh vùng chữ dịch lại thành công!", { id: loadId });
+
+        // 🚀 BẢN VÁ: ĐÃ XÓA DÒNG window.location.reload() ở đây!
+
       } catch (err: any) {
         toast.error(err.message, { id: loadId });
       }
     } else {
-      processSinglePage(pageIndex); 
+      processSinglePage(pageIndex);
     }
   };
 
-  // LOGIC XÓA (CÓ ĐẾM NGƯỢC VÀ TÀNG HÌNH)
-  // LOGIC XÓA (CÓ ĐẾM NGƯỢC VÀ TÀNG HÌNH)
   const handleDeletePage = (index: number) => {
     const file = fileQueue[index];
     const fileName = file.name;
 
     if (deleteTimeoutsRef.current[fileName]) return;
 
-    // 🚀 BẢN VÁ 1: Chuẩn UX - Chuyển sang xem trang khác ngay lập tức nếu đang xóa trang hiện tại
     if (index === projectStore.currentIndex) {
-      // Tìm một trang bất kỳ không bị xóa để hiển thị tạm
       const nextIndex = fileQueue.findIndex((f, i) => i !== index && !pendingDeletes.has(f.name));
       projectStore.setCurrentIndex(nextIndex !== -1 ? nextIndex : -1);
     }
@@ -387,13 +455,13 @@ export default function Sidebar() {
           onClick={() => {
             clearTimeout(deleteTimeoutsRef.current[fileName]);
             delete deleteTimeoutsRef.current[fileName];
-            
+
             setPendingDeletes(prev => {
               const next = new Set(prev);
               next.delete(fileName);
               return next;
             });
-            
+
             toast.dismiss(t.id);
             toast.success("Đã hoàn tác! Giữ lại trang.");
           }}
@@ -404,19 +472,18 @@ export default function Sidebar() {
       </div>
     ), { duration: 5000, id: `delete-${fileName}`, icon: '⏳' });
 
-    // 🚀 BẢN VÁ 2: Thêm async/await - Đợi API xóa dứt điểm xong mới gỡ trạng thái tàng hình (Chống nháy hình)
     deleteTimeoutsRef.current[fileName] = setTimeout(async () => {
       const state = useProjectStore.getState();
       const realIndex = state.fileQueue.findIndex(f => f.name === fileName);
-      
+
       if (realIndex !== -1) {
         if (state.pageStatuses[realIndex] === 'processing') {
           handleCancelTask(realIndex);
         }
-        await state.removePage(realIndex); // ⏳ Đợi server xóa dứt điểm
+        await state.removePage(realIndex);
       }
       delete deleteTimeoutsRef.current[fileName];
-      
+
       setPendingDeletes(prev => {
         const next = new Set(prev);
         next.delete(fileName);
@@ -425,19 +492,15 @@ export default function Sidebar() {
     }, 5000);
   }
 
-  // LOGIC KÉO THẢ (SỬ DỤNG PAGE ID LÀM ĐỊNH DANH)
-  // 🚀 BẢN VÁ: SỬA LỖI TÌM KIẾM TRÊN OBJECT (RECORD) KHI KÉO THẢ
+  // 🚀 FIX: TÌM ẢNH BẰNG UNIQUE ID MỚI TRÁNH CRASH KHI KÉO THẢ
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (over && active.id !== over.id) {
-      const pageIdsObj = projectStore.pageIds as Record<number, string>;
-      
-      // Tìm khóa (index) dựa trên giá trị (id)
-      const oldIndexStr = Object.keys(pageIdsObj).find(key => pageIdsObj[Number(key)] === active.id);
-      const newIndexStr = Object.keys(pageIdsObj).find(key => pageIdsObj[Number(key)] === over.id);
-      
-      if (oldIndexStr !== undefined && newIndexStr !== undefined) {
-        reorderFiles(Number(oldIndexStr), Number(newIndexStr));
+      const oldItem = visibleFiles.find(f => f.uniqueId === active.id);
+      const newItem = visibleFiles.find(f => f.uniqueId === over.id);
+
+      if (oldItem && newItem) {
+        reorderFiles(oldItem.index, newItem.index);
       }
     }
   };
@@ -452,7 +515,7 @@ export default function Sidebar() {
 
   useEffect(() => {
     const newPreviews: Record<number, string> = {};
-    
+
     fileQueue.forEach((file, index) => {
       if (projectStore.processedUrls[index]) {
         newPreviews[index] = projectStore.processedUrls[index];
@@ -461,14 +524,14 @@ export default function Sidebar() {
         const pageId = projectStore.pageIds[index];
         const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
         newPreviews[index] = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}`;
-      } 
+      }
       else {
         newPreviews[index] = URL.createObjectURL(file);
       }
     });
-    
+
     setPreviews(newPreviews);
-    
+
     return () => {
       Object.values(newPreviews).forEach(url => {
         if (url.startsWith('blob:')) URL.revokeObjectURL(url);
@@ -476,12 +539,20 @@ export default function Sidebar() {
     };
   }, [fileQueue, projectStore.processedUrls]);
 
-  // LỌC CÁC FILE KHÔNG BỊ TÀNG HÌNH VÀ TÍNH TOÁN TIẾN ĐỘ
+  // 🚀 FIX: TẠO ID DUY NHẤT AN TOÀN KỂ CẢ KHI ẢNH ĐANG UPLOAD
   const visibleFiles = fileQueue
-    .map((file, index) => ({ file, index }))
+    .map((file, index) => {
+      const pageId = projectStore.pageIds[index];
+      return {
+        file,
+        index,
+        // Nếu đã có ID từ Server thì dùng, chưa có thì tự sinh ID tạm thời
+        uniqueId: pageId || `temp-${index}-${file.name}`
+      };
+    })
     .filter(({ file }) => !pendingDeletes.has(file.name));
 
-  const itemIds = visibleFiles.map(({ index }) => projectStore.pageIds[index]);
+  const itemIds = visibleFiles.map(f => f.uniqueId);
 
   const totalPages = visibleFiles.length;
   const completedPages = visibleFiles.filter(({ index }) => pageStatuses[index] === 'completed').length;
@@ -502,170 +573,232 @@ export default function Sidebar() {
   if (fileQueue.length === 0) return null;
 
   return (
-    <div className="w-64 bg-sidebar border-r border-border flex flex-col h-full shadow-2xl z-20 shrink-0 select-none relative">
-      <div className="p-4 border-b border-border bg-panel/50 backdrop-blur-md flex flex-col gap-3">
-        
-        {/* ========================================== */}
-        {/* TẦNG 1: TIÊU ĐỀ & CÁC NÚT UPLOAD/ĐÓNG PANEL */}
-        {/* ========================================== */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-bold text-text-main flex items-center gap-2 uppercase tracking-tight">
-              <ImageIcon size={18} className="text-primary" /> Dự án Manga
-            </h2>
-            <p className="text-[10px] text-text-muted mt-1 font-medium">{totalPages} TRANG TẤT CẢ</p>
-          </div>
+    <>
+      <div
+        className="bg-sidebar border-r border-border flex flex-col h-full shadow-2xl z-20 shrink-0 select-none relative"
+        style={{ width: `${sidebarWidth}px` }} // 🚀 Bổ sung chiều rộng động
+      >
 
-          <div className="flex gap-1.5 items-center">
-            <label className="p-2 bg-border/40 hover:bg-border text-text-muted hover:text-text-main rounded-md cursor-pointer transition-colors" title="Tải trang truyện lên">
-              <Upload size={16} />
-              <input 
-                type="file" 
-                multiple 
-                className="hidden" 
-                accept="image/jpeg, image/png, image/webp,.manga"
-                onChange={(e) => {
-                  const files = Array.from(e.target.files || []);
-                  if (files.length === 0) return;
-                  if (files.length > 20) {
-                     toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 20 trang mỗi lần!");
-                     e.target.value = '';
-                     return;
-                  }
-                  uploadProjectFiles(files.sort((a, b) => a.name.localeCompare(b.name)));
-                }}
-              />
-            </label>
-
-            <input 
-              type="file" 
-              accept=".manga" 
-              ref={importMangaRef} 
-              onChange={handleImportManga} 
-              className="hidden" 
-            />
-            <button 
-              onClick={() => importMangaRef.current?.click()}
-              className="p-2 bg-border/40 hover:bg-border text-text-muted hover:text-text-main rounded-md cursor-pointer transition-colors"
-              title="Khôi phục file (.manga)"
-            >
-              📂
-            </button>
-
-            <button 
-              onClick={() => useToolStore.getState().toggleLeftPanel()} 
-              className="p-2 bg-border/40 hover:bg-border text-text-muted hover:text-danger rounded-md cursor-pointer transition-colors"
-              title="Đóng bảng này"
-            >
-              <PanelLeftClose size={16} />
-            </button>
-          </div>
-        </div>
-
-        {/* ========================================== */}
-        {/* TẦNG 2: CÁC NÚT TẢI XUỐNG HÀNG LOẠT        */}
-        {/* ========================================== */}
-        {projectStore.fileQueue.length > 0 && (
-          <div className="flex flex-col gap-2 p-3 bg-panel/50 rounded-xl border border-border shadow-sm">
-            <span className="text-xs font-bold text-text-muted flex items-center gap-1.5 uppercase">
-              <Package size={14} /> Tải Hàng Loạt ({projectStore.fileQueue.length} trang)
-            </span>
-            <div className="grid grid-cols-3 gap-2">
-              <button 
-                onClick={() => handleExportBatch('clean')}
-                className="px-2 py-1.5 text-[11px] font-semibold bg-primary/10 text-primary hover:bg-primary hover:text-white rounded-lg transition-colors border border-primary/20 flex flex-col items-center justify-center gap-1"
-              >
-                <Download size={14} /> JPG Sạch
-              </button>
-              <button 
-                onClick={() => handleExportBatch('psd')}
-                className="px-2 py-1.5 text-[11px] font-semibold bg-blue-500/10 text-blue-400 hover:bg-blue-500 hover:text-white rounded-lg transition-colors border border-blue-500/20 flex flex-col items-center justify-center gap-1"
-              >
-                <Download size={14} /> File PSD
-              </button>
-              <button 
-                onClick={() => handleExportBatch('raw')}
-                className="px-2 py-1.5 text-[11px] font-semibold bg-gray-500/10 text-gray-400 hover:bg-gray-500 hover:text-white rounded-lg transition-colors border border-gray-500/20 flex flex-col items-center justify-center gap-1"
-              >
-                <Download size={14} /> JPG Gốc
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================== */}
-        {/* TẦNG 3: THANH TIẾN ĐỘ TỔNG QUAN           */}
-        {/* ========================================== */}
-        <div className="w-full bg-background/50 rounded-lg p-2 border border-border">
-          <div className="flex justify-between items-end mb-1">
-            <span className="text-[10px] font-bold text-text-muted uppercase">Tiến độ chung</span>
-            <span className="text-[10px] font-bold text-primary">{completedPages}/{totalPages}</span>
-          </div>
-          <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden flex">
-            <div className="bg-primary h-full transition-all duration-500" style={{ width: `${progressPercent}%` }}></div>
-          </div>
-          {(processingPages > 0 || errorPages > 0) && (
-            <div className="flex justify-between mt-1.5 text-[9px] font-bold">
-              {processingPages > 0 ? <span className="text-amber-400">Đang chạy: {processingPages}</span> : <span></span>}
-              {errorPages > 0 && <span className="text-danger">Lỗi: {errorPages}</span>}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* DANH SÁCH ẢNH (KÉO THẢ) */}
-      <div className="flex-1 overflow-y-auto p-2 custom-scrollbar pb-20">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-            <div className="space-y-1.5">
-              {visibleFiles.map(({ file, index }) => {
-                const uniquePageId = projectStore.pageIds[index];
-                return (
-                  <SortableItem
-                    key={uniquePageId || `page-${index}-${file.name}`} 
-                    id={uniquePageId || `page-${index}`}
-                    file={file}
-                    isActive={index === currentIndex}
-                    status={pageStatuses[index] || 'unprocessed'}
-                    displayImg={processedUrls[index] || previews[index]}
-                    progress={progresses[index]}
-                    onClick={() => handlePageClick(index)}
-                    onTranslate={() => processSinglePage(index)} 
-                    onDelete={() => handleDeletePage(index)} 
-                    onCancel={() => handleCancelTask(index)} 
-                    onRetry={() => handleRetrySinglePage(index, pageStatuses[index] || 'unprocessed')}
-                  />
-                );
-              })}
-            </div>
-          </SortableContext>
-        </DndContext>
-      </div>
-
-      <div className="absolute bottom-0 left-0 w-full p-3 bg-sidebar/95 backdrop-blur-md border-t border-border z-10">
-        <button
-          onClick={handleTranslateAll}
-          disabled={!hasUnprocessed}
-          className={`w-full justify-center py-2.5 text-sm transition-all shadow-lg ${
-            hasUnprocessed 
-              ? 'btn-primary shadow-primary/20 hover:scale-[1.02]' 
-              : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 rounded-md font-medium flex items-center gap-2'
-          }`}
+        {/* 🚀 DRAG HANDLE - CỘT MỐC TÀNG HÌNH Ở MÉP PHẢI ĐỂ KÉO */}
+        <div
+          className="absolute top-0 -right-1.5 w-3 h-full cursor-col-resize z-50 group flex items-center justify-center"
+          onMouseDown={startResizing}
         >
-          {errorPages > 0 ? <RefreshCw size={16} /> : <Sparkles size={16} />}
-          {errorPages > 0 ? `Dịch Lại ${errorPages} Lỗi` : hasUnprocessed ? "Dịch Tất Cả (Batch)" : "Đã dịch xong"}
-        </button>
+          <div className="w-0.5 h-12 bg-transparent group-hover:bg-primary transition-colors rounded-full" />
+        </div>
+
+        <div className="p-4 border-b border-border bg-panel/50 backdrop-blur-md flex flex-col gap-3">
+          {/* ... (Đoạn Header giữ nguyên) ... */}
+
+          {/* HEADER */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-bold text-text-main flex items-center gap-2 uppercase tracking-tight">
+                <ImageIcon size={18} className="text-primary" /> Dự án Manga
+              </h2>
+              <p className="text-[10px] text-text-muted mt-1 font-medium">{totalPages} TRANG TẤT CẢ</p>
+            </div>
+
+            <div className="flex gap-1.5 items-center">
+              {/* Nút Phủ Chọn Tất Cả (Nhanh gọn) */}
+              <button
+                onClick={() => {
+                  if (selectedPages.size === totalPages) {
+                    clearSelection();
+                  } else {
+                    // 🚀 FIX: Dùng uniqueId an toàn thay vì pageIds có thể bị undefined
+                    const allIds = visibleFiles.map(f => f.uniqueId);
+                    setSelectedPages(new Set(allIds));
+                  }
+                }}
+                className={`p-2 rounded-md cursor-pointer transition-colors ${isSelectionMode && selectedPages.size === totalPages ? 'bg-primary/20 text-primary hover:bg-primary/30' : 'bg-border/40 hover:bg-border text-text-muted hover:text-text-main'}`}
+                title="Chọn tất cả"
+              >
+                <Check size={16} />
+              </button>
+
+              <label className="p-2 bg-border/40 hover:bg-border text-text-muted hover:text-text-main rounded-md cursor-pointer transition-colors" title="Tải trang truyện lên">
+                <Upload size={16} />
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept="image/jpeg, image/png, image/webp,.manga"
+                  onClick={(e) => {
+                    (e.target as HTMLInputElement).value = ''; // 🚀 FIX: Reset đường dẫn để có thể up lại cùng 1 file
+                  }}
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length === 0) return;
+                    if (files.length > 20) {
+                      toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 20 trang mỗi lần!");
+                      e.target.value = '';
+                      return;
+                    }
+                    uploadProjectFiles(files.sort((a, b) => a.name.localeCompare(b.name)));
+                    e.target.value = ''; // 🚀 FIX: Dọn dẹp sau khi up xong
+                  }}
+                />
+              </label>
+
+              <button
+                onClick={() => useToolStore.getState().toggleLeftPanel()}
+                className="p-2 bg-border/40 hover:bg-border text-text-muted hover:text-danger rounded-md cursor-pointer transition-colors"
+                title="Đóng bảng này"
+              >
+                <PanelLeftClose size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* THANH TIẾN ĐỘ TỔNG QUAN */}
+          <div className="w-full bg-background/50 rounded-lg p-2 border border-border">
+            <div className="flex justify-between items-end mb-1">
+              <span className="text-[10px] font-bold text-text-muted uppercase">Tiến độ chung</span>
+              <span className="text-[10px] font-bold text-primary">{completedPages}/{totalPages}</span>
+            </div>
+            <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden flex">
+              <div className="bg-primary h-full transition-all duration-500" style={{ width: `${progressPercent}%` }}></div>
+            </div>
+            {(processingPages > 0 || errorPages > 0) && (
+              <div className="flex justify-between mt-1.5 text-[9px] font-bold">
+                {processingPages > 0 ? <span className="text-amber-400">Đang chạy: {processingPages}</span> : <span></span>}
+                {errorPages > 0 && <span className="text-danger">Lỗi: {errorPages}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* DANH SÁCH ẢNH (KÉO THẢ & CHỌN) */}
+        <div className="flex-1 overflow-y-auto p-2 custom-scrollbar pb-20">
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+              <div className="space-y-1.5">
+                {visibleFiles.map(({ file, index, uniqueId }) => { // 🚀 Lấy uniqueId ra
+                  return (
+                    <SortableItem
+                      key={uniqueId}  // 🚀 Dùng ID an toàn
+                      id={uniqueId}   // 🚀 Dùng ID an toàn
+                      file={file}
+                      isActive={index === currentIndex}
+                      status={pageStatuses[index] || 'unprocessed'}
+                      displayImg={processedUrls[index] || previews[index]}
+                      progress={progresses[index]}
+                      onClick={() => handlePageClick(index)}
+                      onTranslate={() => processSinglePage(index)}
+                      onDelete={() => handleDeletePage(index)}
+                      onCancel={() => handleCancelTask(index)}
+                      onRetry={() => handleRetrySinglePage(index, pageStatuses[index] || 'unprocessed')}
+                      isSelected={selectedPages.has(uniqueId)} // 🚀 Dùng ID an toàn
+                      isSelectionMode={isSelectionMode}
+                      onToggleSelection={() => toggleSelection(uniqueId)} // 🚀 Dùng ID an toàn
+                    />
+                  );
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </div>
+
+        {/* NÚT DỊCH TẤT CẢ (Ẩn đi khi đang chọn ảnh) */}
+        <div className={`absolute bottom-0 left-0 w-full p-3 bg-sidebar/95 backdrop-blur-md border-t border-border z-10 transition-transform duration-300 ${isSelectionMode ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
+          <button
+            onClick={handleTranslateAll}
+            disabled={!hasUnprocessed}
+            className={`w-full justify-center py-2.5 text-sm transition-all shadow-lg ${hasUnprocessed
+              ? 'btn-primary shadow-primary/20 hover:scale-[1.02]'
+              : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 rounded-md font-medium flex items-center gap-2'
+              }`}
+          >
+            {errorPages > 0 ? <RefreshCw size={16} /> : <Sparkles size={16} />}
+            {errorPages > 0 ? `Dịch Lại ${errorPages} Lỗi` : hasUnprocessed ? "Dịch Tất Cả (Batch)" : "Đã dịch xong"}
+          </button>
+        </div>
       </div>
 
-      <div className="mt-auto p-3 m-2 bg-background/80 border border-border rounded-lg text-center shadow-inner">
-        <div className="flex items-start gap-2 p-2 bg-amber-500/10 border border-amber-500/20 rounded-md mb-3 text-left">
-          <Clock size={14} className="text-amber-500 shrink-0 mt-0.5" />
-          <p className="text-[9px] text-amber-500/90 font-medium leading-relaxed">
-            Dữ liệu tải lên được xử lý tạm thời và sẽ <strong>tự động xóa sau 24h</strong> không tương tác để bảo mật & tiết kiệm tài nguyên.
-          </p>
+      {/* 🚀 LỚP MÀN PHỦ KHI MỞ DROPDOWN (Click outside to close) */}
+      {isExportMenuOpen && (
+        <div className="fixed inset-0 z-[9998]" onClick={() => setIsExportMenuOpen(false)}></div>
+      )}
+
+      {/* 🚀 CONTEXTUAL FLOATING ACTION BAR (FAB) - ĐƯA LÊN TOP CENTER */}
+      <div
+        className={`fixed top-20 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-4 p-2 pl-4 
+          bg-panel/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]
+          ${isSelectionMode ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-16 opacity-0 scale-95 pointer-events-none'}
+        `}
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-primary/20 text-primary text-xs font-bold transition-all">
+            <span>{selectedPages.size}</span>
+          </div>
+          <span className="text-sm font-semibold text-text-main select-none">Trang đã chọn</span>
         </div>
-        <p className="text-[11px] text-text-muted font-medium mb-2">🤖 Server gồng lỗ chạy Free 100%</p>
+
+        <div className="w-px h-6 bg-border mx-1" />
+
+        <button
+          onClick={clearSelection}
+          className="p-2 rounded-xl text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+          title="Hủy chọn"
+        >
+          <X size={18} strokeWidth={2.5} />
+        </button>
+
+        {/* NÚT EXPORT VÀ DROPDOWN POPOVER */}
+        <div className="relative">
+          <button
+            onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+            className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl shadow-lg shadow-primary/20 transition-all"
+          >
+            <Download size={16} strokeWidth={2.5} />
+            Tải Xuống...
+          </button>
+
+          {/* DROPDOWN MENU TẢI XUỐNG (Thả xuống dưới) */}
+          <div
+            className={`absolute top-[calc(100%+12px)] right-0 w-64 bg-panel border border-border shadow-2xl rounded-2xl p-1.5 transition-all origin-top-right duration-200 ease-out z-[101]
+              ${isExportMenuOpen ? 'opacity-100 scale-100 pointer-events-auto translate-y-0' : 'opacity-0 scale-95 pointer-events-none -translate-y-2'}
+            `}
+          >
+            <div className="px-3 pt-2.5 pb-2 mb-1 border-b border-border">
+              <span className="text-[11px] font-bold text-text-muted uppercase tracking-widest">
+                Chọn Định Dạng Xuất
+              </span>
+            </div>
+
+            <button onClick={() => handleExportBatch('psd')} className="w-full flex items-center gap-3 px-3 py-3 text-sm text-text-main hover:bg-background/80 rounded-xl transition-colors text-left group">
+              <div className="p-2 bg-blue-500/10 rounded-lg group-hover:bg-blue-500/20 transition-colors">
+                <Layers size={18} className="text-blue-500" />
+              </div>
+              <div className="flex flex-col">
+                <span className="font-bold">File PSD (Photoshop)</span>
+                <span className="text-[11px] text-text-muted font-medium">Bản dịch được tách lớp Layer</span>
+              </div>
+            </button>
+
+            <button onClick={() => handleExportBatch('clean')} className="w-full flex items-center gap-3 px-3 py-3 text-sm text-text-main hover:bg-background/80 rounded-xl transition-colors text-left group">
+              <div className="p-2 bg-emerald-500/10 rounded-lg group-hover:bg-emerald-500/20 transition-colors">
+                <ImageIcon size={18} className="text-emerald-500" />
+              </div>
+              <div className="flex flex-col">
+                <span className="font-bold">Ảnh Đã Dịch (JPG)</span>
+                <span className="text-[11px] text-text-muted font-medium">Ảnh đã xóa nền và ghép chữ</span>
+              </div>
+            </button>
+
+            <button onClick={() => handleExportBatch('raw')} className="w-full flex items-center gap-3 px-3 py-3 text-sm text-text-main hover:bg-background/80 rounded-xl transition-colors text-left group">
+              <div className="p-2 bg-border/40 rounded-lg group-hover:bg-border/60 transition-colors">
+                <FileImage size={18} className="text-text-muted" />
+              </div>
+              <div className="flex flex-col">
+                <span className="font-bold">Ảnh Gốc (RAW)</span>
+                <span className="text-[11px] text-text-muted font-medium">Bản scan chưa qua xử lý</span>
+              </div>
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

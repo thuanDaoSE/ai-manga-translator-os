@@ -12,6 +12,7 @@ import { useProjectStore } from './store/useProjectStore';
 import { useAuthStore } from './store/useAuthStore';
 import { supabase } from './services/supabaseClient';
 import { Toaster } from 'react-hot-toast';
+import RightSidebar from './components/Layout/RightSidebar';
 
 import TestFabric from './components/TestFabric';
 import { mangaApi } from './services/api';
@@ -20,7 +21,7 @@ import { mangaApi } from './services/api';
 import { loadAllSavedFonts } from './utils/fontManager'; 
 
 export default function App() {
-  const { isZenMode, toggleZenMode, setActiveMode, showLeftPanel, scanModal } = useToolStore();
+  const { isZenMode, toggleZenMode, setActiveMode, showLeftPanel, scanModal, showRightPanel } = useToolStore();
   const { setUser, session } = useAuthStore(); 
   const { projectId } = useProjectStore(); 
   const hasRestored = useRef(false);
@@ -85,29 +86,37 @@ export default function App() {
     <div className="flex flex-col h-screen bg-background text-text-main overflow-hidden font-sans">
       <Toaster position="top-center" reverseOrder={false} />
       <AuthModal /> 
+      
+      {/* 🚀 FIX: KHÔI PHỤC LẠI MODAL CẤU HÌNH DỊCH VÀO ĐÂY */}
+      <TranslationConfigModal /> 
 
       <div className="grid transition-[grid-template-rows] duration-300 ease-in-out" style={{ gridTemplateRows: isZenMode ? '0fr' : '1fr' }}>
         <div className="overflow-hidden"><Topbar /></div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        {(!isZenMode && showLeftPanel) && (
-          <div className="w-64 shrink-0 bg-sidebar border-r border-border shadow-xl z-20 transition-all">
-            <Sidebar />
-          </div>
-        )}
         
+        {/* 1. LEFT SIDEBAR (Đã tháo thẻ div bọc ngoài để nó tự do co giãn) */}
+        {(!isZenMode && showLeftPanel) && <Sidebar />}
+        
+        {/* 2. CENTER WORKSPACE (Nằm giữa) */}
         <div className="flex-1 relative flex flex-col overflow-hidden">
           <Workspace />
         </div>
 
+        {/* 3. LENS MODAL (Kính lúp) */}
         {(!isZenMode && scanModal?.isOpen) && (
           <div className="w-[340px] shrink-0 bg-sidebar border-l border-border shadow-2xl z-20 transition-all animate-in slide-in-from-right-8 duration-300">
             <LensModal />
           </div>
         )}
+
+        {/* 🚀 4. RIGHT SIDEBAR (Nằm gọn gàng bên phải) */}
+        {(!isZenMode && showRightPanel) && <RightSidebar />}
+
       </div>
-      <TranslationConfigModal />
+      
+      {/* 🗑️ Lưu ý: Sếp nhớ XÓA bỏ dòng <TranslationConfigModal /> cũ ở đây nhé, vì mình bỏ nó rồi! */}
     </div>
   );
 }

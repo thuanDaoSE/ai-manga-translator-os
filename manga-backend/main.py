@@ -39,42 +39,33 @@ from typing import List, Dict, Any
 # 1. KHỞI TẠO APP TRƯỚC
 app = FastAPI(title="Manga AI Backend API", version="2.0.0")
 
+@app.middleware("http")
+async def force_cors_static_files(request: Request, call_next):
+    response = await call_next(request)
+    # Nếu Frontend đòi lấy ảnh tĩnh từ thư mục workspace
+    if request.url.path.startswith("/workspace"):
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        # Đuổi cổ bóng ma Cache
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
+class CORSStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope) -> Response:
+        response = await super().get_response(path, scope)
+        # Bơm thẻ bài thông hành CORS vào tận gốc
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        # Cấm trình duyệt lưu Cache láo
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return response
 
-# ... (Các import cũ của sếp) ...
-
-from fastapi import FastAPI
-# 🚀 IMPORT OPENTELEMETRY
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-
-# 1. KHỞI TẠO APP TRƯỚC
-app = FastAPI(title="Manga AI Backend API")
-
-# ==========================================
-# 🚀 KÍCH HOẠT TRACING BẮN VỀ TRACE2PROMPT
-# ==========================================
-provider = TracerProvider()
-# Bắn thẳng về cổng 4318 mà trace2prompt đang lắng nghe
-otlp_exporter = OTLPSpanExporter(endpoint="http://localhost:4318/v1/traces") 
-processor = BatchSpanProcessor(otlp_exporter)
-provider.add_span_processor(processor)
-trace.set_tracer_provider(provider)
-
-# 🚀 Tự động Tracking TOÀN BỘ các API Endpoint của FastAPI!
-FastAPIInstrumentor.instrument_app(app)
-
-# Khởi tạo Tracer thủ công cho các hàm nội bộ (nếu cần dùng)
-tracer = trace.get_tracer(__name__)
-# ==========================================
-os.environ["OTEL_SDK_DISABLED"] = "true"
-# ... (Các code setup CORS, DB cũ của sếp giữ nguyên) ...
 
 from openai import OpenAI
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -82,6 +73,13 @@ deepseek_client = OpenAI(
     api_key=os.environ.get("DEEPSEEK_API_KEY"), 
     base_url="https://api.deepseek.com"
 )
+
+# 🚀 BỔ SUNG MODEL CHO AI COPILOT
+class CopilotRequest(BaseModel):
+    text: str
+    japanese: str
+    action: str
+    custom_prompt: str = None
 
 import re
 import logging
@@ -173,8 +171,6 @@ import hashlib # Bổ sung thêm thư viện băm chuỗi
 LENS_CACHE = {}
 
 
-# --- IMPORT WORKER TẠM THỜI CHƯA ĐỤNG TỚI ---
-# from worker import process_manga_page, lama_session, mocr, client 
 
 import urllib.request
 from fastapi import APIRouter, HTTPException
@@ -219,10 +215,10 @@ app.add_middleware(
 )
 
 # 🚀 BƯỚC NGOẶT KIẾN TRÚC: Đóng /static, mở /workspace
-# 🚀 BƯỚC NGOẶT KIẾN TRÚC: Đóng /static, mở /workspace
 os.makedirs("workspace", exist_ok=True)
 # XÓA BỎ StaticFiles CŨ GÂY LỖI CORS:
-# app.mount("/workspace", StaticFiles(directory="workspace"), name="workspace")
+# Thay StaticFiles bằng class CORSStaticFiles anh em mình vừa tạo
+app.mount("/workspace", CORSStaticFiles(directory="workspace"), name="workspace")
 
 # THAY BẰNG API ĐỊNH TUYẾN CHUẨN ĐỂ VƯỢT QUA CORS:
 @app.get("/workspace/{file_path:path}")
@@ -1653,6 +1649,9 @@ async def retry_text_translation(page_id: str, db: AsyncSession = Depends(get_db
         await db.commit()
         return {"status": "success", "bubbles": extracted_data}
 
+    except HTTPException:
+        raise
+    
     except Exception as e:
         print(f"❌ Lỗi dịch lại chữ: {e}")
         raise HTTPException(status_code=500, detail=f"Lỗi AI Server: {str(e)}")
@@ -1663,13 +1662,14 @@ from fastapi.responses import FileResponse
 import tempfile
 import os
 
-# 🚀 API XUẤT HÀNG LOẠT (BATCH EXPORT) CHỐNG TRÀN RAM
+# 🚀 API XUẤT HÀNG LOẠT (ĐÃ VÁ LỖI NHẬN DANH SÁCH ẢNH ĐƯỢC TÍCH CHỌN)
 @app.get("/api/projects/{project_id}/export-batch")
 async def export_batch(
     project_id: str, 
     export_type: str = Query("clean", description="Loại xuất: raw, clean, psd"),
+    page_ids: str = Query(None, description="Danh sách ID trang (cách nhau dấu phẩy) từ Frontend gửi lên"), # 🚀 THÊM DÒNG NÀY ĐỂ HỨNG DATA
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id) # Bảo mật: Chỉ chủ dự án mới được tải
+    user_id: str = Depends(get_current_user_id) 
 ):
     try:
         # 1. Kiểm tra quyền sở hữu Dự án
@@ -1678,29 +1678,38 @@ async def export_batch(
         if not project:
             raise HTTPException(status_code=403, detail="Không có quyền truy cập dự án này")
 
-        # 2. Lấy danh sách toàn bộ trang truyện của Dự án
-        page_result = await db.execute(select(models.Page).where(models.Page.project_id == project_id))
+        # 2. Xây dựng lệnh Query DB
+        stmt = select(models.Page).where(models.Page.project_id == project_id)
+        
+        # 🚀 BỘ LỌC ĐA MỤC TIÊU: Nếu có danh sách ID từ giao diện, chỉ lấy những ảnh đó!
+        if page_ids:
+            # Tách chuỗi "id1,id2,id3" thành mảng ["id1", "id2", "id3"]
+            id_list = [pid.strip() for pid in page_ids.split(",") if pid.strip()]
+            if id_list:
+                stmt = stmt.where(models.Page.id.in_(id_list))
+                
+        page_result = await db.execute(stmt)
         pages = page_result.scalars().all()
         
         if not pages:
-            raise HTTPException(status_code=404, detail="Dự án chưa có ảnh nào để tải!")
+            raise HTTPException(status_code=404, detail="Không có ảnh nào thỏa mãn để tải! (Có thể file đã bị bot dọn rác xóa)")
 
-        # 3. Tạo một file ZIP tạm thời trên Ổ cứng (Thay vì nhồi vào RAM)
+        # 3. Tạo file ZIP tạm
         temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
         temp_zip_path = temp_zip.name
-        temp_zip.close() # Đóng file để zipfile có thể mở và ghi vào
+        temp_zip.close() 
 
         # 4. Gom hàng nén file
         with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for i, page in enumerate(pages):
-                # Format tên file trong cục ZIP cho đẹp (Ví dụ: 001_TenAnh.jpg)
                 safe_name = f"{i:03d}_{page.filename.split('.')[0]}" 
                 
                 raw_path = get_local_path_from_url(page.raw_url) if page.raw_url else None
                 clean_path = get_local_path_from_url(page.clean_url) if page.clean_url else raw_path
                 
-                # Bỏ qua nếu file vật lý không tồn tại
+                # Bỏ qua nếu file vật lý không tồn tại (chống crash nếu ảnh bị xóa)
                 if not raw_path or not os.path.exists(raw_path):
+                    print(f"⚠️ Bỏ qua trang {page.filename} vì file vật lý không còn trên Server")
                     continue
 
                 if export_type == "raw":
@@ -1713,21 +1722,18 @@ async def export_batch(
                     zipf.write(clean_path, arcname=f"{safe_name}_CLEAN.{ext}")
                     
                 elif export_type == "psd":
-                    # Sinh file PSD trực tiếp rồi nhét vào ZIP
                     if not os.path.exists(clean_path): clean_path = raw_path
                     psd_temp_path = f"workspace/temp_{page.id}.psd"
-                    
                     try:
                         create_manga_psd(raw_path, clean_path, psd_temp_path)
                         zipf.write(psd_temp_path, arcname=f"{safe_name}.psd")
                     except Exception as e:
                         print(f"Lỗi tạo PSD trang {page.id}: {e}")
                     finally:
-                        # Tạo xong nhét vào Zip là xóa file PSD rác luôn cho nhẹ máy
                         if os.path.exists(psd_temp_path):
                             os.remove(psd_temp_path)
 
-        # 5. Background Task: Tải xong tự động xóa cục ZIP để dọn rác ổ cứng
+        # 5. Background Task: Dọn rác
         def cleanup_temp_zip(path: str):
             if os.path.exists(path):
                 os.remove(path)
@@ -1735,7 +1741,8 @@ async def export_batch(
         background_tasks = BackgroundTasks()
         background_tasks.add_task(cleanup_temp_zip, temp_zip_path)
 
-        # 6. Stream file về cho trình duyệt
+        # 6. Stream về cho trình duyệt
+        # (Nếu tải có 1 trang, nó sẽ ghi là "..._1_Pages", nếu nhiều trang thì "..._N_Pages")
         return FileResponse(
             path=temp_zip_path,
             filename=f"Project_{project.name}_{export_type.upper()}.zip",
@@ -1745,4 +1752,66 @@ async def export_batch(
 
     except Exception as e:
         print(f"❌ Lỗi Export Batch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+import requests
+from fastapi.concurrency import run_in_threadpool
+
+# ==========================================
+# 🚀 API: AI COPILOT (TRỢ LÝ DỊCH THUẬT NGỮ CẢNH)
+# ==========================================
+@app.post("/api/copilot/chat")
+async def copilot_chat(req: CopilotRequest):
+    try:
+        # 1. CẤU HÌNH SYSTEM PROMPT SIÊU KỶ LUẬT (Tiết kiệm Token)
+        system_prompt = "Bạn là chuyên gia dịch thuật Manga. Tuân thủ TUYỆT ĐỐI: 1. Chỉ trả về kết quả dịch cuối cùng. 2. KHÔNG giải thích. 3. KHÔNG dùng ngoặc kép."
+        
+        # 2. RẼ NHÁNH NGỮ CẢNH THEO NÚT BẤM (Feature Routing)
+        if req.action == "aggressive":
+            user_prompt = f"Viết lại câu sau cho thật cục cằn, hầm hố, giang hồ (giữ nguyên nghĩa). Tiếng Nhật: {req.japanese}. Bản dịch cũ: {req.text}"
+        elif req.action == "natural":
+            user_prompt = f"Viết lại câu sau cho mượt mà, tự nhiên, giống văn phong giao tiếp GenZ Việt Nam. Tiếng Nhật: {req.japanese}. Bản dịch cũ: {req.text}"
+        elif req.action == "shorten":
+            user_prompt = f"Rút gọn câu sau cho ngắn nhất có thể để nhét vừa khung thoại nhỏ (không làm mất nghĩa). Tiếng Nhật: {req.japanese}. Bản dịch cũ: {req.text}"
+        elif req.action == "explain":
+            system_prompt = "Bạn là từ điển sống về văn hóa Nhật Bản. Giải thích cực kỳ ngắn gọn (dưới 40 từ)."
+            user_prompt = f"Giải thích ý nghĩa, sắc thái hoặc chơi chữ (nếu có) của câu tiếng Nhật này: {req.japanese}"
+        else: # custom
+            user_prompt = f"Tiếng Nhật: {req.japanese}. Bản dịch: {req.text}. Yêu cầu riêng: {req.custom_prompt}"
+
+        # 3. GỌI DEEPSEEK API (NHỚ THAY API KEY CỦA SẾP VÀO ĐÂY NHÉ!)
+        DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-xxx_THAY_KEY_CỦA_SẾP_VÀO_ĐÂY_xxx")
+        
+        headers = {
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 100 # Chốt cứng 100 token để chống spam
+        }
+        
+        # Dùng run_in_threadpool để request đồng bộ không làm lag server async
+        response = await run_in_threadpool(
+            requests.post, 
+            "https://api.deepseek.com/chat/completions", 
+            headers=headers, 
+            json=payload, 
+            timeout=15
+        )
+        response.raise_for_status() # Bắt lỗi nếu API xịt
+        
+        # Lấy kết quả từ JSON
+        result_text = response.json()['choices'][0]['message']['content'].strip()
+        
+        return {"status": "success", "result": result_text}
+
+    except Exception as e:
+        print(f"❌ Lỗi AI Copilot: {e}")
         raise HTTPException(status_code=500, detail=str(e))

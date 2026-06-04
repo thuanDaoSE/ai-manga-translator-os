@@ -23,15 +23,44 @@ export default function Workspace() {
 
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
 
+  // 🚀 ĐẶT Ổ KHÓA BẢO VỆ Ở ĐÂY (Ngay dưới các state đầu file)
+  const ignoreSaveRef = useRef(false);
+
+  // 🚀 BẢN VÁ TỐI THƯỢNG: HỆ THỐNG TẢI CHỮ AN TOÀN TUYỆT ĐỐI
   useEffect(() => {
+    let isMounted = true;
     const pageId = projectStore.pageIds[projectStore.currentIndex];
+
+    // 1. KHÓA CHẶT AUTO-SAVE: Cấm tuyệt đối việc lưu dữ liệu rỗng khi đang dọn dẹp chuyển trang
+    ignoreSaveRef.current = true;
+
+    // 2. Xóa sạch chữ cũ để màn hình tinh tươm (Lúc này Auto-save đã bị khóa nên không sợ nó lưu bậy)
+    canvasStore.clearBubbles();
+
     if (pageId) {
       mangaApi.getPageBubbles(pageId)
-        .then(data => canvasStore.setBubbles(data.bubbles || []))
-        .catch(err => console.error("Lỗi đồng bộ chữ từ Server:", err));
+        .then(data => {
+          if (!isMounted) return;
+
+          // 3. Đắp chữ mới vào màn hình
+          canvasStore.setBubbles(data.bubbles || []);
+
+          // 4. MỞ KHÓA AUTO-SAVE: Chờ 100ms cho React vẽ xong chữ lên màn hình thì mới mở khóa
+          setTimeout(() => {
+            if (isMounted) ignoreSaveRef.current = false;
+          }, 100);
+        })
+        .catch(err => {
+          console.error("Lỗi đồng bộ chữ từ Server:", err);
+          if (isMounted) ignoreSaveRef.current = false; // Bị lỗi cũng phải mở khóa ra
+        });
     } else {
-      canvasStore.clearBubbles();
+      ignoreSaveRef.current = false;
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, [projectStore.currentIndex, projectStore.pageIds]);
 
   const { currentZoom, activeMode, setActiveMode, brushSize, setBrushSize, setZoom, isComparing, setIsComparing, actionPosition, setActionPosition, showText } = useToolStore();
@@ -56,25 +85,75 @@ export default function Workspace() {
   useEffect(() => { zoomRef.current = currentZoom; }, [currentZoom]);
   useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
 
+  // 🚀 KỸ THUẬT MEMORY PRE-LOADING: Tính toán 100% trong RAM rồi mới Render HTML
   useEffect(() => {
+    let isMounted = true;
     const file = fileQueue[currentIndex];
+
+    // 🚀 BẢN VÁ 1: XÓA TRẮNG ẢNH CŨ NGAY LẬP TỨC ĐỂ CHỐNG "BÓNG MA"
+    setRawUrl(null);
+
+    // 1. Xác định URL cần tải
+    let targetUrl = '';
+    let objectUrlToRevoke = '';
+
     if (file) {
       if (file.size === 0) {
         const pageId = projectStore.pageIds[currentIndex];
         const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
-        setRawUrl(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}?t=${Date.now()}`);
+        targetUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}?t=${Date.now()}`;
       } else {
-        const url = URL.createObjectURL(file);
-        setRawUrl(url);
-        return () => URL.revokeObjectURL(url);
+        targetUrl = URL.createObjectURL(file);
+        objectUrlToRevoke = targetUrl;
       }
     } else {
       setRawUrl(null);
+      return;
     }
-  }, [currentIndex, fileQueue, projectStore.pageIds, projectStore.projectId]);
+
+    // 2. Tải ngầm bức ảnh vào RAM (Javascript Image Object)
+    const img = new Image();
+    img.onload = () => {
+      if (!isMounted) return;
+
+      // 3. TÍNH TOÁN NGAY TRONG RAM: Không để DOM biết
+      const container = containerRef.current;
+      if (container) {
+        setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+
+        // Trở về thuật toán tỷ lệ chuẩn 95% vì "container" giờ đây sẽ là một cái khung có giới hạn!
+        const scaleFit = Math.min(container.clientWidth / img.naturalWidth, container.clientHeight / img.naturalHeight) * 0.95;
+        const finalScale = Math.max(0.1, Math.min(scaleFit, 3.0));
+
+        panRef.current.x = (container.clientWidth - img.naturalWidth * finalScale) / 2;
+        panRef.current.y = (container.clientHeight - img.naturalHeight * finalScale) / 2;
+
+        if (workspaceContainerRef.current) {
+          workspaceContainerRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${finalScale})`;
+        }
+        setZoom(finalScale);
+      }
+
+      // 4. CHỐT SỔ: Khi mọi thứ đã chuẩn form, mới ném URL cho thẻ <img> hiển thị
+      setRawUrl(targetUrl);
+    };
+
+    img.onerror = () => {
+      if (!isMounted) return;
+      setRawUrl(targetUrl);
+    };
+
+    img.src = targetUrl;
+
+    return () => {
+      isMounted = false;
+      if (objectUrlToRevoke) URL.revokeObjectURL(objectUrlToRevoke);
+    };
+  }, [currentIndex, fileQueue, projectStore.pageIds, projectStore.projectId, setZoom]);
 
   const displayUrl = processedUrls[currentIndex] || rawUrl;
 
+  // Điều khiển Chuột & Phím
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -109,14 +188,14 @@ export default function Workspace() {
       if (target.closest('.toolbar-container') || target.closest('.react-draggable') || target.closest('.react-resizable-handle') || target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') return;
 
       const isHoveringText = useCanvasStore.getState().hoveredBubbleId !== null;
-      if (isHoveringText) return; 
+      if (isHoveringText) return;
 
       const isSpacePan = e.button === 0 && isSpaceDown.current;
       const isMiddleClick = e.button === 1;
       const isLeftClickOnBg = e.button === 0 && activeModeRef.current === 'none';
 
       if (isMiddleClick || isLeftClickOnBg || isSpacePan) {
-        e.preventDefault(); 
+        e.preventDefault();
         isPanning.current = true;
         if (container) container.style.cursor = 'grabbing';
         document.body.style.cursor = 'grabbing';
@@ -154,22 +233,6 @@ export default function Workspace() {
     };
   }, [setZoom]);
 
-  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
-    const container = containerRef.current;
-    if (!container) return;
-
-    const scaleFit = Math.min(container.clientWidth / img.naturalWidth, container.clientHeight / img.naturalHeight) * 0.95;
-    const finalScale = Math.max(0.1, Math.min(scaleFit, 3.0));
-
-    panRef.current.x = (container.clientWidth - img.naturalWidth * finalScale) / 2;
-    panRef.current.y = (container.clientHeight - img.naturalHeight * finalScale) / 2;
-
-    if (workspaceContainerRef.current) workspaceContainerRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${finalScale})`;
-    setZoom(finalScale);
-  };
-
   useGlobalShortcuts();
   useGlobalErrorHandler();
 
@@ -195,11 +258,11 @@ export default function Workspace() {
 
       const maskData = maskCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
       const imgData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-      const targetRGB = color === 'white' ? 255 : 0; 
+      const targetRGB = color === 'white' ? 255 : 0;
 
       for (let i = 0; i < maskData.data.length; i += 4) {
         if (maskData.data[i + 3] > 0) {
-          imgData.data[i] = targetRGB;    
+          imgData.data[i] = targetRGB;
           imgData.data[i + 1] = targetRGB;
           imgData.data[i + 2] = targetRGB;
         }
@@ -212,7 +275,7 @@ export default function Workspace() {
       setActionPosition(null);
       toast.success(`Đã phủ ${color === 'white' ? 'Trắng' : 'Đen'} siêu tốc!`);
     };
-    img.src = targetUrl.split('?')[0];
+    img.src = `${targetUrl.split('?')[0]}?nocache=${Date.now()}`;
   };
 
   const handleErase = async () => {
@@ -237,115 +300,156 @@ export default function Workspace() {
     } catch (e: any) { toast.error(e.message); } finally { setIsProcessing(false); }
   };
 
+  // Tải Custom Fonts
   useEffect(() => {
     const loadCustomFonts = async () => {
       try {
         const data = await mangaApi.getFonts();
         data.fonts.forEach((fontName: string) => {
-          const familyName = fontName.replace(/\.[^/.]+$/, ""); 
+          const familyName = fontName.replace(/\.[^/.]+$/, "");
           const fontUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/fonts/${fontName}`;
           const newFont = new FontFace(familyName, `url(${fontUrl})`);
           newFont.load().then((loadedFace) => {
-            document.fonts.add(loadedFace);
+            (document.fonts as any).add(loadedFace);
           }).catch(err => console.error("Lỗi load font:", err));
         });
-      } catch (e) {}
+      } catch (e) { }
     };
     loadCustomFonts();
   }, []);
 
   const cleanImageOpacity = isComparing ? 'opacity-0' : (activeMode === 'restore' ? 'opacity-50' : 'opacity-100');
 
+  // 🚀 HỆ THỐNG AUTO-SAVE MỚI (TUÂN THỦ Ổ KHÓA)
   const currentBubbles = useCanvasStore(state => state.bubbles);
-  const bubblesRef = useRef(currentBubbles);
-  const isFirstLoad = useRef(true); 
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => { isFirstLoad.current = true; }, [currentIndex]);
+  const latestBubbles = useRef(currentBubbles);
+  const latestPageId = useRef(projectStore.pageIds[currentIndex]);
 
+  // 1. Luôn backup dữ liệu mới nhất vào RAM mỗi mili-giây
   useEffect(() => {
-    if (currentBubbles === bubblesRef.current) return;
-    bubblesRef.current = currentBubbles;
-    if (isFirstLoad.current) { isFirstLoad.current = false; return; }
+    latestBubbles.current = currentBubbles;
+    latestPageId.current = projectStore.pageIds[currentIndex];
+  }, [currentBubbles, projectStore.pageIds, currentIndex]);
+
+  // 2. KHI ĐỔI TRANG: Ép lưu dữ liệu trang cũ ngay lập tức (Cứu tinh chống mất chữ)
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current && latestPageId.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        mangaApi.savePageBubbles(latestPageId.current, latestBubbles.current).catch(() => { });
+      }
+    };
+  }, [currentIndex]);
+
+  // 3. KHI USER GÕ CHỮ: Hẹn giờ lưu
+  useEffect(() => {
+    // 🚀 NẾU Ổ KHÓA ĐANG ĐÓNG (nghĩa là đang chuyển trang) -> CẤM LƯU ĐỂ CHỐNG XÓA DATABASE!
+    if (ignoreSaveRef.current) return;
 
     const pageId = projectStore.pageIds[currentIndex];
     if (!pageId) return;
-    const timeoutId = setTimeout(() => {
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+    saveTimeoutRef.current = setTimeout(() => {
       mangaApi.savePageBubbles(pageId, useCanvasStore.getState().bubbles).catch(err => console.error("Lỗi Auto-Save:", err));
-    }, 1000);
-    return () => clearTimeout(timeoutId);
-  }, [currentBubbles, currentIndex]);
+      saveTimeoutRef.current = null;
+    }, 500);
+
+  }, [currentBubbles]);
 
   // 🚀 TÌM KIẾM ĐƯỜNG LINK ẢNH SẠCH NGUYÊN THỦY TỪ LỊCH SỬ
   const originalCleanUrl = (() => {
-     const past = projectStore.pastUrls[currentIndex] || [];
-     const httpUrl = past.find(u => u && u.startsWith('http'));
-     if (httpUrl) return httpUrl; // Ưu tiên ảnh thật tải từ Server
-     if (past.length > 0 && past[0]) return past[0]; // Kế đến là ảnh cũ nhất trong lịch sử
-     return processedUrls[currentIndex] || rawUrl; // Bần cùng lắm mới lấy ảnh đang hiển thị
+    const past = projectStore.pastUrls[currentIndex] || [];
+    const httpUrl = past.find(u => u && u.startsWith('http'));
+    if (httpUrl) return httpUrl; // Ưu tiên ảnh thật tải từ Server
+    if (past.length > 0 && past[0]) return past[0]; // Kế đến là ảnh cũ nhất trong lịch sử
+    return processedUrls[currentIndex] || rawUrl; // Bần cùng lắm mới lấy ảnh đang hiển thị
   })();
 
   return (
-    <div ref={containerRef} className="flex-1 bg-background overflow-hidden relative" style={{ cursor: activeMode === 'none' ? 'grab' : 'default' }}>
-      {displayUrl ? (
-        <>
-          <div 
-            id="workspace-container" 
-            ref={workspaceContainerRef} 
-            className="absolute left-0 top-0 shadow-2xl will-change-transform origin-top-left" 
-            style={{ 
-              width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', 
+    // 🚀 TẦNG 0: NỀN APP TỔNG THỂ (Màu #121212)
+    // Loại bỏ hoàn toàn pure black, tạo chiều sâu vật lý
+    <div className="flex-1 bg-[#121212] relative overflow-hidden flex flex-col items-center justify-center">
+
+      {/* 🚀 TẦNG 1: KHUNG VIEWPORT (Nền Caro) */}
+      {/* 🚀 TẦNG 1: KHUNG VIEWPORT (Đã ép CSS Caro trực tiếp để trị bệnh lười của Tailwind) */}
+      <div
+        ref={containerRef}
+        className="absolute top-4 left-4 right-4 bottom-[90px] rounded-2xl ring-1 ring-white/10 shadow-[0_0_40px_rgba(0,0,0,0.5)_inset] overflow-hidden transition-all duration-300 ease-in-out"
+        style={{
+          cursor: activeMode === 'none' ? 'grab' : 'default',
+          /* 🚀 BẢN VÁ: Bật Caro nếu có ảnh (displayUrl), dùng Xám trơn mượt mà nếu đang ở màn Welcome */
+          backgroundImage: displayUrl ? 'repeating-conic-gradient(#202020 0% 25%, #181818 0% 50%)' : 'none',
+          backgroundColor: displayUrl ? 'transparent' : '#1a1a1a',
+          backgroundSize: displayUrl ? '24px 24px' : 'auto',
+          backgroundPosition: displayUrl ? 'center center' : 'auto'
+        }}
+      >
+        {displayUrl ? (
+          <div
+            id="workspace-container"
+            ref={workspaceContainerRef}
+            className="absolute left-0 top-0 shadow-2xl will-change-transform origin-top-left"
+            style={{
+              width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto',
               height: imgSize.h > 0 ? `${imgSize.h}px` : 'auto',
-              transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${currentZoom})` 
+              transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${currentZoom})`
             }}
           >
-            <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} onLoad={handleImageLoad} />
-
-            <img
-              src={displayUrl || undefined}  
-              crossOrigin="anonymous"
-              alt="Manga Clean"
-              className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity}`}
-            />
-
+            {/* Lõi Render Canvas */}
+            <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
+            <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity}`} />
             <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-              
-              {/* 🚀 Truyền originalCleanUrl vào Canvas để Két sắt lưu giữ */}
               <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
-              
               <VisualGuideOverlay />
-
               <div className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${showText ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                <MangaTextEngine imgWidth={imgSize.w} imgHeight={imgSize.h} /> 
-                
-                {/* 🚀 BẢN VÁ: Rút điện thanh công cụ nổi nếu người dùng bấm Ẩn Chữ */}
-                {showText && <FloatingTextToolbar />} 
-                
+                <MangaTextEngine imgWidth={imgSize.w} imgHeight={imgSize.h} />
+                {showText && <FloatingTextToolbar />}
               </div>
-
             </div>
           </div>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center relative">
+            <WelcomeScreen />
+          </div>
+        )}
+      </div>
 
+      {/* 🚀 TẦNG 3: THANH TOOLBAR & CÁC NÚT (Nằm ngoài cùng) */}
+      {displayUrl && (
+        <>
           <FloatingCanvasToolbar />
 
-          {!useToolStore.getState().showLeftPanel && (
-            <button onClick={() => useToolStore.getState().toggleLeftPanel()} className="absolute left-0 top-1/2 -translate-y-1/2 z-50 p-1.5 bg-panel border-y border-r border-border rounded-r-xl shadow-[5px_0_15px_rgba(0,0,0,0.5)] text-text-muted hover:text-text-main hover:bg-border cursor-pointer transition-all hover:pr-3">
-              <ChevronRight size={24} />
-            </button>
-          )}
-
           {actionPosition && activeMode === 'erase' && (
-            <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-1.5 p-1.5 bg-panel/95 backdrop-blur-xl border border-border shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto">
-              <button onClick={() => handleFillColor('white')} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-white text-black hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer shadow-sm">⬜ Trắng (Nhanh)</button>
-              <button onClick={() => handleFillColor('black')} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-50 transition-colors cursor-pointer border border-white/10 shadow-sm">⬛ Đen (Nhanh)</button>
+            <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-1.5 p-1.5 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto">
+              <button onClick={() => handleFillColor('white')} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-white text-black hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer shadow-sm">⬜ Trắng</button>
+              <button onClick={() => handleFillColor('black')} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-50 transition-colors cursor-pointer border border-white/10 shadow-sm">⬛ Đen</button>
               <div className="w-px h-8 bg-border mx-1"></div>
               <button onClick={handleErase} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm">
                 {isProcessing ? <span className="animate-spin">⏳</span> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
-                {isProcessing ? dynamicLoadingText : "✨ Xóa bằng AI"}
+                {isProcessing ? dynamicLoadingText : "✨ Xóa AI"}
               </button>
             </div>
           )}
         </>
-      ) : <WelcomeScreen />}
+      )}
+
+      {/* TAY NẮM CỬA TRÁI PHẢI */}
+      {!useToolStore.getState().showLeftPanel && (
+        <button onClick={() => useToolStore.getState().toggleLeftPanel()} className="absolute left-0 top-1/2 -translate-y-1/2 z-[100] p-1.5 bg-panel border-y border-r border-border rounded-r-xl shadow-[5px_0_15px_rgba(0,0,0,0.5)] text-text-muted hover:text-text-main hover:bg-border cursor-pointer transition-all hover:pr-3">
+          <ChevronRight size={24} />
+        </button>
+      )}
+
+      {!useToolStore.getState().showRightPanel && (
+        <button onClick={() => useToolStore.getState().toggleRightPanel()} className="absolute right-0 top-1/2 -translate-y-1/2 z-[100] p-1.5 bg-panel border-y border-l border-border rounded-l-xl shadow-[-5px_0_15px_rgba(0,0,0,0.5)] text-text-muted hover:text-text-main hover:bg-border cursor-pointer transition-all hover:pl-3">
+          <ChevronLeft size={24} />
+        </button>
+      )}
     </div>
   );
 }

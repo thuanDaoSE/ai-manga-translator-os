@@ -14,10 +14,12 @@ interface MangaTextEngineProps {
 
 export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null); 
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const fabricCanvas = useRef<fabric.Canvas | null>(null);
-  
+
   const bubbles = useCanvasStore((state) => state.bubbles);
+  // 🚀 BẢN VÁ 1: Theo dõi xem thẻ thoại nào đang được chọn ở kho tổng
+  const activeBubbleId = useCanvasStore((state) => state.activeBubbleId);
   const { activeMode } = useToolStore();
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
     const canvas = new fabric.Canvas(htmlCanvas, {
       width: initW,
       height: initH,
-      selection: false, 
+      selection: false,
     });
     fabricCanvas.current = canvas;
 
@@ -51,7 +53,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
 
       let newFontSize = target.fontSize || 16;
       if (target.scaleX && target.scaleX !== 1) {
-        newFontSize = Math.max(8, Math.round(newFontSize * target.scaleX)); 
+        newFontSize = Math.max(8, Math.round(newFontSize * target.scaleX));
         target.set({
           fontSize: newFontSize,
           width: Math.round(target.width * target.scaleX),
@@ -139,7 +141,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
         fabricCanvas.current.dispose();
         fabricCanvas.current = null;
       }
-      if (wrapperRef.current) wrapperRef.current.innerHTML = ''; 
+      if (wrapperRef.current) wrapperRef.current.innerHTML = '';
       useCanvasStore.getState().setHoveredBubble(null);
     };
   }, [imgWidth, imgHeight]);
@@ -152,58 +154,58 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
     const existingIds = canvas.getObjects().map((obj: any) => obj.id);
 
     bubbles.forEach((bubble) => {
-      const safeText = bubble.text || "Nhập chữ..."; 
+      const safeText = bubble.text || "Nhập chữ...";
       const safeColor = bubble.fontColor || '#000000';
       const safeStroke = safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000';
 
       if (!existingIds.includes(bubble.id)) {
         const defaultFontSize = bubble.fontSize || 28;
 
-        const textObj = new fabric.Textbox(safeText, { 
+        const textObj = new fabric.Textbox(safeText, {
           left: bubble.x + (bubble.w / 2),
           top: bubble.y + (bubble.h / 2),
-          width: bubble.w, 
+          width: bubble.w,
           angle: bubble.rotation || 0,
           fontFamily: bubble.fontFamily.replace(/'/g, ''),
           fontSize: defaultFontSize,
-          
+
           originX: 'center',
           originY: 'center',
-          
+
           fill: safeColor,
           stroke: safeStroke,
-          strokeWidth: Math.max(3, Math.round(defaultFontSize * 0.15)), 
-          paintFirst: 'stroke',     
+          strokeWidth: Math.max(3, Math.round(defaultFontSize * 0.15)),
+          paintFirst: 'stroke',
           strokeLineJoin: 'round',
-          textAlign: 'center',
+          textAlign: bubble.textAlign || 'center',
 
-          backgroundColor: '', 
+          backgroundColor: '',
 
-          snapAngle: 45,       
-          snapThreshold: 5,    
+          snapAngle: 45,
+          snapThreshold: 5,
           transparentCorners: false,
           cornerColor: '#ffffff',
           cornerStrokeColor: '#6366f1',
           borderColor: '#6366f1',
-          
-          cornerSize: 16,        
-          touchCornerSize: 36,   
-          padding: 16,           
-          cornerStyle: 'circle', 
 
-          editingBorderColor: '#f43f5e', 
-          cursorColor: '#f43f5e',        
-          cursorWidth: 3,                
-          cursorDuration: 500,     
+          cornerSize: 16,
+          touchCornerSize: 36,
+          padding: 16,
+          cornerStyle: 'circle',
+
+          editingBorderColor: '#f43f5e',
+          cursorColor: '#f43f5e',
+          cursorWidth: 3,
+          cursorDuration: 500,
         });
 
         textObj.setControlsVisibility({ mt: false, mb: false, ml: true, mr: true });
 
         if (textObj.controls && textObj.controls.mtr) {
-          textObj.controls.mtr.y = 0.5; 
-          textObj.controls.mtr.offsetY = 60; 
-          textObj.controls.mtr.render = function(ctx, left, top, styleOverride, fabricObject) {
-            const size = 26; 
+          textObj.controls.mtr.y = 0.5;
+          textObj.controls.mtr.offsetY = 60;
+          textObj.controls.mtr.render = function (ctx, left, top, styleOverride, fabricObject) {
+            const size = 26;
             ctx.save();
             ctx.translate(left, top);
             ctx.beginPath();
@@ -217,45 +219,46 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
             ctx.restore();
           };
         }
-        
+
         (textObj as any).id = bubble.id;
         canvas.add(textObj);
         if (bubble.text === "Gõ chữ vào đây..." || bubble.text === "Nhập chữ...") {
-          canvas.setActiveObject(textObj); 
-          textObj.enterEditing();          
-          textObj.selectAll();             
-          canvas.requestRenderAll();       
+          canvas.setActiveObject(textObj);
+          textObj.enterEditing();
+          textObj.selectAll();
+          canvas.requestRenderAll();
         }
       } else {
-         const existingObj = canvas.getObjects().find((obj: any) => obj.id === bubble.id) as fabric.Textbox;
-         if (existingObj && !existingObj.isEditing) {
-            const defaultFontSize = bubble.fontSize || 28; 
-            
-            existingObj.set({
-              text: safeText,
-              fontFamily: bubble.fontFamily.replace(/'/g, ''),
-              fill: safeColor,
-              stroke: safeStroke,
-              strokeWidth: Math.max(3, Math.round(defaultFontSize * 0.15)),
-              paintFirst: 'stroke',
-              fontSize: defaultFontSize,
+        const existingObj = canvas.getObjects().find((obj: any) => obj.id === bubble.id) as fabric.Textbox;
+        if (existingObj && !existingObj.isEditing) {
+          const defaultFontSize = bubble.fontSize || 28;
 
-              left: bubble.x + (bubble.w / 2),
-              top: bubble.y + (bubble.h / 2),
-              originX: 'center',
-              originY: 'center',
+          existingObj.set({
+            text: safeText,
+            fontFamily: bubble.fontFamily.replace(/'/g, ''),
+            fill: safeColor,
+            stroke: safeStroke,
+            strokeWidth: Math.max(3, Math.round(defaultFontSize * 0.15)),
+            paintFirst: 'stroke',
+            fontSize: defaultFontSize,
 
-              cornerSize: 16,        
-              touchCornerSize: 36,   
-              padding: 16,           
-              cornerStyle: 'circle',
-              backgroundColor: '',
-            });
-            existingObj.setControlsVisibility({ mt: false, mb: false, ml: true, mr: true });
-            canvas.requestRenderAll();
-         }
+            left: bubble.x + (bubble.w / 2),
+            top: bubble.y + (bubble.h / 2),
+            originX: 'center',
+            originY: 'center',
+
+            textAlign: bubble.textAlign || 'center',
+            cornerSize: 16,
+            touchCornerSize: 36,
+            padding: 16,
+            cornerStyle: 'circle',
+            backgroundColor: '',
+          });
+          existingObj.setControlsVisibility({ mt: false, mb: false, ml: true, mr: true });
+          canvas.requestRenderAll();
+        }
       }
-    }); 
+    });
 
     const currentStoreIds = bubbles.map((b) => b.id);
     canvas.getObjects().forEach((obj: any) => {
@@ -278,6 +281,29 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
     if (!isInteractive) canvas.discardActiveObject();
     canvas.renderAll();
   }, [activeMode]);
+
+  // 🚀 BẢN VÁ 2: ĐỒNG BỘ NGƯỢC (TỪ SIDEBAR XUỐNG CANVAS)
+  useEffect(() => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    if (activeBubbleId) {
+      // Tìm xem cục chữ nào trên hình mang cái ID đang được chọn
+      const targetObj = canvas.getObjects().find((obj: any) => obj.id === activeBubbleId);
+
+      // Nếu tìm thấy, và nó chưa được chọn -> Ép Fabric.js phải chọn (hiện khung xanh)
+      if (targetObj && canvas.getActiveObject() !== targetObj) {
+        canvas.setActiveObject(targetObj);
+        canvas.requestRenderAll();
+      }
+    } else {
+      // Nếu bấm ra ngoài (hủy chọn), báo Fabric.js cất khung xanh đi
+      if (canvas.getActiveObject()) {
+        canvas.discardActiveObject();
+        canvas.requestRenderAll();
+      }
+    }
+  }, [activeBubbleId]); // Lắng nghe mỗi khi sếp bấm chọn ở Sidebar
 
 
   return (

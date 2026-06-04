@@ -9,22 +9,22 @@ interface Props {
 
 export default function BubbleNode({ bubble: propBubble }: Props) {
   const { activeBubbleId, setActiveBubble, updateBubble, hoveredBubbleId, setHoveredBubble } = useCanvasStore();
-  
+
   // Đọc bubble từ store để đồng bộ hóa ngay lập tức
   const storeBubble = useCanvasStore(state => state.bubbles.find(b => b.id === propBubble.id));
   const bubble = storeBubble || propBubble;
-  
+
   const [isEditing, setIsEditing] = useState(false);
   const isHovered = hoveredBubbleId === bubble.id;
   const isActive = activeBubbleId === bubble.id;
 
   const textRef = useRef<HTMLDivElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null); 
-  
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
   // 🚀 TÍNH TOÁN LOCAL STATE: Giúp kéo thả đạt 60fps mượt mà không bị giật
   const [localPos, setLocalPos] = useState({ x: bubble.x, y: bubble.y });
   const [localSize, setLocalSize] = useState({ w: bubble.w, h: bubble.h });
-  
+
   // Đồng bộ với dữ liệu Server/Database khi ảnh hưởng từ bên ngoài
   useEffect(() => {
     setLocalPos({ x: bubble.x, y: bubble.y });
@@ -34,14 +34,20 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
   if (bubble.isHidden) return null;
 
   // 🚀 Xử lý Focus & Bôi đen khi Edit (Mượt như Word)
+  // 🚀 Xử lý Focus & Bôi đen khi Edit (Đã fix lỗi không nhận focus)
   useEffect(() => {
     if (isEditing && textRef.current) {
-      textRef.current.focus();
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(textRef.current);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
+      // Ép trình duyệt đợi 10ms để thẻ div thực sự biến thành contentEditable rồi mới bôi đen
+      setTimeout(() => {
+        if (textRef.current) {
+          textRef.current.focus();
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(textRef.current);
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }
+      }, 10);
     }
   }, [isEditing]);
 
@@ -49,8 +55,8 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest('.toolbar-container') || target.closest('.properties-panel') || wrapperRef.current?.contains(target)) return; 
-      
+      if (target.closest('.toolbar-container') || target.closest('.properties-panel') || wrapperRef.current?.contains(target)) return;
+
       if (isEditing) {
         if (textRef.current) {
           updateBubble(bubble.id, { text: textRef.current.innerText });
@@ -92,7 +98,7 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
     const onMouseUp = (upEvent: MouseEvent) => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
-      
+
       const dx = (upEvent.clientX - startMouseX) / useToolStore.getState().currentZoom;
       const dy = (upEvent.clientY - startMouseY) / useToolStore.getState().currentZoom;
       updateBubble(bubble.id, { x: startX + dx, y: startY + dy }); // Lưu ZUSTAND
@@ -125,7 +131,7 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
     const onMouseUp = (upEvent: MouseEvent) => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
-      
+
       const dx = (upEvent.clientX - startMouseX) / useToolStore.getState().currentZoom;
       const dy = (upEvent.clientY - startMouseY) / useToolStore.getState().currentZoom;
       const newW = Math.max(40, startW + dx);
@@ -167,9 +173,9 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
       let angleDiff = currentAngle - startAngle;
       while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
       while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-      
+
       let newRotation = initialRotation + angleDiff * (180 / Math.PI);
-      const snapThreshold = 5; 
+      const snapThreshold = 5;
       const nearest45 = Math.round(newRotation / 45) * 45;
       if (Math.abs(newRotation - nearest45) < snapThreshold) newRotation = nearest45;
 
@@ -204,22 +210,21 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
         height: `${localSize.h}px`,
         transform: `rotate(${bubble.rotation || 0}deg)`,
         transformOrigin: 'center center',
-        
-        // 🚀 1. BẬT ĐÈN ĐỎ SÁNG RỰC TOÀN BỘ COMPONENT
-        backgroundColor: 'rgba(255, 0, 0, 0.3)', 
-        border: '2px dashed red',
-        
-        // 🚀 2. THUẬT TOÁN ÉP CHỮ RA CHÍNH GIỮA (Y HỆT BẢN HTML CŨ)
+        // 🚀 CHỈ BẬT KHUNG ĐỎ FOCUS KHI ĐƯỢC CLICK HOẶC DI CHUỘT QUA
+        backgroundColor: isActive ? 'rgba(255, 0, 0, 0.15)' : isHovered ? 'rgba(255, 0, 0, 0.05)' : 'transparent',
+        border: isActive ? '2px dashed red' : isHovered ? '1px dashed rgba(255, 0, 0, 0.4)' : '2px solid transparent',
+
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        boxSizing: 'border-box'
+        boxSizing: 'border-box',
+        textAlign: bubble.textAlign || 'center',
       }}
     >
       {/* CẦN GẠT XOAY & NÚM KÉO SIZE (GIỮ NGUYÊN) */}
       {isActive && !isEditing && !bubble.isLocked && (
         <div data-html2canvas-ignore="true" className="absolute -top-10 left-1/2 -translate-x-1/2 flex flex-col items-center">
-          <div 
+          <div
             className="w-6 h-6 bg-white border border-indigo-500 rounded-full cursor-grab active:cursor-grabbing text-indigo-500 flex items-center justify-center shadow-md hover:scale-110 transition-transform"
             onMouseDown={handleRotateStart}
           >
@@ -229,7 +234,7 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
         </div>
       )}
       {isActive && !isEditing && !bubble.isLocked && (
-        <div 
+        <div
           data-html2canvas-ignore="true"
           onMouseDown={handleResizeStart}
           className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border-2 border-indigo-500 rounded-full cursor-nwse-resize shadow-md hover:scale-125 transition-transform"
@@ -243,13 +248,13 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
         suppressContentEditableWarning={true}
         onMouseDown={(e) => {
           if (isEditing) e.stopPropagation();
-        }} 
+        }}
         className={`w-full outline-none text-center break-words whitespace-pre-wrap
           ${bubble.isLocked ? 'cursor-not-allowed' : (isEditing ? 'cursor-text' : 'cursor-move')}
         `}
         style={{
           fontSize: `${bubble.fontSize}px`,
-          lineHeight: 1.15, 
+          lineHeight: 1.15,
           color: bubble.fontColor,
           fontFamily: bubble.fontFamily,
           fontWeight: bubble.isBold ? 900 : 400,
