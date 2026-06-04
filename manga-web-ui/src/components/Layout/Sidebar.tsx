@@ -1,9 +1,9 @@
-import { CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Wand2, Sparkles, AlertTriangle, RefreshCw, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package } from 'lucide-react';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore } from '../../store/useConfigStore';

@@ -15,8 +15,10 @@ import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
 import VisualGuideOverlay from '../Editor/VisualGuideOverlay';
 import FloatingTextToolbar from '../Editor/FloatingTextToolbar';
 import { useConfigStore } from '../../store/useConfigStore';
+import { PaywallDrawer } from '../Modals/PaywallDrawer';
 
 export default function Workspace() {
+  const [showPaywall, setShowPaywall] = useState(false);
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
   const canvasStore = useCanvasStore();
@@ -452,6 +454,19 @@ export default function Workspace() {
           <ChevronLeft size={24} />
         </button>
       )}
+      {/* 🚀 NÚT TEST TẠM THỜI (Bấm vào để xem UI) */}
+      <button
+        onClick={() => setShowPaywall(true)}
+        className="fixed top-4 right-[350px] z-[100] px-4 py-2 bg-amber-500 text-amber-950 font-bold rounded-lg shadow-lg hover:bg-amber-400"
+      >
+        👀 Xem thử Paywall
+      </button>
+
+      {/* 🚀 COMPONENT GIAO DIỆN THANH TOÁN */}
+      <PaywallDrawer
+        isOpen={showPaywall}
+        onClose={() => setShowPaywall(false)}
+      />
     </div>
   );
 }

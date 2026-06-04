@@ -7,6 +7,7 @@ import io
 from pydantic import BaseModel, Field
 import os
 import time
+from nlp_engine import TranslationEngine
 import uuid
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -85,6 +86,23 @@ import re
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Đặt đoạn này ở đầu file main.py hoặc trong file config riêng
+DEEPKOMA_SYSTEM_PROMPT = """You are a Principal Manga Localization Engineer translating Japanese to Vietnamese. 
+Your goal is to achieve 'Zero-Hallucination' translation.
+
+STRICT RULES:
+1. You MUST prioritize and strictly apply any provided GLOSSARY and PRONOUN MATRIX terms over your pre-trained knowledge.
+2. If a specific pronoun is mandated (e.g., 'anh', 'em', 'tớ'), you must format the entire sentence's grammar to match that polite or casual tone seamlessly.
+3. You MUST output your response in valid JSON format ONLY, matching the exact structure requested. Do not add markdown blocks, explanations, or conversational filler.
+
+REQUIRED JSON OUTPUT SCHEMA:
+{
+  "translations": {
+    "box_id_1": "translated_vietnamese_text",
+    "box_id_2": "translated_vietnamese_text"
+  }
+}"""
 
 # ==========================================
 # 🛡️ ÁO GIÁP BẢO VỆ JSON TỪ DEEPSEEK
@@ -205,6 +223,58 @@ def get_comfyui_history(prompt_id):
     return json.loads(response.read())
 
 
+from sqlalchemy import select
+import json
+import db_models
+from sqlalchemy.ext.asyncio import AsyncSession
+
+async def get_sliding_window_context(db: AsyncSession, project_id: str, current_page_filename: str, window_size: int = 2):
+    """
+    Lấy ngữ cảnh dựa trên THỨ TỰ TÊN FILE, bất chấp thời gian tải lên lộn xộn.
+    """
+    if not project_id:
+        return "No previous context."
+
+    # 1. Lấy TẤT CẢ các trang đã dịch xong của project này
+    # 🚀 BÍ QUYẾT: Sắp xếp theo TÊN FILE (A-Z) thay vì Thời gian
+    stmt = select(db_models.Page).where(
+        db_models.Page.project_id == project_id,
+        db_models.Page.status == "completed"
+    ).order_by(db_models.Page.filename) 
+    
+    result = await db.execute(stmt)
+    all_pages = result.scalars().all()
+    
+    # 2. Tìm vị trí của trang hiện tại trong dòng thời gian của truyện
+    current_idx = -1
+    for i, page in enumerate(all_pages):
+        if page.filename == current_page_filename:
+            current_idx = i
+            break
+            
+    # Nếu không tìm thấy, hoặc đây là trang đầu tiên (001.jpg) thì không có ngữ cảnh
+    if current_idx <= 0:
+        return "No previous context."
+        
+    # 3. Lấy đúng `window_size` (vd: 2) trang nằm ngay sát TRƯỚC trang hiện tại
+    start_idx = max(0, current_idx - window_size)
+    previous_pages = all_pages[start_idx:current_idx]
+    
+    # 4. Trích xuất text từ các trang đó
+    context_str = ""
+    for page in previous_pages:
+        try:
+            bubbles = json.loads(page.bubbles_data)
+            for b in bubbles:
+                if b.get('japanese') and b.get('text'):
+                    short_id = str(b.get('id'))[-4:]
+                    context_str += f"[{short_id}] {b.get('japanese')} -> {b.get('text')}\n"
+        except Exception:
+            continue
+            
+    return context_str.strip() if context_str.strip() else "No previous context."
+
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -231,10 +301,13 @@ async def get_workspace_file(file_path: str):
     return FileResponse(full_path)
 
 # --- KÍCH HOẠT DATABASE KHI BẬT SERVER ---
+# Mẫu code tạo bảng nếu sếp chưa có (thường đặt ở file main.py sự kiện startup)
+from database import engine, Base
+
 @app.on_event("startup")
 async def startup():
     async with engine.begin() as conn:
-        # Tự động tạo các bảng nếu chưa có
+        # Lệnh này sẽ tạo tự động tất cả các bảng nếu chưa có
         await conn.run_sync(Base.metadata.create_all)
 
 # ==========================================
@@ -1778,38 +1851,88 @@ async def copilot_chat(req: CopilotRequest):
         else: # custom
             user_prompt = f"Tiếng Nhật: {req.japanese}. Bản dịch: {req.text}. Yêu cầu riêng: {req.custom_prompt}"
 
-        # 3. GỌI DEEPSEEK API (NHỚ THAY API KEY CỦA SẾP VÀO ĐÂY NHÉ!)
-        DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-xxx_THAY_KEY_CỦA_SẾP_VÀO_ĐÂY_xxx")
+        # Giả sử sếp đã có:
+        # req.japanese (Text OCR tiếng Nhật)
+        # req.project_id (ID của dự án)
+        # redis_client (Biến kết nối Redis sếp đã khởi tạo)
         
-        headers = {
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        # 1. KHỞI TẠO CỖ MÁY
+        nlp = TranslationEngine(redis_client)
+        
+        # 2. BƯỚC LỌC ĐẦU TIÊN: KIỂM TRA REDIS (EXACT MATCH)
+        cached_result, cache_key = await nlp.get_exact_match(req.project_id, req.japanese)
+        if cached_result:
+            print("🚀 CACHE HIT! Lấy ngay từ Redis, không tốn 1 xu API DeepSeek!")
+            return {"result": cached_result, "cached": True}
+
+        # 3. NẾU KHÔNG CÓ TRONG CACHE -> CHUẨN BỊ GỌI DEEPSEEK
+        # Trích xuất từ điển thông minh bằng Aho-Corasick (Thay vì nhét cả mớ vào prompt)
+        
+        # TODO: Sếp query Database lấy toàn bộ thuật ngữ của project này
+        # Ví dụ giả lập từ DB: db_terms = {"螺旋丸": "Rasengan", "木ノ葉": "Làng Lá", "サスケ": "Sasuke"}
+        db_terms = {"螺旋丸": "Rasengan"} # Sếp thay bằng câu lệnh SQL SQLAlchemy nhé
+        
+        # Quét nhặt từ
+        automaton = nlp.build_glossary_automaton(db_terms)
+        relevant_terms = nlp.extract_relevant_terms(automaton, req.japanese)
+        
+        # 3.5. LẤY NGỮ CẢNH CỬA SỔ TRƯỢT (SLIDING WINDOW)
+        # Sếp truyền session db, id project và id của trang đang dịch vào
+        # Giả sử req.project_id và req.page_id có sẵn trong payload từ Frontend gửi lên
+        previous_context = await get_sliding_window_context(db, req.project_id, req.page_id, window_size=2)
+
+        # 4. CHUẨN BỊ PROMPT TẦNG ĐỘNG (USER PROMPT)
+        # Nối Từ điển (Glossary) + Ngữ cảnh cũ (Context) + Text hiện tại (Current)
+        glossary_text = "\n".join([f"- {j} -> {v}" for j, v in relevant_terms.items()]) if relevant_terms else "None"
+        
+        user_prompt = f"""MANDATORY GLOSSARY & PRONOUNS:
+{glossary_text}
+
+PREVIOUS PAGES CONTEXT (Use this to maintain story flow and pronouns):
+{previous_context}
+
+CURRENT PAGE TO TRANSLATE (JSON format):
+{json.dumps(req.ocr_data, ensure_ascii=False)}
+
+Translate the text based on the rules and return ONLY the JSON object."""
+
+        # 5. GỌI DEEPSEEK API VỚI JSON MODE
+        DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-xxx")
+        headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
         
         payload = {
             "model": "deepseek-chat",
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "system", "content": DEEPKOMA_SYSTEM_PROMPT}, # TẦNG TĨNH -> HƯỞNG GIẢM GIÁ 90%
+                {"role": "user", "content": user_prompt}               # TẦNG ĐỘNG -> CHỊU PHÍ 100%
             ],
-            "temperature": 0.7,
-            "max_tokens": 100 # Chốt cứng 100 token để chống spam
+            # 🚀 ÉP KIỂU JSON: Chống lỗi Frontend không parse được dữ liệu
+            "response_format": {"type": "json_object"}, 
+            "temperature": 0.3, # 🚀 Giữ cái đầu lạnh cho LLM
+            "max_tokens": 1000  # Cho phép trả JSON dài hơn một chút
         }
         
-        # Dùng run_in_threadpool để request đồng bộ không làm lag server async
         response = await run_in_threadpool(
             requests.post, 
             "https://api.deepseek.com/chat/completions", 
-            headers=headers, 
-            json=payload, 
-            timeout=15
+            headers=headers, json=payload, timeout=20
         )
-        response.raise_for_status() # Bắt lỗi nếu API xịt
+        response.raise_for_status()
         
-        # Lấy kết quả từ JSON
-        result_text = response.json()['choices'][0]['message']['content'].strip()
+        # 6. NHẬN KẾT QUẢ VÀ PARSE JSON TRỰC TIẾP
+        raw_result = response.json()["choices"][0]["message"]["content"]
         
-        return {"status": "success", "result": result_text}
+        try:
+            # Vì đã ép JSON Object, ta có thể parse thẳng thành Dict trong Python
+            translated_dict = json.loads(raw_result)
+        except json.JSONDecodeError:
+            # Đề phòng lỗi (rất hiếm khi xảy ra với JSON mode)
+            translated_dict = {"error": "Lỗi parse JSON từ LLM", "raw": raw_result}
+            
+        # Lưu vào Redis (như Bước 2)
+        # ...
+        
+        return {"result": translated_dict, "cached": False}
 
     except Exception as e:
         print(f"❌ Lỗi AI Copilot: {e}")

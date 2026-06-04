@@ -1,74 +1,66 @@
-// File: src/utils/fontManager.ts
+// ========================================================
+// 🚀 QUẢN LÝ FONT CẤP ĐỘ DOANH NGHIỆP (SELF-HOSTED WOFF2)
+// Chống lỗi đứt cáp quang và CORS Tainted Canvas
+// ========================================================
 
-const DB_NAME = 'MangaTranslatorDB';
-const STORE_NAME = 'CustomFonts';
-
-// Khởi tạo IndexedDB (Ổ cứng ảo của Trình duyệt)
-const initDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = (e: IDBVersionChangeEvent) => {
-      const db = (e.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'name' });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+export const MANGA_FONTS = {
+  dialogue: [
+    { name: 'Comic Neue', url: '/fonts/ComicNeue-Regular.woff2' },
+    { name: 'Playpen Sans', url: '/fonts/PlaypenSans-Regular.woff2' },
+    { name: 'Itim', url: '/fonts/Itim-Regular.woff2' },
+    { name: 'Be Vietnam Pro', url: '/fonts/BeVietnamPro-Regular.woff2' }
+  ],
+  thought: [
+    { name: 'Patrick Hand', url: '/fonts/PatrickHand-Regular.woff2' },
+    { name: 'Balsamiq Sans', url: '/fonts/BalsamiqSans-Regular.woff2' },
+    { name: 'Playwrite VN', url: '/fonts/PlaywriteVN-Regular.woff2' },
+    { name: 'Caveat', url: '/fonts/Caveat-Regular.woff2' }
+  ],
+  shouting: [
+    { name: 'Bangers', url: '/fonts/Bangers-Regular.woff2' },
+    { name: 'Bungee', url: '/fonts/Bungee-Regular.woff2' },
+    { name: 'Sedgwick Ave Display', url: '/fonts/SedgwickAveDisplay-Regular.woff2' },
+    { name: 'Fredoka', url: '/fonts/Fredoka-Regular.woff2' }
+  ],
+  sfx: [
+    { name: 'Caveat Brush', url: '/fonts/CaveatBrush-Regular.woff2' },
+    { name: 'Rubik Wet Paint', url: '/fonts/RubikWetPaint-Regular.woff2' },
+    { name: 'Rubik Glitch', url: '/fonts/RubikGlitch-Regular.woff2' }
+  ]
 };
 
-// Bơm Font thẳng vào DOM để Fabric.js và CSS nhận diện được ngay lập tức
-export const injectFontToDOM = async (fontName: string, buffer: ArrayBuffer) => {
+// Bộ nhớ đệm giữ các font đã load để không phải load lại
+const loadedFonts = new Set<string>();
+
+export const loadFont = async (fontFamily: string): Promise<boolean> => {
+  // Nếu đã load rồi thì bỏ qua ngay lập tức (Tối ưu tốc độ)
+  if (loadedFonts.has(fontFamily)) return true;
+
+  // Truy tìm URL của font trong ma trận
+  let fontUrl = '';
+  for (const group of Object.values(MANGA_FONTS)) {
+    const found = group.find(f => f.name === fontFamily);
+    if (found) fontUrl = found.url;
+  }
+
+  // Nếu là font mặc định của hệ thống (Arial...) thì không cần load
+  if (!fontUrl) return true;
+
   try {
-    const font = new FontFace(fontName, buffer);
-    const loadedFont = await font.load();
-    document.fonts.add(loadedFont);
+    // 🚀 MA THUẬT: Dùng CSS Font Loading API bản Native
+    const font = new FontFace(fontFamily, `url(${fontUrl})`);
+
+    // BẮT BUỘC CHỜ TRÌNH DUYỆT GIẢI MÃ XONG FILE BINARY
+    await font.load();
+
+    // Bơm font vào bộ nhớ hệ thống
+    document.fonts.add(font);
+    loadedFonts.add(fontFamily);
+
+    console.log(`[Font Manager] Tải thành công siêu tốc: ${fontFamily}`);
     return true;
-  } catch (e) {
-    console.error(`Lỗi nhúng font ${fontName}:`, e);
+  } catch (error) {
+    console.error(`[Font Manager] Lỗi tải font ${fontFamily}:`, error);
     return false;
   }
-};
-
-// Hàm xử lý khi User bấm tải file .ttf / .otf lên
-export const saveFontToBrowser = async (file: File): Promise<string> => {
-  const db = await initDB();
-  const arrayBuffer = await file.arrayBuffer();
-  
-  // Lấy tên file bỏ đuôi, xóa dấu cách để làm tên Font chuẩn
-  const fontName = file.name.replace(/\.[^/.]+$/, "").replace(/\s+/g, '_');
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.put({ name: fontName, data: arrayBuffer });
-
-    request.onsuccess = async () => {
-        await injectFontToDOM(fontName, arrayBuffer);
-        resolve(fontName);
-    };
-    request.onerror = () => reject(request.error);
-  });
-};
-
-// Gọi hàm này lúc mới mở Web để Load lại toàn bộ font cũ của User
-export const loadAllSavedFonts = async (): Promise<string[]> => {
-  const db = await initDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.getAll();
-
-    request.onsuccess = async () => {
-      const fonts = request.result;
-      const loadedNames: string[] = [];
-      for (const f of fonts) {
-        await injectFontToDOM(f.name, f.data);
-        loadedNames.push(f.name);
-      }
-      resolve(loadedNames);
-    };
-    request.onerror = () => reject(request.error);
-  });
 };

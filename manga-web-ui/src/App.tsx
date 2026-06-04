@@ -18,22 +18,21 @@ import TestFabric from './components/TestFabric';
 import { mangaApi } from './services/api';
 
 // 🚀 BẢN VÁ: Import hàm quản lý Font cá nhân
-import { loadAllSavedFonts } from './utils/fontManager'; 
 
 export default function App() {
   const { isZenMode, toggleZenMode, setActiveMode, showLeftPanel, scanModal, showRightPanel } = useToolStore();
-  const { setUser, session } = useAuthStore(); 
-  const { projectId } = useProjectStore(); 
+  const { setUser, session } = useAuthStore();
+  const { projectId } = useProjectStore();
   const hasRestored = useRef(false);
 
   // 🚀 KHÔI PHỤC FONT TỪ TRÌNH DUYỆT LÊN NGAY KHI MỞ WEB
-  useEffect(() => {
-    loadAllSavedFonts()
-      .then(fonts => {
-         if (fonts.length > 0) console.log("✅ Đã khôi phục các font cá nhân:", fonts);
-      })
-      .catch(console.error);
-  }, []);
+  // useEffect(() => {
+  //   loadAllSavedFonts()
+  //     .then(fonts => {
+  //       if (fonts.length > 0) console.log("✅ Đã khôi phục các font cá nhân:", fonts);
+  //     })
+  //     .catch(console.error);
+  // }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setUser(session));
@@ -43,13 +42,13 @@ export default function App() {
 
   useEffect(() => {
     const savedProjectId = localStorage.getItem('active_manga_project_id');
-    
+
     // Nếu có đăng nhập, có ID dự án, VÀ CHƯA TỪNG KHÔI PHỤC TRONG PHIÊN NÀY
     if (session?.user?.id && savedProjectId && !hasRestored.current) {
       console.log("🔄 Đang khôi phục phiên làm việc cho Dự án:", savedProjectId);
-      
+
       hasRestored.current = true; // 🚀 Kéo cờ lên ngay lập tức để chặn ngắt vòng lặp!
-      
+
       mangaApi.getProjectPages(savedProjectId)
         .then((data) => {
           if (data && data.pages && data.pages.length > 0) {
@@ -58,7 +57,7 @@ export default function App() {
         })
         .catch((err) => {
           console.error("Không thể khôi phục:", err);
-          useProjectStore.getState().clearProject(); 
+          useProjectStore.getState().clearProject();
         });
     }
   }, [session?.user?.id]);
@@ -68,37 +67,37 @@ export default function App() {
   useHotkeys('e', () => setActiveMode('erase'), { enableOnFormTags: false });
   useHotkeys('s', () => setActiveMode('scan'), { enableOnFormTags: false });
   useHotkeys('tab', (e) => { e.preventDefault(); toggleZenMode(); }, { enableOnFormTags: false });
-  
+
   // 🚀 Phím tắt Undo/Redo an toàn
-  useHotkeys('mod+z', (e) => { 
-    e.preventDefault(); 
-    useProjectStore.getState().undoUrl(); 
-    useCanvasStore.getState().undo(); 
+  useHotkeys('mod+z', (e) => {
+    e.preventDefault();
+    useProjectStore.getState().undoUrl();
+    useCanvasStore.getState().undo();
   }, { enableOnFormTags: false });
-  
-  useHotkeys('mod+y, mod+shift+z', (e) => { 
-    e.preventDefault(); 
-    useProjectStore.getState().redoUrl(); 
-    useCanvasStore.getState().redo(); 
+
+  useHotkeys('mod+y, mod+shift+z', (e) => {
+    e.preventDefault();
+    useProjectStore.getState().redoUrl();
+    useCanvasStore.getState().redo();
   }, { enableOnFormTags: false });
 
   return (
     <div className="flex flex-col h-screen bg-background text-text-main overflow-hidden font-sans">
       <Toaster position="top-center" reverseOrder={false} />
-      <AuthModal /> 
-      
+      <AuthModal />
+
       {/* 🚀 FIX: KHÔI PHỤC LẠI MODAL CẤU HÌNH DỊCH VÀO ĐÂY */}
-      <TranslationConfigModal /> 
+      <TranslationConfigModal />
 
       <div className="grid transition-[grid-template-rows] duration-300 ease-in-out" style={{ gridTemplateRows: isZenMode ? '0fr' : '1fr' }}>
         <div className="overflow-hidden"><Topbar /></div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        
+
         {/* 1. LEFT SIDEBAR (Đã tháo thẻ div bọc ngoài để nó tự do co giãn) */}
         {(!isZenMode && showLeftPanel) && <Sidebar />}
-        
+
         {/* 2. CENTER WORKSPACE (Nằm giữa) */}
         <div className="flex-1 relative flex flex-col overflow-hidden">
           <Workspace />
@@ -115,7 +114,7 @@ export default function App() {
         {(!isZenMode && showRightPanel) && <RightSidebar />}
 
       </div>
-      
+
       {/* 🗑️ Lưu ý: Sếp nhớ XÓA bỏ dòng <TranslationConfigModal /> cũ ở đây nhé, vì mình bỏ nó rồi! */}
     </div>
   );

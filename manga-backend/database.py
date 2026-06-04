@@ -1,13 +1,16 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Dùng SQLite cho nhẹ, file CSDL sẽ được tạo ra là manga_studio.db
-SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./manga_studio_v2.db"
+# 🚀 URL kết nối tới Docker PostgreSQL (Dùng asyncpg để tối ưu tốc độ bất đồng bộ)
+# 🚀 URL kết nối tới Docker PostgreSQL (Đã đổi sang cổng 5433 để né Postgres của máy sếp)
+SQLALCHEMY_DATABASE_URL = "postgresql+asyncpg://deepkoma:secretpassword@localhost:5433/manga_studio"
 
 engine = create_async_engine(
     SQLALCHEMY_DATABASE_URL, 
-    connect_args={"check_same_thread": False}, # Bắt buộc có cho SQLite
-    echo=False # Đổi thành True nếu muốn xem log SQL chạy ngầm
+    # Bỏ connect_args={"check_same_thread": False} vì cái đó chỉ dành cho SQLite
+    echo=False, 
+    pool_size=20, # Tối ưu connection pool cho FastAPI
+    max_overflow=10
 )
 
 AsyncSessionLocal = sessionmaker(

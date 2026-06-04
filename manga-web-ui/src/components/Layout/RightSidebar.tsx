@@ -4,7 +4,8 @@ import {
   MessageSquareDashed, ArrowRight, RefreshCcw, Sparkles, MessageCircle, Check,
   Globe, MousePointer2, ChevronDown, Zap, Trash2, PanelRightClose, Minus, Plus,
   Upload, AlignCenter, AlignLeft, AlignRight, AlignJustify,
-  Copy, MoreVertical, MessageSquareText, PaintBucket, PenTool, Layers, X, Lock, Unlock// <-- 🚀 3 ICON MỚI BỔ SUNG
+  Copy, MoreVertical, MessageSquareText, PaintBucket, PenTool,
+  Layers, X, Lock, Unlock, Diamond, Square, Triangle// <-- 🚀 3 ICON MỚI BỔ SUNG
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useToolStore } from '../../store/useToolStore';
@@ -12,7 +13,6 @@ import { useCanvasStore } from '../../store/useCanvasStore';
 import { useConfigStore } from '../../store/useConfigStore'; // 🚀 Bổ sung kho Cấu hình
 import { useProjectStore } from '../../store/useProjectStore'; // 🚀 Bổ sung kho Dự án
 import { mangaApi } from '../../services/api';
-import { loadAllSavedFonts } from '../../utils/fontManager';
 
 // ==========================================
 // MICRO-COMPONENTS CHO DESIGN INSPECTOR
@@ -437,6 +437,73 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
     }
   };
 
+  // =====================================
+  // 🚀 CHÈN THÊM LOGIC TẠO DÁNG CHỮ Ở ĐÂY
+  // =====================================
+  const applyTextShape = (shape: 'diamond' | 'block' | 'pyramid' | 'funnel') => {
+    if (!effectiveId) return;
+
+    const currentBubble = bubbles.find(b => b.id === effectiveId);
+    if (!currentBubble || !currentBubble.text) return;
+
+    const words = currentBubble.text.replace(/\n/g, ' ').split(' ').filter(w => w.trim() !== '');
+    const totalWords = words.length;
+    if (totalWords <= 2) return;
+
+    let newText = '';
+
+    if (shape === 'diamond') {
+      const lines = [];
+      if (totalWords <= 4) {
+        lines.push(words.slice(0, 1).join(' '));
+        lines.push(words.slice(1, totalWords - 1).join(' '));
+        lines.push(words.slice(totalWords - 1).join(' '));
+      } else {
+        const chunk = Math.ceil(totalWords / 4);
+        lines.push(words.slice(0, chunk - 1).join(' '));
+        lines.push(words.slice(chunk - 1, chunk * 2).join(' '));
+        lines.push(words.slice(chunk * 2, chunk * 3 + 1).join(' '));
+        lines.push(words.slice(chunk * 3 + 1).join(' '));
+      }
+      newText = lines.filter(l => l.trim() !== '').join('\n');
+    }
+    else if (shape === 'block') {
+      const idealWordsPerLine = Math.ceil(Math.sqrt(totalWords));
+      for (let i = 0; i < totalWords; i += idealWordsPerLine) {
+        newText += words.slice(i, i + idealWordsPerLine).join(' ') + '\n';
+      }
+      newText = newText.trim();
+    }
+    else if (shape === 'pyramid') {
+      const lines = [];
+      let currentWordIndex = 0;
+      let wordsInCurrentLine = 1;
+      while (currentWordIndex < totalWords) {
+        lines.push(words.slice(currentWordIndex, currentWordIndex + wordsInCurrentLine).join(' '));
+        currentWordIndex += wordsInCurrentLine;
+        wordsInCurrentLine++;
+      }
+      newText = lines.join('\n');
+    }
+    else if (shape === 'funnel') {
+      const lines = [];
+      let currentWordIndex = 0;
+      let wordsInCurrentLine = Math.ceil(Math.sqrt(totalWords * 2));
+      while (currentWordIndex < totalWords && wordsInCurrentLine > 0) {
+        lines.push(words.slice(currentWordIndex, currentWordIndex + wordsInCurrentLine).join(' '));
+        currentWordIndex += wordsInCurrentLine;
+        wordsInCurrentLine--;
+      }
+      if (currentWordIndex < totalWords) {
+        lines[lines.length - 1] += ' ' + words.slice(currentWordIndex).join(' ');
+      }
+      newText = lines.join('\n');
+    }
+
+    updateBubble(effectiveId, { text: newText });
+  };
+  // =====================================
+
   const alignments = [
     { id: 'left', icon: AlignLeft },
     { id: 'center', icon: AlignCenter },
@@ -507,17 +574,36 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
 
           <div className="space-y-2">
             {/* Dropdown Chọn Font */}
+            {/* Dropdown Chọn Font (Phân nhóm chuyên nghiệp) */}
             <div className="relative group">
               <select
                 value={currentFontFamily}
                 onChange={(e) => handleUpdate('fontFamily', e.target.value)}
                 className="w-full appearance-none bg-background border border-border rounded-lg py-2 pl-3 pr-8 text-[12px] font-bold text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all shadow-sm cursor-pointer"
               >
-                <option value="Wild Words">Wild Words</option>
-                <option value="Anime Ace">Anime Ace</option>
-                <option value="CC Astro City">CC Astro City</option>
-                <option value="Komika Axis">Komika Axis</option>
-                <option value="Arial">Arial</option>
+                <optgroup label="Thoại thường (Dialogue)">
+                  <option value="Comic Neue">Comic Neue</option>
+                  <option value="Playpen Sans">Playpen Sans</option>
+                  <option value="Itim">Itim</option>
+                  <option value="Be Vietnam Pro">Be Vietnam Pro</option>
+                </optgroup>
+                <optgroup label="Suy nghĩ (Monologue)">
+                  <option value="Patrick Hand">Patrick Hand</option>
+                  <option value="Balsamiq Sans">Balsamiq Sans</option>
+                  <option value="Playwrite VN">Playwrite VN</option>
+                  <option value="Caveat">Caveat</option>
+                </optgroup>
+                <optgroup label="La hét (Shouting)">
+                  <option value="Bangers">Bangers</option>
+                  <option value="Bungee">Bungee</option>
+                  <option value="Sedgwick Ave Display">Sedgwick Ave Display</option>
+                  <option value="Fredoka">Fredoka</option>
+                </optgroup>
+                <optgroup label="Hiệu ứng (SFX)">
+                  <option value="Caveat Brush">Caveat Brush</option>
+                  <option value="Rubik Wet Paint">Rubik Wet Paint</option>
+                  <option value="Rubik Glitch">Rubik Glitch</option>
+                </optgroup>
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />
             </div>
@@ -550,6 +636,49 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
               </GlassPanel>
             </div>
           </div>
+          {!isGlobal && (
+            <div className="mt-4 pt-3 border-t border-border/50">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2 block">Dáng Chữ</span>
+              <div className="grid grid-cols-4 gap-2">
+                <button onClick={() => applyTextShape('diamond')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title="Dáng Oval (Kim cương)">
+                  <Diamond size={16} className="text-text-muted group-hover:text-primary" />
+                  <div className="flex flex-col gap-[2px] items-center">
+                    <div className="w-2 h-[2px] bg-text-muted/60 rounded-full"></div>
+                    <div className="w-4 h-[2px] bg-text-muted/60 rounded-full"></div>
+                    <div className="w-4 h-[2px] bg-text-muted/60 rounded-full"></div>
+                    <div className="w-2 h-[2px] bg-text-muted/60 rounded-full"></div>
+                  </div>
+                </button>
+                <button onClick={() => applyTextShape('block')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title="Dáng Vuông (Khối)">
+                  <Square size={16} className="text-text-muted group-hover:text-primary" />
+                  <div className="flex flex-col gap-[2px] items-center">
+                    <div className="w-4 h-[2px] bg-text-muted/60 rounded-full"></div>
+                    <div className="w-4 h-[2px] bg-text-muted/60 rounded-full"></div>
+                    <div className="w-4 h-[2px] bg-text-muted/60 rounded-full"></div>
+                    <div className="w-4 h-[2px] bg-text-muted/60 rounded-full"></div>
+                  </div>
+                </button>
+                <button onClick={() => applyTextShape('pyramid')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title="Dáng Kim Tự Tháp">
+                  <Triangle size={16} className="text-text-muted group-hover:text-primary" />
+                  <div className="flex flex-col gap-[2px] items-center">
+                    <div className="w-2 h-[2px] bg-text-muted/60 rounded-full"></div>
+                    <div className="w-3.5 h-[2px] bg-text-muted/60 rounded-full"></div>
+                    <div className="w-5 h-[2px] bg-text-muted/60 rounded-full"></div>
+                  </div>
+                </button>
+                <button onClick={() => applyTextShape('funnel')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title="Dáng Phễu">
+                  <Triangle size={16} className="text-text-muted group-hover:text-primary rotate-180" />
+                  <div className="flex flex-col gap-[2px] items-center">
+                    <div className="w-5 h-[2px] bg-text-muted/60 rounded-full"></div>
+                    <div className="w-3.5 h-[2px] bg-text-muted/60 rounded-full"></div>
+                    <div className="w-2 h-[2px] bg-text-muted/60 rounded-full"></div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+          {/* ===================================== */}
+
         </section>
 
         {/* ĐƯỜNG KẺ NGANG */}

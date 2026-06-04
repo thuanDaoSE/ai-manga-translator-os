@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import * as fabric from 'fabric';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
+import { loadFont } from '../../utils/fontManager';
 
 const ROTATE_ICON_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E";
 const rotateImg = new Image();
@@ -151,146 +152,159 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
     const canvas = fabricCanvas.current;
     if (!canvas) return;
 
-    const existingIds = canvas.getObjects().map((obj: any) => obj.id);
+    // 🚀 BẢN VÁ: VÒNG KHOÁ (BLOCKER) CHỜ LOAD FONT
+    const loadFontsAndRender = async () => {
+      // 1. Quét xem trên màn hình đang cần dùng những font gì
+      const requiredFonts = [...new Set(bubbles.map(b => b.fontFamily.replace(/'/g, '')))];
 
-    bubbles.forEach((bubble) => {
-      const safeText = bubble.text || "Nhập chữ...";
-      const safeColor = bubble.fontColor || '#000000';
+      // 2. Chặn luồng render, ép tải xong toàn bộ font mới cho đi tiếp
+      await Promise.all(requiredFonts.map(fontName => loadFont(fontName)));
 
-      // Lấy thông số Viền & Bóng từ Sidebar
-      const currentOutlineColor = bubble.outlineColor || (safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000');
-      const currentOutlineWidth = bubble.outlineWidth !== undefined ? bubble.outlineWidth : 0;
-      const currentShadow = bubble.hasShadow ? new fabric.Shadow({
-        color: 'rgba(0,0,0,0.6)', blur: 4, offsetX: 2, offsetY: 4
-      }) : null;
+      // 3. FONT ĐÃ SẴN SÀNG -> TIẾN HÀNH VẼ CANVAS
+      const existingIds = canvas.getObjects().map((obj: any) => obj.id);
 
-      const defaultFontSize = bubble.fontSize || 28;
-      let textObj: fabric.Textbox | undefined;
+      bubbles.forEach((bubble) => {
+        const safeText = bubble.text || "Nhập chữ...";
+        const safeColor = bubble.fontColor || '#000000';
 
-      if (!existingIds.includes(bubble.id)) {
-        textObj = new fabric.Textbox(safeText, {
-          left: bubble.x + (bubble.w / 2),
-          top: bubble.y + (bubble.h / 2),
-          width: bubble.w,
-          angle: bubble.rotation || 0,
-          fontFamily: bubble.fontFamily.replace(/'/g, ''),
-          fontSize: defaultFontSize,
-          originX: 'center',
-          originY: 'center',
-          fill: safeColor,
-          stroke: currentOutlineColor,
-          strokeWidth: currentOutlineWidth,
-          shadow: currentShadow as any,
-          paintFirst: 'stroke',
-          strokeLineJoin: 'round',
-          textAlign: bubble.textAlign || 'center',
-          backgroundColor: '',
-          snapAngle: 45,
-          snapThreshold: 5,
-          transparentCorners: false,
-          cornerColor: '#ffffff',
-          cornerStrokeColor: '#6366f1',
-          borderColor: '#6366f1',
-          cornerSize: 16,
-          touchCornerSize: 36,
-          padding: 16,
-          cornerStyle: 'circle',
-          editingBorderColor: '#f43f5e',
-          cursorColor: '#f43f5e',
-          cursorWidth: 3,
-          cursorDuration: 500,
-        });
+        // Lấy thông số Viền & Bóng từ Sidebar
+        const currentOutlineColor = bubble.outlineColor || (safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000');
+        const currentOutlineWidth = bubble.outlineWidth !== undefined ? bubble.outlineWidth : 0;
+        const currentShadow = bubble.hasShadow ? new fabric.Shadow({
+          color: 'rgba(0,0,0,0.6)', blur: 4, offsetX: 2, offsetY: 4
+        }) : null;
 
-        textObj.setControlsVisibility({ mt: false, mb: false, ml: true, mr: true });
+        const defaultFontSize = bubble.fontSize || 28;
+        let textObj: fabric.Textbox | undefined;
 
-        if (textObj.controls && textObj.controls.mtr) {
-          textObj.controls.mtr.y = 0.5;
-          textObj.controls.mtr.offsetY = 60;
-          textObj.controls.mtr.render = function (ctx, left, top, styleOverride, fabricObject) {
-            const size = 26;
-            ctx.save();
-            ctx.translate(left, top);
-            ctx.beginPath();
-            ctx.arc(0, 0, size / 2, 0, 2 * Math.PI);
-            ctx.fillStyle = '#ffffff';
-            ctx.fill();
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = '#6366f1';
-            ctx.stroke();
-            ctx.drawImage(rotateImg, -8, -8, 16, 16);
-            ctx.restore();
-          };
-        }
-
-        (textObj as any).id = bubble.id;
-        canvas.add(textObj);
-
-        if (bubble.text === "Gõ chữ vào đây..." || bubble.text === "Nhập chữ...") {
-          canvas.setActiveObject(textObj);
-          textObj.enterEditing();
-          textObj.selectAll();
-        }
-      } else {
-        textObj = canvas.getObjects().find((obj: any) => obj.id === bubble.id) as fabric.Textbox;
-        if (textObj && !textObj.isEditing) {
-          textObj.set({
-            text: safeText,
+        if (!existingIds.includes(bubble.id)) {
+          textObj = new fabric.Textbox(safeText, {
+            left: bubble.x + (bubble.w / 2),
+            top: bubble.y + (bubble.h / 2),
+            width: bubble.w,
+            angle: bubble.rotation || 0,
             fontFamily: bubble.fontFamily.replace(/'/g, ''),
+            fontSize: defaultFontSize,
+            originX: 'center',
+            originY: 'center',
             fill: safeColor,
             stroke: currentOutlineColor,
             strokeWidth: currentOutlineWidth,
             shadow: currentShadow as any,
             paintFirst: 'stroke',
-            fontSize: defaultFontSize,
-            left: bubble.x + (bubble.w / 2),
-            top: bubble.y + (bubble.h / 2),
-            width: bubble.w,
-            angle: bubble.rotation || 0,
-            originX: 'center',
-            originY: 'center',
+            strokeLineJoin: 'round',
             textAlign: bubble.textAlign || 'center',
             backgroundColor: '',
+            snapAngle: 45,
+            snapThreshold: 5,
+            transparentCorners: false,
+            cornerColor: '#ffffff',
+            cornerStrokeColor: '#6366f1',
+            borderColor: '#6366f1',
+            cornerSize: 16,
+            touchCornerSize: 36,
+            padding: 16,
+            cornerStyle: 'circle',
+            editingBorderColor: '#f43f5e',
+            cursorColor: '#f43f5e',
+            cursorWidth: 3,
+            cursorDuration: 500,
           });
+
           textObj.setControlsVisibility({ mt: false, mb: false, ml: true, mr: true });
-        }
-      }
 
-      // ================================================================
-      // 🚀 BẢN VÁ TỐI THƯỢNG: SMART AUTO-FIT (CHỐNG TRÀN CHỮ)
-      // ================================================================
-      if (textObj && !textObj.isEditing) {
-        textObj.initDimensions(); // Ép hệ thống đo chiều cao thực tế của chữ
-
-        let fs = defaultFontSize;
-
-        // CẢM BIẾN TRÀN VIỀN: Nếu cục chữ cao hơn giới hạn của khung
-        if (textObj.height > bubble.h) {
-          // Bóp nhỏ cỡ chữ từ từ cho tới khi lọt thỏm vào khung (nhỏ nhất là 8px)
-          while (textObj.height > bubble.h && fs > 8) {
-            fs -= 1;
-            textObj.set({ fontSize: fs });
-            textObj.initDimensions();
+          if (textObj.controls && textObj.controls.mtr) {
+            textObj.controls.mtr.y = 0.5;
+            textObj.controls.mtr.offsetY = 60;
+            textObj.controls.mtr.render = function (ctx, left, top, styleOverride, fabricObject) {
+              const size = 26;
+              ctx.save();
+              ctx.translate(left, top);
+              ctx.beginPath();
+              ctx.arc(0, 0, size / 2, 0, 2 * Math.PI);
+              ctx.fillStyle = '#ffffff';
+              ctx.fill();
+              ctx.lineWidth = 1.5;
+              ctx.strokeStyle = '#6366f1';
+              ctx.stroke();
+              // LƯU Ý: Biến rotateImg sếp nhớ giữ nguyên ở trên cùng file nhé
+              if (typeof rotateImg !== 'undefined') {
+                ctx.drawImage(rotateImg, -8, -8, 16, 16);
+              }
+              ctx.restore();
+            };
           }
 
-          // Trả tín hiệu về cho Két sắt (Zustand) để cập nhật giao diện mà không gây lag
-          setTimeout(() => {
-            const currentBubble = useCanvasStore.getState().bubbles.find(b => b.id === bubble.id);
-            if (currentBubble && currentBubble.fontSize > fs) {
-              useCanvasStore.getState().updateBubble(bubble.id, { fontSize: fs });
-            }
-          }, 10);
+          (textObj as any).id = bubble.id;
+          canvas.add(textObj);
+
+          if (bubble.text === "Gõ chữ vào đây..." || bubble.text === "Nhập chữ...") {
+            canvas.setActiveObject(textObj);
+            textObj.enterEditing();
+            textObj.selectAll();
+          }
+        } else {
+          textObj = canvas.getObjects().find((obj: any) => obj.id === bubble.id) as fabric.Textbox;
+          if (textObj && !textObj.isEditing) {
+            textObj.set({
+              text: safeText,
+              fontFamily: bubble.fontFamily.replace(/'/g, ''),
+              fill: safeColor,
+              stroke: currentOutlineColor,
+              strokeWidth: currentOutlineWidth,
+              shadow: currentShadow as any,
+              paintFirst: 'stroke',
+              fontSize: defaultFontSize,
+              left: bubble.x + (bubble.w / 2),
+              top: bubble.y + (bubble.h / 2),
+              width: bubble.w,
+              angle: bubble.rotation || 0,
+              originX: 'center',
+              originY: 'center',
+              textAlign: bubble.textAlign || 'center',
+              backgroundColor: '',
+            });
+            textObj.setControlsVisibility({ mt: false, mb: false, ml: true, mr: true });
+          }
         }
-      }
-    });
 
-    const currentStoreIds = bubbles.map((b) => b.id);
-    canvas.getObjects().forEach((obj: any) => {
-      if (obj.id && !currentStoreIds.includes(obj.id)) {
-        canvas.remove(obj);
-      }
-    });
+        // ================================================================
+        // 🚀 BẢN VÁ TỐI THƯỢNG: SMART AUTO-FIT (CHỐNG TRÀN CHỮ)
+        // ================================================================
+        if (textObj && !textObj.isEditing) {
+          textObj.initDimensions();
+          let fs = defaultFontSize;
 
-    canvas.renderAll();
+          if (textObj.height > bubble.h) {
+            while (textObj.height > bubble.h && fs > 8) {
+              fs -= 1;
+              textObj.set({ fontSize: fs });
+              textObj.initDimensions();
+            }
+
+            setTimeout(() => {
+              const currentBubble = useCanvasStore.getState().bubbles.find(b => b.id === bubble.id);
+              if (currentBubble && currentBubble.fontSize > fs) {
+                useCanvasStore.getState().updateBubble(bubble.id, { fontSize: fs });
+              }
+            }, 10);
+          }
+        }
+      });
+
+      const currentStoreIds = bubbles.map((b) => b.id);
+      canvas.getObjects().forEach((obj: any) => {
+        if (obj.id && !currentStoreIds.includes(obj.id)) {
+          canvas.remove(obj);
+        }
+      });
+
+      canvas.renderAll();
+    }; // Kết thúc hàm loadFontsAndRender
+
+    // 🚀 GỌI HÀM KHI CHẠY USEEFFECT
+    loadFontsAndRender();
+
   }, [bubbles]);
 
   useEffect(() => {
