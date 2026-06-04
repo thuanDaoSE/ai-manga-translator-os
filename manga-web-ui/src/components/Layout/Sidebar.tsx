@@ -19,7 +19,7 @@ const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 function SortableItem({
   id, file, isActive, status, displayImg, progress,
   onClick, onTranslate, onDelete, onCancel, onRetry,
-  isSelected, isSelectionMode, onToggleSelection // 🚀 PROPS MỚI CHO MULTI-SELECT
+  isSelected, isSelectionMode, onToggleSelection, hasCleanUrl // 🚀 PROPS MỚI CHO MULTI-SELECT
 }: any) {
 
   // 🚀 Vô hiệu hóa Kéo-Thả nếu đang ở Chế độ Chọn (Selection Mode)
@@ -79,10 +79,11 @@ function SortableItem({
           {status === 'processing' && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={16} /></div>}
           {status === 'completed' && <div className="absolute top-1 right-1 bg-emerald-500 rounded-full p-0.5"><CheckCircle2 size={8} className="text-white" /></div>}
 
+          {/* 🚀 Phân biệt Lỗi Runpod và Lỗi DeepSeek */}
           {status === 'error' && (
-            <div className="absolute inset-0 flex items-center justify-center bg-danger/20">
-              <AlertTriangle size={18} className="text-danger drop-shadow-md" />
-            </div>
+            <span className="flex items-center gap-1 text-[9px] text-danger font-black uppercase">
+              <AlertTriangle size={10} /> {hasCleanUrl ? 'Lỗi API Chữ' : 'Dịch thất bại'}
+            </span>
           )}
         </div>
 
@@ -114,20 +115,40 @@ function SortableItem({
         {!isSelectionMode && (
           <>
             <div className="absolute top-2 right-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/95 p-1.5 rounded-lg border border-border shadow-lg z-10 backdrop-blur-sm">
-              <button onClick={(e) => { e.stopPropagation(); onRetry(); }} className="p-1.5 text-text-muted hover:text-primary hover:bg-border rounded-md transition-all cursor-pointer hover:scale-110" title="Dịch lại (Tự động tối ưu chi phí)">
+              {/* Nút 1: Dịch lại chữ (DeepSeek) */}
+              <button onClick={(e) => { e.stopPropagation(); onRetry(); }} className="p-1.5 text-text-muted hover:text-primary hover:bg-border rounded-md transition-all cursor-pointer hover:scale-110" title="Dịch lại chữ (Tiết kiệm)">
                 <RefreshCw size={15} className={status === 'processing' ? 'animate-spin' : ''} />
               </button>
+
               <div className="w-px h-4 bg-border/80"></div>
+
+              {/* 🚀 NÚT 2 MỚI: QUÉT LẠI TOÀN BỘ ẢNH (RUNPOD) */}
+              <button onClick={(e) => { e.stopPropagation(); onTranslate(); }} className="p-1.5 text-text-muted hover:text-amber-500 hover:bg-amber-500/20 rounded-md transition-all cursor-pointer hover:scale-110" title="Quét lại ảnh từ đầu (Chạy lại Runpod)">
+                <Wand2 size={15} />
+              </button>
+
+              <div className="w-px h-4 bg-border/80"></div>
+
+              {/* Nút 3: Xóa */}
               <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-1.5 text-text-muted hover:text-danger hover:bg-danger/20 rounded-md transition-all cursor-pointer hover:scale-110" title="Xóa trang này">
                 <X size={15} />
               </button>
             </div>
 
             {(status === 'unprocessed' || status === 'error') && (
-              <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onTranslate(); }}>
+              <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10" onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // 🚀 LOGIC CỨU HỘ: Nếu có nền sạch rồi -> Chỉ dịch lại chữ. Nếu chưa -> Dịch từ đầu
+                  if (status === 'error' && hasCleanUrl) {
+                    onRetry();
+                  } else {
+                    onTranslate();
+                  }
+                }}>
                 <div className={`text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 shadow-lg font-bold cursor-pointer ${status === 'error' ? 'bg-danger hover:bg-red-600' : 'bg-primary hover:bg-primary-hover'}`}>
                   {status === 'error' ? <RefreshCw size={12} /> : <Wand2 size={12} />}
-                  {status === 'error' ? 'Thử lại' : 'Dịch'}
+                  {status === 'error' ? (hasCleanUrl ? 'Dịch lại chữ' : 'Thử lại') : 'Dịch'}
                 </div>
               </div>
             )}
@@ -311,17 +332,34 @@ export default function Sidebar() {
 
       if (data.task_id) {
         const taskId = data.task_id;
-        projectStore.startListeningProgress(pageIndex, taskId);
+
+        // ❌ ĐÃ XÓA DÒNG: projectStore.startListeningProgress(...) để tránh mở 2 kết nối đá nhau
+
+        // 🚀 Chỉ mở 1 đường truyền SSE duy nhất
         const eventSource = new EventSource(`${API_URL}/stream/${taskId}`);
         activeTasksRef.current[pageIndex] = { taskId, eventSource };
 
         eventSource.onmessage = async (event) => {
           const sseData = JSON.parse(event.data);
+
+          // 🚀 Liên tục cập nhật tiến độ (Ví dụ: Runpod đang tải 10%... 30%...)
+          useProjectStore.setState((state: any) => ({
+            progresses: { ...state.progresses, [pageIndex]: { percent: sseData.progress, message: sseData.message } }
+          }));
+
           if (sseData.state === "SUCCESS") {
             eventSource.close();
             delete activeTasksRef.current[pageIndex];
 
+            // 🚀 BẢN VÁ UX: RUNPOD XONG RỒI NHƯNG KHÔNG ĐƯỢC BÁO HOÀN TẤT VỘI!
+            // Ép thanh tiến trình đứng ở 90% và báo đang gọi DeepSeek
+            projectStore.setPageStatus(pageIndex, "processing");
+            useProjectStore.setState((state: any) => ({
+              progresses: { ...state.progresses, [pageIndex]: { percent: 90, message: "Đang nhờ DeepSeek dịch..." } }
+            }));
+
             let taskData = null;
+            // Vòng lặp chờ VPS và DeepSeek làm việc (Cái này tốn 2-3 giây)
             for (let i = 0; i < 15; i++) {
               const taskRes = await fetch(`${API_URL}/task/${taskId}`);
               const data = await taskRes.json();
@@ -340,7 +378,6 @@ export default function Sidebar() {
               const toolState = useToolStore.getState();
 
               const newBubbles = result.data.map((item: any) => {
-                // 1. Tính toán Kích thước khung gốc do AI quét
                 const origW = item.box_coordinates.x2 - item.box_coordinates.x1;
                 const origH = item.box_coordinates.y2 - item.box_coordinates.y1;
 
@@ -351,10 +388,7 @@ export default function Sidebar() {
                   w: origW,
                   h: origH,
                   text: item.vietnamese,
-
-                  // 🚀 FIX: BỔ SUNG DÒNG NÀY ĐỂ DATABASE NHỚ ĐƯỢC CHỮ TIẾNG NHẬT GỐC
                   japanese: item.japanese,
-
                   fontSize: toolState.fontSize,
                   fontColor: toolState.fontColor,
                   fontFamily: toolState.fontFamily,
@@ -376,15 +410,25 @@ export default function Sidebar() {
                 mangaApi.savePageBubbles(pageId, newBubbles).catch(console.error);
               }
 
-              projectStore.setPageStatus(pageIndex, "completed");
+              // 🚀 LƯU Ý MŨI TIÊM THÔNG MINH TRƯỚC ĐÓ CỦA SẾP (Kiểm tra chữ Lỗi)
+              const hasTranslationError = newBubbles.some((b: any) => (b.text || "").toLowerCase().includes("lỗi"));
+
+              if (hasTranslationError) {
+                projectStore.setPageStatus(pageIndex, "error"); // Đánh thẻ Đỏ
+                toast.error(`Trang ${pageIndex + 1} bị nghẽn mạng DeepSeek!`);
+              } else {
+                projectStore.setPageStatus(pageIndex, "completed"); // Xanh tuyệt đối!
+              }
+
               await fetch(`${API_URL}/pages/${pageId}/save-results?clean_url=${encodeURIComponent(result.clean_url)}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(newBubbles),
-              });
-            }
-            setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
+              }).catch(err => console.error("Lỗi lưu kết quả vào DB:", err));
 
+              // 🚀 CHỈ KHI CHỮ ĐÃ ĐƯỢC VẼ LÊN HÌNH THÌ MỚI XÓA THANH TIẾN TRÌNH
+              setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
+            }
           } else if (sseData.state === "FAILURE") {
             eventSource.close();
             delete activeTasksRef.current[pageIndex];
@@ -392,6 +436,7 @@ export default function Sidebar() {
             projectStore.setPageStatus(pageIndex, "error");
           }
         };
+
         eventSource.onerror = () => {
           eventSource.close();
           delete activeTasksRef.current[pageIndex];
@@ -405,32 +450,56 @@ export default function Sidebar() {
     }
   };
 
-  const handleRetrySinglePage = async (pageIndex: number, currentStatus: string) => {
-    const pageId = projectStore.pageIds[pageIndex];
+  // 🚀 BẢN VÁ TỐI THƯỢNG: Phân luồng Dịch lại cực kỳ thông minh
+  // 🚀 BẢN VÁ TỐI THƯỢNG: Phân luồng Dịch lại cực kỳ thông minh và Chống Race Condition
+  const handleRetrySinglePage = async (pageIndex: number) => {
+    const state = useProjectStore.getState();
+    const pageId = state.pageIds[pageIndex];
     if (!pageId) return;
 
-    if (currentStatus === 'completed' || currentStatus === 'translating' || currentStatus === 'cleaned') {
-      const loadId = toast.loading("Đang gọi DeepSeek dịch lại chữ...");
+    // 1. Kiểm tra xem trang này đã qua bàn tay Runpod (có ảnh xóa nền) chưa?
+    const hasCleanUrl = !!state.processedUrls[pageIndex];
+
+    if (hasCleanUrl) {
+      // 🟢 LUỒNG 1: CÓ ẢNH SẠCH RỒI -> TUYỆT ĐỐI CHỈ GỌI DEEPSEEK
+      const loadId = toast.loading("Đang nhờ DeepSeek dịch lại...");
       try {
         const result = await mangaApi.retryTextTranslation(pageId);
 
-        // Cập nhật State: React sẽ tự động vẽ lại chữ ngay lập tức mà không cần F5
-        // 🚀 BẢN VÁ: Lấy vị trí trang THỰC TẾ ở thời điểm hiện tại từ kho tổng
+        // 🚀 FIX 1: Map lại dữ liệu để đảm bảo chữ Việt được dán đúng vào trường 'text' của Fabric.js
+        const updatedBubbles = result.bubbles.map((b: any) => ({
+          ...b,
+          text: b.vietnamese || b.text
+        }));
+
         const realTimeIndex = useProjectStore.getState().currentIndex;
 
-        // Chỉ dán chữ lên màn hình NẾU user vẫn đang đứng ở đúng trang đó
         if (realTimeIndex === pageIndex) {
-          useCanvasStore.getState().setBubbles(result.bubbles);
+          // 🚀 FIX 2: Dùng clearBubbles và addBubble để vẽ lại chữ an toàn tuyệt đối (Không bị crash trắng trang)
+          const canvasStore = useCanvasStore.getState();
+          canvasStore.clearBubbles();
+          updatedBubbles.forEach((b: any) => canvasStore.addBubble(b));
+        } else {
+          // 🚀 FIX 3 (RACE CONDITION): Nếu sếp đã chuyển sang trang khác, ÉP HỆ THỐNG LƯU KẾT QUẢ MỚI VÀO DB!
+          // Đề phòng trường hợp Auto-save của trang cũ vừa ghi đè nhầm.
+          mangaApi.savePageBubbles(pageId, updatedBubbles).catch(console.error);
         }
 
-        toast.success("Tái sinh vùng chữ dịch lại thành công!", { id: loadId });
+        toast.success("Dịch lại thành công!", { id: loadId });
 
-        // 🚀 BẢN VÁ: ĐÃ XÓA DÒNG window.location.reload() ở đây!
-
+        // Cập nhật thẻ Xanh/Đỏ
+        const hasTranslationError = updatedBubbles.some((b: any) => (b.text || "").toLowerCase().includes("lỗi"));
+        if (hasTranslationError) {
+          useProjectStore.getState().setPageStatus(pageIndex, "error");
+        } else {
+          useProjectStore.getState().setPageStatus(pageIndex, "completed");
+        }
       } catch (err: any) {
         toast.error(err.message, { id: loadId });
+        useProjectStore.getState().setPageStatus(pageIndex, "error");
       }
     } else {
+      // 🔴 LUỒNG 2: CHƯA CÓ ẢNH SẠCH -> Buộc phải gọi Runpod cày lại từ đầu
       processSinglePage(pageIndex);
     }
   };
@@ -507,10 +576,25 @@ export default function Sidebar() {
 
   const handlePageClick = (index: number) => {
     const currentPageId = projectStore.pageIds[projectStore.currentIndex];
+
+    // 🚀 BẢN VÁ TỐI THƯỢNG: CHẶN ĐỨNG RACE CONDITION
     if (currentPageId) {
-      mangaApi.savePageBubbles(currentPageId, useCanvasStore.getState().bubbles).catch(console.error);
+      const currentBubbles = useCanvasStore.getState().bubbles;
+
+      // BÍ QUYẾT: Chỉ Auto-save khi trên màn hình THỰC SỰ CÓ CHỮ.
+      // Tuyệt đối không bao giờ lưu mảng rỗng. Điều này chặn đứng 100% việc
+      // mạng chưa tải xong (canvas đang rỗng) mà sếp lỡ chuyển trang khiến
+      // hệ thống mang mảng rỗng đi xóa sạch Database của sếp.
+      if (currentBubbles && currentBubbles.length > 0) {
+        mangaApi.savePageBubbles(currentPageId, currentBubbles).catch(console.error);
+      }
     }
-    projectStore.setCurrentIndex(index);
+
+    // Đồng bộ Canvas với Server trước khi chuyển
+    const targetPageId = projectStore.pageIds[index];
+    if (currentPageId !== targetPageId) {
+      projectStore.setCurrentIndex(index);
+    }
   };
 
   useEffect(() => {
@@ -534,7 +618,10 @@ export default function Sidebar() {
 
     return () => {
       Object.values(newPreviews).forEach(url => {
-        if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+        if (url.startsWith('blob:')) {
+          // 🚀 BẢN VÁ: Trì hoãn việc xóa Blob URL 10 giây để trình duyệt không báo lỗi đỏ lòm
+          setTimeout(() => URL.revokeObjectURL(url), 10000);
+        }
       });
     };
   }, [fileQueue, projectStore.processedUrls]);
@@ -688,10 +775,11 @@ export default function Sidebar() {
                       onTranslate={() => processSinglePage(index)}
                       onDelete={() => handleDeletePage(index)}
                       onCancel={() => handleCancelTask(index)}
-                      onRetry={() => handleRetrySinglePage(index, pageStatuses[index] || 'unprocessed')}
+                      onRetry={() => handleRetrySinglePage(index)}
                       isSelected={selectedPages.has(uniqueId)} // 🚀 Dùng ID an toàn
                       isSelectionMode={isSelectionMode}
-                      onToggleSelection={() => toggleSelection(uniqueId)} // 🚀 Dùng ID an toàn
+                      onToggleSelection={() => toggleSelection(uniqueId)}
+                      hasCleanUrl={!!processedUrls[index]} // 🚀 Dùng ID an toàn
                     />
                   );
                 })}

@@ -371,25 +371,21 @@ export default function Workspace() {
   })();
 
   return (
-    // 🚀 TẦNG 0: NỀN APP TỔNG THỂ (Màu #121212)
-    // Loại bỏ hoàn toàn pure black, tạo chiều sâu vật lý
+    // TẦNG 0: NỀN APP TỔNG THỂ (#121212)
     <div className="flex-1 bg-[#121212] relative overflow-hidden flex flex-col items-center justify-center">
 
-      {/* 🚀 TẦNG 1: KHUNG VIEWPORT (Nền Caro) */}
-      {/* 🚀 TẦNG 1: KHUNG VIEWPORT (Đã ép CSS Caro trực tiếp để trị bệnh lười của Tailwind) */}
+      {/* 🚀 KHUNG VIEWPORT (Vẫn giữ nguyên kích thước để thuật toán Zoom tính toán đúng, nhưng "tàng hình" khi chưa có ảnh) */}
       <div
         ref={containerRef}
-        className="absolute top-4 left-4 right-4 bottom-[90px] rounded-2xl ring-1 ring-white/10 shadow-[0_0_40px_rgba(0,0,0,0.5)_inset] overflow-hidden transition-all duration-300 ease-in-out"
+        className={`absolute top-4 left-4 right-4 bottom-[90px] rounded-2xl transition-all duration-300 ease-in-out ${displayUrl ? 'ring-1 ring-white/10 shadow-[0_0_40px_rgba(0,0,0,0.5)_inset] overflow-hidden' : 'opacity-0 pointer-events-none'}`}
         style={{
           cursor: activeMode === 'none' ? 'grab' : 'default',
-          /* 🚀 BẢN VÁ: Bật Caro nếu có ảnh (displayUrl), dùng Xám trơn mượt mà nếu đang ở màn Welcome */
           backgroundImage: displayUrl ? 'repeating-conic-gradient(#202020 0% 25%, #181818 0% 50%)' : 'none',
-          backgroundColor: displayUrl ? 'transparent' : '#1a1a1a',
           backgroundSize: displayUrl ? '24px 24px' : 'auto',
           backgroundPosition: displayUrl ? 'center center' : 'auto'
         }}
       >
-        {displayUrl ? (
+        {displayUrl && (
           <div
             id="workspace-container"
             ref={workspaceContainerRef}
@@ -400,7 +396,7 @@ export default function Workspace() {
               transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${currentZoom})`
             }}
           >
-            {/* Lõi Render Canvas */}
+            {/* Render Canvas */}
             <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
             <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity}`} />
             <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
@@ -412,12 +408,18 @@ export default function Workspace() {
               </div>
             </div>
           </div>
-        ) : (
-          <div className="w-full h-full flex items-center justify-center relative">
-            <WelcomeScreen />
-          </div>
         )}
       </div>
+
+      {/* 🚀 BẢN VÁ UX: MÀN HÌNH WELCOME ĐƯỢC GIẢI PHÓNG RA NGOÀI */}
+      {/* Nó sẽ chiếm trọn không gian trống và đè lên khung tàng hình ở trên */}
+      {!displayUrl && (
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center z-10 bg-[#121212]">
+          <WelcomeScreen />
+        </div>
+      )}
+
+      {/* TẦNG 3: THANH TOOLBAR & CỤC NÚT (Nằm ngoài cùng) */}
 
       {/* 🚀 TẦNG 3: THANH TOOLBAR & CÁC NÚT (Nằm ngoài cùng) */}
       {displayUrl && (

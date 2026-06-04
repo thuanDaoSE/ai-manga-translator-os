@@ -8,6 +8,8 @@ export interface TextBubble {
   w: number;
   h: number;
   text: string;
+  japanese?: string;   // 🚀 BỔ SUNG: Chứa text gốc tiếng Nhật
+  vietnamese?: string; // 🚀 BỔ SUNG: Chứa text dịch tiếng Việt
   fontSize: number;
   fontColor: string;
   fontFamily: string;

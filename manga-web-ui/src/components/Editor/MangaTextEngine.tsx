@@ -156,43 +156,45 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
     bubbles.forEach((bubble) => {
       const safeText = bubble.text || "Nhập chữ...";
       const safeColor = bubble.fontColor || '#000000';
-      const safeStroke = safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000';
+
+      // Lấy thông số Viền & Bóng từ Sidebar
+      const currentOutlineColor = bubble.outlineColor || (safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000');
+      const currentOutlineWidth = bubble.outlineWidth !== undefined ? bubble.outlineWidth : 0;
+      const currentShadow = bubble.hasShadow ? new fabric.Shadow({
+        color: 'rgba(0,0,0,0.6)', blur: 4, offsetX: 2, offsetY: 4
+      }) : null;
+
+      const defaultFontSize = bubble.fontSize || 28;
+      let textObj: fabric.Textbox | undefined;
 
       if (!existingIds.includes(bubble.id)) {
-        const defaultFontSize = bubble.fontSize || 28;
-
-        const textObj = new fabric.Textbox(safeText, {
+        textObj = new fabric.Textbox(safeText, {
           left: bubble.x + (bubble.w / 2),
           top: bubble.y + (bubble.h / 2),
           width: bubble.w,
           angle: bubble.rotation || 0,
           fontFamily: bubble.fontFamily.replace(/'/g, ''),
           fontSize: defaultFontSize,
-
           originX: 'center',
           originY: 'center',
-
           fill: safeColor,
-          stroke: safeStroke,
-          strokeWidth: Math.max(3, Math.round(defaultFontSize * 0.15)),
+          stroke: currentOutlineColor,
+          strokeWidth: currentOutlineWidth,
+          shadow: currentShadow as any,
           paintFirst: 'stroke',
           strokeLineJoin: 'round',
           textAlign: bubble.textAlign || 'center',
-
           backgroundColor: '',
-
           snapAngle: 45,
           snapThreshold: 5,
           transparentCorners: false,
           cornerColor: '#ffffff',
           cornerStrokeColor: '#6366f1',
           borderColor: '#6366f1',
-
           cornerSize: 16,
           touchCornerSize: 36,
           padding: 16,
           cornerStyle: 'circle',
-
           editingBorderColor: '#f43f5e',
           cursorColor: '#f43f5e',
           cursorWidth: 3,
@@ -222,40 +224,61 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
 
         (textObj as any).id = bubble.id;
         canvas.add(textObj);
+
         if (bubble.text === "Gõ chữ vào đây..." || bubble.text === "Nhập chữ...") {
           canvas.setActiveObject(textObj);
           textObj.enterEditing();
           textObj.selectAll();
-          canvas.requestRenderAll();
         }
       } else {
-        const existingObj = canvas.getObjects().find((obj: any) => obj.id === bubble.id) as fabric.Textbox;
-        if (existingObj && !existingObj.isEditing) {
-          const defaultFontSize = bubble.fontSize || 28;
-
-          existingObj.set({
+        textObj = canvas.getObjects().find((obj: any) => obj.id === bubble.id) as fabric.Textbox;
+        if (textObj && !textObj.isEditing) {
+          textObj.set({
             text: safeText,
             fontFamily: bubble.fontFamily.replace(/'/g, ''),
             fill: safeColor,
-            stroke: safeStroke,
-            strokeWidth: Math.max(3, Math.round(defaultFontSize * 0.15)),
+            stroke: currentOutlineColor,
+            strokeWidth: currentOutlineWidth,
+            shadow: currentShadow as any,
             paintFirst: 'stroke',
             fontSize: defaultFontSize,
-
             left: bubble.x + (bubble.w / 2),
             top: bubble.y + (bubble.h / 2),
+            width: bubble.w,
+            angle: bubble.rotation || 0,
             originX: 'center',
             originY: 'center',
-
             textAlign: bubble.textAlign || 'center',
-            cornerSize: 16,
-            touchCornerSize: 36,
-            padding: 16,
-            cornerStyle: 'circle',
             backgroundColor: '',
           });
-          existingObj.setControlsVisibility({ mt: false, mb: false, ml: true, mr: true });
-          canvas.requestRenderAll();
+          textObj.setControlsVisibility({ mt: false, mb: false, ml: true, mr: true });
+        }
+      }
+
+      // ================================================================
+      // 🚀 BẢN VÁ TỐI THƯỢNG: SMART AUTO-FIT (CHỐNG TRÀN CHỮ)
+      // ================================================================
+      if (textObj && !textObj.isEditing) {
+        textObj.initDimensions(); // Ép hệ thống đo chiều cao thực tế của chữ
+
+        let fs = defaultFontSize;
+
+        // CẢM BIẾN TRÀN VIỀN: Nếu cục chữ cao hơn giới hạn của khung
+        if (textObj.height > bubble.h) {
+          // Bóp nhỏ cỡ chữ từ từ cho tới khi lọt thỏm vào khung (nhỏ nhất là 8px)
+          while (textObj.height > bubble.h && fs > 8) {
+            fs -= 1;
+            textObj.set({ fontSize: fs });
+            textObj.initDimensions();
+          }
+
+          // Trả tín hiệu về cho Két sắt (Zustand) để cập nhật giao diện mà không gây lag
+          setTimeout(() => {
+            const currentBubble = useCanvasStore.getState().bubbles.find(b => b.id === bubble.id);
+            if (currentBubble && currentBubble.fontSize > fs) {
+              useCanvasStore.getState().updateBubble(bubble.id, { fontSize: fs });
+            }
+          }, 10);
         }
       }
     });

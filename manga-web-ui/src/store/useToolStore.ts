@@ -15,13 +15,18 @@ interface ToolState {
   currentZoom: number;
   setZoom: (zoom: number) => void;
 
+  // 🚀 BỔ SUNG CÁC BIẾN GLOBAL THIẾU
   fontSize: number;
   setFontSize: (size: number) => void;
   fontColor: string;
   setFontColor: (color: string) => void;
   fontFamily: string;
   setFontFamily: (font: string) => void;
-  
+  textAlign: string;
+  outlineWidth: number;
+  outlineColor: string;
+  hasShadow: boolean;
+
   isBold: boolean;
   setIsBold: (val: boolean) => void;
   isItalic: boolean;
@@ -52,7 +57,6 @@ interface ToolState {
   actionPosition: { x: number, y: number } | null;
   setActionPosition: (pos: { x: number, y: number } | null) => void;
 
-  // 🚀 BIẾN MỚI DÀNH CHO NÚT BẬT/TẮT VIỀN ĐỎ
   showAiGuides: boolean;
   toggleAiGuides: () => void;
 }
@@ -62,20 +66,25 @@ export const useToolStore = create<ToolState>((set) => ({
   restoreType: 'raw',
   setActiveMode: (mode) => set({ activeMode: mode }),
   toggleRestoreType: () => set((state) => ({ restoreType: state.restoreType === 'raw' ? 'clean' : 'raw' })),
-  
+
   brushSize: 25,
   setBrushSize: (size) => set({ brushSize: size }),
-  
+
   currentZoom: 1.0,
   setZoom: (zoom) => set({ currentZoom: Math.max(0.1, Math.min(zoom, 5.0)) }),
 
+  // 🚀 KHỞI TẠO GIÁ TRỊ MẶC ĐỊNH CHUẨN
   fontSize: 18,
   setFontSize: (size) => set({ fontSize: Math.max(8, Math.min(size, 150)) }),
   fontColor: '#000000',
   setFontColor: (color) => set({ fontColor: color }),
   fontFamily: "'Comic Neue', cursive",
   setFontFamily: (font) => set({ fontFamily: font }),
-  
+  textAlign: 'center',
+  outlineWidth: 0,
+  outlineColor: '#ffffff',
+  hasShadow: false,
+
   isBold: false,
   setIsBold: (val) => set({ isBold: val }),
   isItalic: false,
@@ -94,19 +103,18 @@ export const useToolStore = create<ToolState>((set) => ({
 
   isZenMode: false,
   toggleZenMode: () => set((state) => ({ isZenMode: !state.isZenMode })),
-  
+
   showLeftPanel: true,
   showRightPanel: true,
   toggleLeftPanel: () => set((state) => ({ showLeftPanel: !state.showLeftPanel })),
   toggleRightPanel: () => set((state) => ({ showRightPanel: !state.showRightPanel })),
-  
+
   isComparing: false,
   setIsComparing: (val) => set({ isComparing: val }),
 
   actionPosition: null,
   setActionPosition: (pos) => set({ actionPosition: pos }),
 
-  // 🚀 KHỞI TẠO BIẾN CHO NÚT BẬT/TẮT VIỀN ĐỎ
   showAiGuides: false,
   toggleAiGuides: () => set((state) => ({ showAiGuides: !state.showAiGuides }))
 }));

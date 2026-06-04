@@ -1597,21 +1597,20 @@ async def retry_text_translation(page_id: str, db: AsyncSession = Depends(get_db
         if not page:
             raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện này!")
         
+        # 🚀 BẢN VÁ: Hướng dẫn người dùng bấm đúng nút
         if not page.bubbles_data or page.bubbles_data == "[]":
-            raise HTTPException(status_code=400, detail="Trang chưa có dữ liệu chữ Nhật. Vui lòng bấm dịch lại toàn bộ trang!")
+            raise HTTPException(status_code=400, detail="Trang này không phát hiện được chữ nào! Sếp hãy bấm nút [Quét lại ảnh] hình cây đũa phép ở góc phải nhé.")
 
         extracted_data = json.loads(page.bubbles_data)
 
-        # 🚀 BẢN VÁ 1: LỌC DỮ LIỆU SẠCH (Chỉ lấy những ô thực sự CÓ tiếng Nhật)
         ocr_batch_payload = []
         for item in extracted_data:
             jap_text = item.get("japanese", "").strip()
-            # Bỏ qua những ô do user tự vẽ thêm hoặc không có chữ
             if jap_text:
                 ocr_batch_payload.append({"id": item["id"], "japanese": jap_text})
 
         if not ocr_batch_payload:
-            raise HTTPException(status_code=400, detail="Không có chữ tiếng Nhật nào để dịch lại!")
+            raise HTTPException(status_code=400, detail="Trang này trống trơn tiếng Nhật! Sếp hãy bấm nút [Quét lại ảnh] hình cây đũa phép ở góc phải nhé.")
 
         # 2. GOM LÊN DEEPSEEK TRÊN VPS VỚI PROMPT MẠNH HƠN
         prompt = f"Bạn là biên dịch viên Manga chuyên nghiệp. Dịch mảng JSON sau sang tiếng Việt. BẮT BUỘC TRẢ VỀ ĐÚNG FORMAT {{\\\"translations\\\": [<kết quả>]}}: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"

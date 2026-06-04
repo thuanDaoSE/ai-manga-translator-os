@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Upload, Wand2, Paintbrush, ScanText, FolderArchive } from 'lucide-react'; // 🚀 Thêm icon FolderArchive
 import { mangaApi } from '../../services/api';
 import { useProjectStore } from '../../store/useProjectStore';
-import { useAuthStore } from '../../store/useAuthStore'; 
-import PolicyModal from '../Modals/PolicyModal'; 
+import { useAuthStore } from '../../store/useAuthStore';
+import PolicyModal from '../Modals/PolicyModal';
 import toast from 'react-hot-toast'; // 🚀 Thêm thư viện toast
 
 export default function WelcomeScreen() {
@@ -26,17 +26,17 @@ export default function WelcomeScreen() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!checkAuth()) { e.target.value = ''; return; }
 
-    if (e.target.files && e.target.files.length > 0) {  
+    if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files).sort((a, b) => a.name.localeCompare(b.name));
 
       if (files.length > 20) {
-         toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 20 trang mỗi lần!");
-         e.target.value = ''; return;
+        toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 20 trang mỗi lần!");
+        e.target.value = ''; return;
       }
       const badFile = files.find(f => f.size > 10 * 1024 * 1024);
       if (badFile) {
-         toast.error(`File ${badFile.name} vượt quá 10MB!`);
-         e.target.value = ''; return;
+        toast.error(`File ${badFile.name} vượt quá 10MB!`);
+        e.target.value = ''; return;
       }
       projectStore.uploadProjectFiles(files);
     }
@@ -82,8 +82,8 @@ export default function WelcomeScreen() {
         </p>
 
         <div className="flex items-start gap-3 bg-background/50 p-4 rounded-xl border border-border max-w-lg w-full mb-6 relative z-10 text-left shadow-inner">
-          <input 
-            type="checkbox" 
+          <input
+            type="checkbox"
             id="policy-checkbox"
             checked={isAgreed}
             onChange={(e) => {
@@ -103,29 +103,29 @@ export default function WelcomeScreen() {
 
         {/* 🚀 ĐÃ CHIA LÀM 2 NÚT RÕ RÀNG */}
         <div className={`flex items-center gap-4 w-full max-w-lg relative z-10 transition-all ${!isAgreed ? 'opacity-50 grayscale' : ''}`}>
-          
+
           {/* Nút Upload RAW */}
           <label className={`flex-1 flex flex-col items-center justify-center py-4 bg-primary hover:bg-primary-hover text-white rounded-xl shadow-lg transition-transform ${isAgreed ? 'cursor-pointer hover:scale-[1.02]' : 'cursor-not-allowed'}`}>
-            <Upload size={24} className="mb-2" /> 
+            <Upload size={24} className="mb-2" />
             <span className="font-bold">Dự án Mới</span>
             <span className="text-[10px] opacity-80 mt-1">Tải ảnh RAW lên</span>
-            <input 
-              type="file" multiple accept="image/jpeg, image/png, image/webp" 
-              className="hidden" disabled={!isAgreed} onChange={handleFileChange} 
+            <input
+              type="file" multiple accept="image/jpeg, image/png, image/webp"
+              className="hidden" disabled={!isAgreed} onChange={handleFileChange}
             />
           </label>
 
           {/* Nút Import .manga */}
           <label className={`flex-1 flex flex-col items-center justify-center py-4 bg-panel hover:bg-background border-2 border-border text-text-main rounded-xl shadow-lg transition-transform ${isAgreed ? 'cursor-pointer hover:scale-[1.02]' : 'cursor-not-allowed'}`}>
-            <FolderArchive size={24} className="mb-2 text-indigo-400" /> 
+            <FolderArchive size={24} className="mb-2 text-indigo-400" />
             <span className="font-bold">Khôi phục</span>
             <span className="text-[10px] opacity-60 mt-1">Từ file .manga</span>
-            <input 
-              type="file" accept=".manga" 
-              className="hidden" disabled={!isAgreed} onChange={handleImportManga} 
+            <input
+              type="file" accept=".manga"
+              className="hidden" disabled={!isAgreed} onChange={handleImportManga}
             />
           </label>
-          
+
         </div>
 
         <div className="grid grid-cols-3 gap-4 mt-12 w-full relative z-10">
