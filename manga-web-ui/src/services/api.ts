@@ -10,7 +10,7 @@ const handleApiError = async (response: Response, defaultMessage: string) => {
   if (response.status === 401) {
     // 🚀 PHIÊN ĐĂNG NHẬP HẾT HẠN THỰC SỰ -> ÉP BẬT MÀN HÌNH LOGIN NGAY LẬP TỨC
     await useAuthStore.getState().signOut();
-    import('react-hot-toast').then(module => 
+    import('react-hot-toast').then(module =>
       module.default.error("Phiên làm việc đã hết hạn! Vui lòng đăng nhập lại.")
     );
     throw new Error("Phiên đăng nhập đã hết hạn!");
@@ -31,7 +31,7 @@ const handleApiError = async (response: Response, defaultMessage: string) => {
 // 🚀 NÂNG CẤP THÀNH ASYNC: TỰ ĐỘNG KIỂM TRA VÀ GIA HẠN TOKEN KHI CÓ REQUEST
 const getAuthHeaders = async (isFormData: boolean = false) => {
   let token = useAuthStore.getState().session?.access_token;
-  
+
   try {
     // 🚀 Phép thuật ở đây: Lấy session từ Supabase client để nó tự gia hạn nếu JWT hết hạn
     const { data: { session } } = await supabase.auth.getSession();
@@ -55,7 +55,7 @@ const getAuthHeaders = async (isFormData: boolean = false) => {
 
 export const mangaApi = {
   getProjects: async () => {
-    const response = await fetch(`${API_URL}/projects`, { 
+    const response = await fetch(`${API_URL}/projects`, {
       headers: await getAuthHeaders() // Đã thêm await
     });
     await handleApiError(response, "Lỗi tải danh sách dự án");
@@ -82,7 +82,7 @@ export const mangaApi = {
   },
 
   getPageBubbles: async (pageId: string) => {
-    const response = await fetch(`${API_URL}/pages/${pageId}/bubbles`, { 
+    const response = await fetch(`${API_URL}/pages/${pageId}/bubbles`, {
       headers: await getAuthHeaders() // Đã thêm await
     });
     if (!response.ok) return { bubbles: [] };
@@ -93,10 +93,10 @@ export const mangaApi = {
     const formData = new FormData();
     formData.append("file", file);
     try {
-      await fetch(`${API_URL}/upload-raw`, { 
-        method: "POST", 
+      await fetch(`${API_URL}/upload-raw`, {
+        method: "POST",
         headers: await getAuthHeaders(true), // Đã thêm await
-        body: formData 
+        body: formData
       });
       console.log(`Đã upload ngầm thành công: ${file.name}`);
     } catch (err) {
@@ -171,7 +171,7 @@ export const mangaApi = {
       body: JSON.stringify({ image_url: imageUrl, mask_base64: maskBase64, prompt }),
     });
     await handleApiError(response, "Lỗi Server Redraw AI");
-    
+
     const data = await response.json();
     if (data.status !== "success") throw new Error(data.message || "Vẽ lại thất bại");
     return `${data.new_url}?t=${Date.now()}`;
@@ -188,7 +188,7 @@ export const mangaApi = {
   },
 
   downloadPsd: (pageId: string) => {
-    window.open(`${API_URL}/pages/${pageId}/psd`, '_blank');
+    window.open(`${API_URL}/pages/${pageId}/download-psd`, '_blank'); // <--- Sửa "/psd" thành "/download-psd"
   },
 
   downloadJsx: (pageId: string) => {
@@ -198,15 +198,15 @@ export const mangaApi = {
   uploadFont: async (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch(`${API_URL}/fonts/upload`, { 
-      method: "POST", 
+    const response = await fetch(`${API_URL}/fonts/upload`, {
+      method: "POST",
       headers: await getAuthHeaders(true), // Đã thêm await
-      body: formData 
+      body: formData
     });
     await handleApiError(response, "Lỗi khi tải font lên Server");
     return await response.json();
   },
-  
+
   getFonts: async () => {
     const response = await fetch(`${API_URL}/fonts`, {
       headers: await getAuthHeaders() // Đã thêm await
@@ -254,13 +254,13 @@ export const mangaApi = {
     formData.append("file", file);
     const response = await fetch(`${API_URL}/projects/${projectId}/import-manga`, {
       method: "POST",
-      headers: await getAuthHeaders(true), 
+      headers: await getAuthHeaders(true),
       body: formData,
     });
     await handleApiError(response, "Lỗi khi import dự án .manga");
     return await response.json();
   },
-  
+
   // 🚀 KHAI BÁO HÀM DỊCH LẠI CHỮ MỚI
   retryTextTranslation: async (pageId: string) => {
     const response = await fetch(`${API_URL}/pages/${pageId}/retry-text-translation`, {
@@ -268,6 +268,22 @@ export const mangaApi = {
       headers: await getAuthHeaders() // Tự động gắn Token bảo mật của sếp
     });
     await handleApiError(response, "Lỗi khi gọi lệnh dịch lại chữ");
+    return await response.json();
+  },
+  getUserProfile: async () => {
+    const response = await fetch(`${API_URL}/users/me`, {
+      headers: await getAuthHeaders()
+    });
+    await handleApiError(response, "Lỗi lấy thông tin người dùng");
+    return await response.json();
+  },
+
+  deductCredits: async (amount: number) => {
+    const response = await fetch(`${API_URL}/users/me/deduct?amount=${amount}`, {
+      method: "POST",
+      headers: await getAuthHeaders()
+    });
+    await handleApiError(response, "Lỗi trừ credits");
     return await response.json();
   },
 };

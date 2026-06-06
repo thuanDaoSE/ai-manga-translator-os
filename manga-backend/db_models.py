@@ -4,6 +4,40 @@ from sqlalchemy.sql import func
 import uuid
 from database import Base
 
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, BigInteger
+from sqlalchemy.sql import func
+from database import Base
+
+# BẢNG 1: QUẢN LÝ VÍ TIỀN VÀ GÓI SUBSCRIPTION CỦA USER
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(String, primary_key=True, index=True) # ID từ Supabase/Firebase
+    email = Column(String, unique=True, index=True)
+    
+    # Chiến lược Pay-as-you-go
+    credits = Column(Integer, default=20) # Tặng 20 credits dùng thử khi tạo nick mới
+    
+    # Chiến lược Subscription (Thuê bao tháng)
+    is_pro = Column(Boolean, default=False)
+    pro_until = Column(DateTime(timezone=True), nullable=True)
+
+# BẢNG 2: LỊCH SỬ GIAO DỊCH (CHỐNG HACK & GHI NHẬN THANH TOÁN PAYOS)
+class Transaction(Base):
+    # 🚀 MẸO: Đổi tên bảng thành "payos_transactions" để hệ thống tự tạo bảng mới sạch sẽ
+    __tablename__ = "payos_transactions" 
+    
+    # 🚀 VÁ LỖI: Dùng BigInteger (int64) thay vì Integer, chứa được số lên tới 9 tỷ tỷ!
+    order_code = Column(BigInteger, primary_key=True) 
+    user_id = Column(String, ForeignKey("users.id"))
+    
+    package_name = Column(String) 
+    amount = Column(Integer) 
+    credits_added = Column(Integer, default=0) 
+    
+    status = Column(String, default="PENDING") 
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 # ==========================================
 # CÁC BẢNG CŨ (Sếp giữ nguyên)
 # ==========================================

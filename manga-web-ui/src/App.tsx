@@ -90,7 +90,7 @@ export default function App() {
       <TranslationConfigModal />
 
       <div className="grid transition-[grid-template-rows] duration-300 ease-in-out" style={{ gridTemplateRows: isZenMode ? '0fr' : '1fr' }}>
-        <div className="overflow-hidden"><Topbar /></div>
+        <div className={`min-h-0 ${isZenMode ? 'overflow-hidden' : ''}`}><Topbar /></div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">

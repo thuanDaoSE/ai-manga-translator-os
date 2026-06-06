@@ -22,6 +22,21 @@ export default function Workspace() {
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
 
+  // Dán đoạn này vào đầu hàm Workspace()
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentStatus = urlParams.get('payment');
+
+    if (paymentStatus === 'success') {
+      toast.success('🎉 Thanh toán thành công! Credits đã được cộng vào tài khoản.', { duration: 5000, icon: '💎' });
+      // Xóa URL param cho sạch đẹp
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (paymentStatus === 'failed') {
+      toast.error('❌ Giao dịch đã bị hủy hoặc thất bại.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
 
   // 🚀 ĐẶT Ổ KHÓA BẢO VỆ Ở ĐÂY (Ngay dưới các state đầu file)
@@ -462,12 +477,12 @@ export default function Workspace() {
         </button>
       )}
       {/* 🚀 NÚT TEST TẠM THỜI (Bấm vào để xem UI) */}
-      <button
+      {/* <button
         onClick={() => setShowPaywall(true)}
         className="fixed top-4 right-[350px] z-[100] px-4 py-2 bg-amber-500 text-amber-950 font-bold rounded-lg shadow-lg hover:bg-amber-400"
       >
         👀 Xem thử Paywall
-      </button>
+      </button> */}
 
       {/* 🚀 COMPONENT GIAO DIỆN THANH TOÁN */}
       <PaywallDrawer

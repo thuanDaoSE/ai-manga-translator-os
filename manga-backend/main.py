@@ -1071,16 +1071,27 @@ async def download_psd(page_id: str, db: AsyncSession = Depends(get_db)):
         raw_path = get_local_path_from_url(page.raw_url)
         clean_path = raw_path.replace("/raw/", "/clean/")
         
-        # 🚀 BẢN VÁ TUYỆT ĐỐI: Nếu chưa tẩy nền thì tự động lấy ảnh gốc làm nền luôn. KHÔNG BÁO LỖI 400 NỮA!
+        # Nếu chưa tẩy nền thì lấy ảnh gốc làm nền luôn
         if not os.path.exists(clean_path):
             clean_path = raw_path
 
-        # 3. Tạo thư mục và xuất PSD
+        # 3. Tạo thư mục PSD
         psd_dir = f"workspace/{page.project_id}/psd"
         os.makedirs(psd_dir, exist_ok=True)
         psd_output_path = f"{psd_dir}/{page_id}.psd"
         
-        create_manga_psd(raw_path, clean_path, psd_output_path, payload.bubbles)
+        # 🚀 BẢN VÁ LỖI CHÍ MẠNG: Lấy Bubbles từ Database ra thay vì dùng biến payload "ma"
+        import json
+        bubbles_list = []
+        if page.bubbles_data:
+            try:
+                bubbles_list = json.loads(page.bubbles_data)
+            except Exception as e:
+                print(f"Lỗi đọc JSON bubbles: {e}")
+                bubbles_list = []
+
+        # 4. Truyền đúng danh sách bubbles vào hàm tạo PSD
+        create_manga_psd(raw_path, clean_path, psd_output_path, bubbles_list)
         
         return FileResponse(
             path=psd_output_path, 
@@ -1937,3 +1948,157 @@ Translate the text based on the rules and return ONLY the JSON object."""
     except Exception as e:
         print(f"❌ Lỗi AI Copilot: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+# ========================================================
+# KẾT NỐI PAYOS (CHUẨN SDK PYTHON MỚI NHẤT)
+# ========================================================
+from payos import PayOS
+from payos.types import CreatePaymentLinkRequest
+from db_models import User, Transaction
+import time
+import os
+
+# Khởi tạo PayOS
+payos_client = PayOS(
+    client_id=os.getenv("PAYOS_CLIENT_ID"),
+    api_key=os.getenv("PAYOS_API_KEY"),
+    checksum_key=os.getenv("PAYOS_CHECKSUM_KEY")
+)
+
+# ==========================================
+# API 1: TẠO MÃ QR THANH TOÁN CHO NGƯỜI DÙNG
+# ==========================================
+@app.post("/api/payment/create-link")
+async def create_payment_link(user_id: str, package_id: str, db: AsyncSession = Depends(get_db)):
+    # 1. Định nghĩa các gói bán
+    packages = {
+        "pack_test": {"name": "Gói Test Luồng", "price": 2000, "credits": 20},
+        "pack_50k": {"name": "Gói 500 Credits", "price": 50000, "credits": 500},
+        "pack_100k": {"name": "Gói 1200 Credits", "price": 100000, "credits": 1200},
+        "pack_pro": {"name": "Thuê bao PRO 1 Tháng", "price": 200000, "credits": 0}
+    }
+    
+    selected_pack = packages.get(package_id)
+    if not selected_pack:
+        raise HTTPException(status_code=400, detail="Gói không hợp lệ")
+
+    # ========================================================
+    # 🚀 BẢN VÁ LỖI KHÓA NGOẠI: TỰ ĐỘNG TẠO USER NẾU CHƯA CÓ
+    # ========================================================
+    from sqlalchemy import select
+    stmt_user = select(User).where(User.id == user_id)
+    existing_user = (await db.execute(stmt_user)).scalar_one_or_none()
+    
+    if not existing_user:
+        # Tạo user giả định để thỏa mãn khóa ngoại Database
+        new_user = User(id=user_id, email=f"user_{user_id}@deepkoma.local")
+        db.add(new_user)
+        # Flush để đẩy data xuống ổ cứng ngay lập tức, giúp lệnh Transaction bên dưới có thể trỏ tới!
+        await db.flush() 
+
+    # 2. Tạo mã đơn hàng duy nhất bằng Timestamp
+    order_code = int(time.time() * 1000)
+    
+    # 3. Lưu giao dịch PENDING vào Database
+    new_txn = Transaction(
+        order_code=order_code,
+        user_id=user_id,
+        package_name=selected_pack["name"],
+        amount=selected_pack["price"],
+        credits_added=selected_pack["credits"],
+        status="PENDING"
+    )
+    db.add(new_txn)
+    await db.commit()
+
+    # 4. Gọi API PayOS SDK Mới để tạo link
+    from payos.types import CreatePaymentLinkRequest
+    payment_request = CreatePaymentLinkRequest(
+        order_code=order_code,
+        amount=selected_pack["price"],
+        description="Thanh toan DeepKoma", 
+        cancel_url="http://localhost:5173/workspace?payment=failed",
+        return_url="http://localhost:5173/workspace?payment=success"
+    )
+    
+    payment_link = payos_client.payment_requests.create(payment_request)
+    
+    return {"checkoutUrl": payment_link.checkout_url}
+
+
+# ==========================================
+# API 2: WEBHOOK LẮNG NGHE TIỀN VỀ
+# ==========================================
+@app.post("/api/payment/webhook")
+async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    body = await request.json()
+    
+    webhook_data = body.get("data", {})
+    order_code = webhook_data.get("orderCode")
+    
+    if not order_code:
+        return {"success": True} 
+
+    stmt = select(Transaction).where(Transaction.order_code == order_code)
+    result = await db.execute(stmt)
+    txn = result.scalar_one_or_none()
+    
+    if txn and txn.status == "PENDING":
+        txn.status = "PAID"
+        
+        stmt_user = select(User).where(User.id == txn.user_id)
+        user = (await db.execute(stmt_user)).scalar_one_or_none()
+        
+        if user:
+            if "PRO" in txn.package_name:
+                user.is_pro = True
+            else:
+                user.credits += txn.credits_added
+        
+        await db.commit()
+        print(f"💰 TING TING! Đã cộng {txn.credits_added} credits cho user {txn.user_id}")
+
+    return {"success": True}
+
+# ==========================================
+# QUẢN LÝ CREDITS: LẤY SỐ DƯ & TRỪ TIỀN
+# ==========================================
+@app.get("/api/users/me")
+async def get_user_profile(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    """API lấy thông tin User (Bao gồm Credits và gói Pro)"""
+    stmt = select(User).where(User.id == user_id)
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    
+    if not user:
+        # Tự động tạo user mới tặng 20 credits nếu lần đầu đăng nhập
+        user = User(id=user_id, email=f"user_{user_id}@deepkoma.local", credits=20)
+        db.add(user)
+        await db.commit()
+        
+    return {
+        "id": user.id,
+        "credits": user.credits,
+        "is_pro": user.is_pro,
+        "pro_until": user.pro_until
+    }
+
+@app.post("/api/users/me/deduct")
+async def deduct_credits(amount: int = 1, user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    """API trừ tiền mỗi khi dùng AI"""
+    stmt = select(User).where(User.id == user_id)
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+        
+    # Gói Pro thì không trừ tiền
+    if user.is_pro:
+        return {"status": "success", "credits": user.credits, "is_pro": True}
+        
+    if user.credits < amount:
+        raise HTTPException(status_code=402, detail="Hết Credits! Vui lòng nạp thêm.")
+        
+    user.credits -= amount
+    await db.commit()
+    
+    return {"status": "success", "credits": user.credits, "is_pro": False}

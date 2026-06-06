@@ -13,6 +13,7 @@ import { useCanvasStore } from '../../store/useCanvasStore';
 import { useConfigStore } from '../../store/useConfigStore'; // 🚀 Bổ sung kho Cấu hình
 import { useProjectStore } from '../../store/useProjectStore'; // 🚀 Bổ sung kho Dự án
 import { mangaApi } from '../../services/api';
+import { useAuthStore } from '../../store/useAuthStore';
 
 // ==========================================
 // MICRO-COMPONENTS CHO DESIGN INSPECTOR
@@ -648,7 +649,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                     useCanvasStore.getState().updateBubble(bubble.id, {
                       fontFamily: toolState.fontFamily,
                       fontSize: toolState.fontSize,
-                      textAlign: toolState.textAlign,
+                      textAlign: toolState.textAlign as any,
                       fontColor: toolState.fontColor,
                       outlineWidth: toolState.outlineWidth,
                       outlineColor: toolState.outlineColor,
@@ -913,7 +914,7 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
   };
 
   return (
-    <div className="relative overflow-hidden rounded-xl bg-gradient-to-b from-amber-500/5 to-background border border-amber-500/20 shadow-inner" onClick={e => e.stopPropagation()}>
+    <div className="relative overflow-hidden rounded-xl bg-gradient-to-b from-amber-500/5 to-background border border-amber-500/20 shadow-inner" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
 
       {/* Header của Panel AI */}
       <div className="flex items-center justify-between px-3 py-2 bg-amber-500/10 border-b border-amber-500/10">
@@ -973,10 +974,17 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
                   {aiResult}
                 </div>
                 <button
-                  onClick={() => { updateBubble(bubble.id, { text: aiResult }); setAiResult(''); onClose(); }}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold text-[11px] uppercase tracking-wider rounded-lg transition-transform active:scale-[0.98] shadow-md"
+                  onClick={() => { updateBubble(bubble.id, { text: aiResult }); setAiResult(''); onClose();
+                
+                  const { user, deductLocalCredits } = useAuthStore.getState();
+                    if (!user?.isPro) {
+                      deductLocalCredits(1); // Trừ 1 credit trên UI
+                      mangaApi.deductCredits(1).catch(e => console.error("Lỗi trừ tiền:", e)); // Gọi Backend trừ tiền thật
+                    }
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold text-[11px] uppercase tracking-wider rounded-lg transition-transform active:scale-[0.98] shadow-sm"
                 >
-                  <Check size={14} strokeWidth={3} /> Áp dụng vào ảnh
+                  <Check size={14} strokeWidth={3} /> Áp dụng
                 </button>
               </div>
             )}

@@ -1,35 +1,76 @@
 import { create } from 'zustand';
 import { supabase } from '../services/supabaseClient';
+import { mangaApi } from '../services/api'; // 🚀 Import API để gọi Backend
 
 interface AuthState {
   user: any | null;
   session: any | null;
   loading: boolean;
-  setUser: (user: any) => void;
+  setUser: (session: any) => void;
   signOut: () => Promise<void>;
+
+  // 🚀 Bổ sung 2 hàm quản lý tiền
+  fetchProfile: () => Promise<void>;
+  deductLocalCredits: (amount: number) => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   session: null,
   loading: true,
-  setUser: (session) => set({ 
-    session, 
-    user: session?.user ?? null, 
-    loading: false 
-  }),
+
+  setUser: (session) => {
+    const currentUser = get().user;
+
+    // 🚀 Lính canh: Cờ đánh dấu xem đây có phải lần đầu đăng nhập không (chưa có user)
+    const isFirstLogin = !currentUser && session?.user;
+
+    set({
+      session,
+      // Ép giữ lại số tiền cũ khi Supabase cập nhật Token để không bị mất hiển thị trên UI
+      user: session?.user
+        ? { ...session.user, credits: currentUser?.credits, isPro: currentUser?.isPro }
+        : null,
+      loading: false
+    });
+
+    // 🚀 BẢN VÁ: Chỉ gọi API móc túi Backend nếu là lần đầu đăng nhập
+    if (isFirstLogin) {
+      get().fetchProfile();
+    }
+  },
+
+  // 🚀 Hàm móc túi Backend lấy số dư
+  fetchProfile: async () => {
+    try {
+      const data = await mangaApi.getUserProfile();
+      set((state) => ({
+        user: state.user ? { ...state.user, credits: data.credits, isPro: data.is_pro } : null
+      }));
+    } catch (error) {
+      console.error("Lỗi lấy thông tin ví tiền:", error);
+    }
+  },
+
+  // 🚀 Hàm trừ tiền tạm trên UI cho mượt
+  deductLocalCredits: (amount: number) => {
+    set((state) => {
+      if (!state.user || state.user.isPro) return state; // Tài khoản Pro thì miễn phí
+      return {
+        user: { ...state.user, credits: Math.max(0, (state.user.credits || 0) - amount) }
+      };
+    });
+  },
+
   signOut: async () => {
     try {
-      // Gọi lệnh logout của Supabase, bọc trong try/catch đề phòng token hết hạn bị lỗi
       await supabase.auth.signOut();
     } catch (e) {
       console.error("Lỗi khi gọi Supabase signOut:", e);
     }
-    
-    // 🚀 BẢN VÁ TỐI THƯỢNG: Dù Supabase có lỗi, ta VẪN LẬP TỨC xóa sạch bộ nhớ Zustand
+
     set({ user: null, session: null, loading: false });
-    
-    // 🚀 CHỦ ĐỘNG QUÉT SẠCH LOCAL STORAGE: Tìm tất cả các key của supabase (thường bắt đầu bằng sb-) để xóa sổ
+
     try {
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -39,8 +80,8 @@ export const useAuthStore = create<AuthState>((set) => ({
         }
       }
       keysToRemove.forEach(key => localStorage.removeItem(key));
-    } catch (err) {
-      console.error("Lỗi dọn dẹp localStorage:", err);
+    } catch (e) {
+      console.error("Lỗi khi xóa localStorage:", e);
     }
-  }
+  },
 }));

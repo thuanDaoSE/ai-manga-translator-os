@@ -17,6 +17,14 @@ java-api-gateway/target/
 java-api-gateway/.idea/
 java-api-gateway/*.iml
 
+node_modules/
+workspace/
+dist/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
 # --- OS TRASH ---
 .DS_Store
 Thumbs.db
