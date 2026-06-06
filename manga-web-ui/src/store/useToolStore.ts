@@ -81,7 +81,7 @@ export const useToolStore = create<ToolState>((set) => ({
   fontFamily: "'Comic Neue', cursive",
   setFontFamily: (font) => set({ fontFamily: font }),
   textAlign: 'center',
-  outlineWidth: 0,
+  outlineWidth: 5,
   outlineColor: '#ffffff',
   hasShadow: false,
 

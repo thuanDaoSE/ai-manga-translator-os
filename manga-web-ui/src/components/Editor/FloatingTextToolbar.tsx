@@ -1,6 +1,6 @@
 import { useToolStore } from '../../store/useToolStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
-import { Trash2, AlignLeft, AlignCenter, AlignRight, RefreshCw, Contrast, AlignJustify } from 'lucide-react';
+import { Trash2, AlignLeft, AlignCenter, AlignRight, RefreshCw, Contrast, AlignJustify,Lock, Unlock } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function FloatingTextToolbar() {
@@ -99,25 +99,30 @@ export default function FloatingTextToolbar() {
 
       <div className="w-px h-5 bg-[#444] mx-1"></div>
 
-      {/* NHÓM 3: ĐẢO MÀU & XÓA */}
+      {/* NHÓM 3: KHÓA, MÀU & XÓA */}
       <div className="flex gap-1">
+        
+        {/* 🚀 THÊM NÚT NÀY VÀO ĐỂ KÍCH HOẠT HIỆU ỨNG TRÊN BUBBLENODE */}
         <button
-          onClick={handleToggleColor}
-          className="p-1.5 text-[#A0A0A0] hover:text-white hover:bg-[#333] rounded-md transition-colors cursor-pointer"
-          title="Đảo màu Nhanh (Đen/Trắng)"
+          onClick={() => canvasStore.updateBubble(activeId, { isLocked: !activeBubble.isLocked })}
+          className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+            activeBubble.isLocked 
+            ? 'text-amber-500 hover:text-amber-400 bg-amber-500/10' 
+            : 'text-[#A0A0A0] hover:text-white hover:bg-[#333]'
+          }`}
+          title={activeBubble.isLocked ? "Mở khóa ô thoại" : "Khóa bảo vệ Style"}
         >
-          <Contrast size={15} />
+          {activeBubble.isLocked ? <Lock size={15} /> : <Unlock size={15} />}
         </button>
 
+        {/* Nút Xóa cũ của sếp */}
         <button
-          onClick={() => {
-            canvasStore.removeBubble(activeId);
-          }}
+          onClick={() => canvasStore.removeBubble(activeId)}
           className="p-1.5 text-red-400 hover:text-white hover:bg-red-500 rounded-md transition-colors cursor-pointer"
-          title="Xóa ô chữ này"
         >
           <Trash2 size={15} />
         </button>
+
       </div>
 
     </div>

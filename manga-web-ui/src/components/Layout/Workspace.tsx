@@ -21,7 +21,6 @@ export default function Workspace() {
   const [showPaywall, setShowPaywall] = useState(false);
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
-  const canvasStore = useCanvasStore();
 
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
 
@@ -33,36 +32,31 @@ export default function Workspace() {
     let isMounted = true;
     const pageId = projectStore.pageIds[projectStore.currentIndex];
 
-    // 1. KHÓA CHẶT AUTO-SAVE: Cấm tuyệt đối việc lưu dữ liệu rỗng khi đang dọn dẹp chuyển trang
     ignoreSaveRef.current = true;
 
-    // 2. Xóa sạch chữ cũ để màn hình tinh tươm (Lúc này Auto-save đã bị khóa nên không sợ nó lưu bậy)
-    canvasStore.clearBubbles();
+    // ✅ SỬA Ở ĐÂY: Dùng .getState() để gọi hàm mà không re-render Workspace
+    useCanvasStore.getState().clearBubbles();
 
     if (pageId) {
       mangaApi.getPageBubbles(pageId)
         .then(data => {
           if (!isMounted) return;
 
-          // 3. Đắp chữ mới vào màn hình
-          canvasStore.setBubbles(data.bubbles || []);
+          // ✅ SỬA Ở ĐÂY TƯƠNG TỰ:
+          useCanvasStore.getState().setBubbles(data.bubbles || []);
 
-          // 4. MỞ KHÓA AUTO-SAVE: Chờ 100ms cho React vẽ xong chữ lên màn hình thì mới mở khóa
           setTimeout(() => {
             if (isMounted) ignoreSaveRef.current = false;
           }, 100);
         })
         .catch(err => {
-          console.error("Lỗi đồng bộ chữ từ Server:", err);
-          if (isMounted) ignoreSaveRef.current = false; // Bị lỗi cũng phải mở khóa ra
+          if (isMounted) ignoreSaveRef.current = false;
         });
     } else {
       ignoreSaveRef.current = false;
     }
 
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [projectStore.currentIndex, projectStore.pageIds]);
 
   const { currentZoom, activeMode, setActiveMode, brushSize, setBrushSize, setZoom, isComparing, setIsComparing, actionPosition, setActionPosition, showText } = useToolStore();
@@ -415,11 +409,24 @@ export default function Workspace() {
 
       {/* 🚀 BẢN VÁ UX: MÀN HÌNH WELCOME ĐƯỢC GIẢI PHÓNG RA NGOÀI */}
       {/* Nó sẽ chiếm trọn không gian trống và đè lên khung tàng hình ở trên */}
-      {!displayUrl && (
+      {/* ========================================================= */}
+      {/* 🚀 BẢN VÁ UX 1: CHỈ HIỆN WELCOME KHI DANH SÁCH TRỐNG TRƠN */}
+      {fileQueue.length === 0 && (
         <div className="absolute inset-0 w-full h-full flex items-center justify-center z-10 bg-[#121212]">
           <WelcomeScreen />
         </div>
       )}
+
+      {/* 🚀 BẢN VÁ UX 2: HIỆU ỨNG LOADING MƯỢT MÀ KHI CHUYỂN TRANG */}
+      {fileQueue.length > 0 && !displayUrl && (
+        <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center z-10 bg-[#121212]">
+          <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin shadow-[0_0_15px_rgba(99,102,241,0.5)]"></div>
+          <p className="text-text-muted text-[13px] mt-4 font-semibold tracking-widest uppercase animate-pulse">
+            Đang tải ảnh...
+          </p>
+        </div>
+      )}
+      {/* ========================================================= */}
 
       {/* TẦNG 3: THANH TOOLBAR & CỤC NÚT (Nằm ngoài cùng) */}
 

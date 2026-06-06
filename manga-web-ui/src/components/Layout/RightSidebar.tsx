@@ -260,7 +260,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
         </div>
       </div>
 
-      <div className="flex-1 p-3 space-y-4">
+      <div className="flex-1 p-3 space-y-2"> {/* 🚀 Giảm space-y từ 4 xuống 2 */}
         {/* 🚀 Render mảng ĐÃ ĐƯỢC SẮP XẾP (sortedBubbles) thay vì mảng gốc */}
         {sortedBubbles.map((bubble, i) => {
           const isSelected = activeId === bubble.id;
@@ -272,81 +272,137 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
               ref={(node) => { if (node) itemRefs.current.set(bubble.id, node); }}
               onClick={() => setActiveBubble(bubble.id)}
               className={`
-                group relative flex flex-col p-4 transition-all duration-300 ease-out rounded-2xl border text-left cursor-pointer
+                group relative flex flex-col p-3 transition-all duration-200 ease-out rounded-xl border text-left cursor-pointer
                 ${isSelected
-                  ? 'bg-panel border-primary/40 ring-4 ring-primary/10 shadow-lg transform scale-[1.01] z-20'
-                  : 'bg-background border-border shadow-sm hover:shadow-md hover:border-border/80 hover:scale-[1.005]'
+                  ? (bubble.isLocked 
+                      ? 'bg-amber-500/10 border-amber-500/40 ring-2 ring-amber-500/20 shadow-md z-20' // 🚀 MÀU VÀNG NẾU ĐANG CHỌN & BỊ KHÓA
+                      : 'bg-panel border-primary/40 ring-2 ring-primary/10 shadow-md z-20') // MÀU XANH NẾU ĐANG CHỌN & KHÔNG KHÓA
+                  : (bubble.isLocked 
+                      ? 'bg-amber-500/5 border-amber-500/20 hover:bg-amber-500/10 hover:border-amber-500/40 hover:shadow-sm' // 🚀 MÀU VÀNG NHẠT NẾU BỊ KHÓA & KHÔNG ĐƯỢC CHỌN
+                      : 'bg-background/80 border-border/50 hover:bg-background hover:border-border hover:shadow-sm')
                 }
               `}
             >
-              {/* ... (GIỮ NGUYÊN TOÀN BỘ NỘI DUNG BÊN TRONG CỦA THẺ THOẠI) ... */}
-              {/* Lưu ý: Nếu copy đè, sếp nhớ copy cả phần ruột <div absolute top-3 right-3... tới hết InlineAIAssistant nhé */}
-              {/* 🚀 PROGRESSIVE DISCLOSURE: Thanh công cụ nổi tàng hình, giải quyết Fitts's Law bằng p-2 */}
-              <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-panel/95 backdrop-blur-sm p-1 rounded-xl border border-border shadow-md z-30">
-                <button onClick={(e) => { e.stopPropagation(); handleCopy((bubble as any).japanese, 'Nhật'); }} className="p-2 text-text-muted hover:text-text-main hover:bg-background rounded-lg transition-colors" title="Copy Tiếng Nhật">
-                  <span className="text-[10px] font-black uppercase">JP</span>
+              {/* ========================================================= */}
+              {/* THANH CÔNG CỤ NỔI */}
+              {/* ========================================================= */}
+              <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-panel/95 backdrop-blur-sm p-1 rounded-lg border border-border shadow-md z-30">
+                <button onClick={(e) => handleRetryTranslation(e, bubble)} className="p-1.5 text-text-muted hover:text-blue-400 hover:bg-blue-400/10 rounded-md transition-colors" title="Dịch lại ngay">
+                  <RefreshCcw size={12} />
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); handleCopy(bubble.text, 'Việt'); }} className="p-2 text-text-muted hover:text-text-main hover:bg-background rounded-lg transition-colors" title="Copy Tiếng Việt">
-                  <span className="text-[10px] font-black uppercase">VN</span>
-                </button>
-                <div className="w-[1px] h-4 bg-border mx-1" />
-                <button onClick={(e) => handleRetryTranslation(e, bubble)} className="p-2 text-text-muted hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-colors" title="Dịch lại ngay">
-                  <RefreshCcw size={15} />
-                </button>
-                <div className="w-[1px] h-4 bg-border mx-1" />
-                <button onClick={(e) => { e.stopPropagation(); removeBubble(bubble.id); }} className="p-2 text-text-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-colors" title="Xóa ô thoại">
-                  <Trash2 size={15} />
+                <div className="w-[1px] h-3 bg-border mx-1" />
+                <button onClick={(e) => { e.stopPropagation(); removeBubble(bubble.id); }} className="p-1.5 text-text-muted hover:text-danger hover:bg-danger/10 rounded-md transition-colors" title="Xóa ô thoại">
+                  <Trash2 size={12} />
                 </button>
               </div>
 
-              {/* Phân cấp thông tin (Hierarchy): Header */}
-              <div className="flex items-center gap-2 mb-3">
-                <div className="flex items-center justify-center w-7 h-7 rounded-full bg-background border border-border shadow-inner">
-                  <MessageSquareText className="w-3.5 h-3.5 text-text-muted" />
+              {/* ========================================================= */}
+              {/* HEADER: CỘT TRÁI (SỐ + COPY + KHÓA) & CỘT PHẢI (TIẾNG NHẬT) */}
+              {/* ========================================================= */}
+              <div className="flex items-start gap-3 mb-2 pr-14">
+                {/* CỘT TRÁI: Nhóm Số thứ tự, Nút Copy và Ổ Khóa */}
+                <div className="flex flex-col items-center gap-1.5 shrink-0 mt-0.5">
+                  {/* Số thứ tự (Đổi sang màu vàng nếu bị khóa) */}
+                  <div className={`flex items-center justify-center w-6 h-6 rounded-md shadow-inner text-[9px] font-bold transition-colors
+                    ${bubble.isLocked 
+                      ? 'bg-amber-500/20 border border-amber-500/40 text-amber-600' 
+                      : 'bg-background border border-border text-text-muted'}`
+                  }>
+                    {String(i + 1).padStart(2, '0')}
+                  </div>
+                  
+                  {/* 🚀 HIỂN THỊ ICON Ổ KHÓA NẾU BỊ KHÓA */}
+                  {bubble.isLocked && (
+                    <div title="Ô thoại này đã được bảo vệ Style" className="animate-in zoom-in duration-300">
+                      <Lock size={12} strokeWidth={3} className="text-amber-500 drop-shadow-sm" />
+                    </div>
+                  )}
+
+                  {/* Nút Copy nằm gọn gàng, an toàn ở lề trái */}
+                  {(bubble as any).japanese && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleCopy((bubble as any).japanese, 'Nhật'); }} 
+                      className="p-1 text-text-muted hover:text-primary hover:bg-primary/10 rounded-md transition-all opacity-40 group-hover:opacity-100 cursor-pointer" 
+                      title="Copy Tiếng Nhật để tra từ điển"
+                    >
+                      <Copy size={12} />
+                    </button>
+                  )}
                 </div>
-                <span className="text-[11px] font-bold text-text-muted uppercase tracking-[0.15em]">
-                  Thoại {String(i + 1).padStart(2, '0')}
-                </span>
+                
+                {/* CỘT PHẢI: Tiếng Nhật */}
+<p className="text-[11px] font-medium text-text-muted/80 font-sans leading-relaxed tracking-wide select-text pt-1 break-words whitespace-pre-wrap">
+  {(bubble as any).japanese || "Đang chờ dữ liệu..."}
+</p>
               </div>
 
-              {/* Nội dung tĩnh: Tiếng Nhật (Màu chìm, không tranh giành thị giác) */}
-              <div className="mb-3 pl-9">
-                <p className="text-xs font-medium text-text-muted/70 font-sans leading-relaxed tracking-wide select-text">
-                  {(bubble as any).japanese || "Đang chờ dữ liệu..."}
-                </p>
+              {/* ========================================================= */}
+              {/* KHUNG DỊCH TIẾNG VIỆT (TỰ ĐỘNG CO GIÃN) */}
+              {/* ========================================================= */}
+              <div className="pl-9 relative">
+                
+                {/* THANH CHỈ THỊ (INDICATOR) - Đổi sang màu Cam nếu khóa */}
+                <div className={`absolute left-0 top-0 bottom-0 w-[2px] rounded-r-sm transition-all duration-300 
+                  ${isSelected ? (bubble.isLocked ? 'bg-amber-500' : 'bg-primary') : 'bg-transparent'}
+                `} />
+
+                {/* KHUNG INPUT NHỎ GỌN HƠN */}
+                <div className={`relative p-2.5 rounded-lg border transition-all duration-300 
+                  ${isSelected 
+                    ? (bubble.isLocked ? 'bg-background border-amber-500/40 shadow-inner ring-1 ring-amber-500/20' : 'bg-background border-primary/40 shadow-inner ring-1 ring-primary/10') 
+                    : 'bg-background/40 border-border/50 hover:border-border hover:bg-background/60'
+                  }`}
+                >
+                  <textarea
+                    ref={(el) => {
+                      if (el) {
+                        el.style.height = 'auto'; 
+                        el.style.height = `${el.scrollHeight}px`; 
+                      }
+                    }}
+                    value={bubble.text || ""}
+                    onChange={(e) => updateBubble(bubble.id, { text: e.target.value })}
+                    onFocus={() => setActiveBubble(bubble.id)}
+                    className="w-full resize-none bg-transparent text-[13px] font-semibold text-text-main placeholder-text-muted/40 focus:outline-none focus:ring-0 p-0 m-0 leading-relaxed overflow-hidden"
+                    rows={1}
+                  />
+                  
+                  {/* ICON BÚT CHÌ (Hoặc Ổ khóa phụ mờ mờ) */}
+                  <div className={`absolute bottom-2 right-2 transition-opacity duration-300 ${isSelected ? 'opacity-100' : 'opacity-0'}`}>
+                    {bubble.isLocked 
+                      ? <Lock className="w-3.5 h-3.5 text-amber-500/50" /> 
+                      : <PenTool className="w-3.5 h-3.5 text-primary/50" />
+                    }
+                  </div>
+                </div>
               </div>
 
-              {/* Nội dung động: Khung dịch Tiếng Việt (Màu nổi, tương tác cao) */}
-              <div className="pl-9 mb-4">
-                <textarea
-                  value={bubble.text || ""}
-                  onChange={(e) => updateBubble(bubble.id, { text: e.target.value })}
-                  className="w-full resize-none bg-transparent text-[13px] font-semibold text-text-main placeholder-text-muted/40 focus:outline-none focus:ring-0 p-0 m-0 leading-relaxed custom-scrollbar"
-                  rows={Math.max(2, (bubble.text || "").split('\n').length)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-
-              {/* 🚀 NÚT AI MỚI: Rõ ràng, có Label, tiết diện bấm siêu lớn */}
-              <div className="pl-9 flex">
+              {/* ========================================================= */}
+              {/* NÚT TRỢ LÝ AI (TÀNG HÌNH) */}
+              {/* ========================================================= */}
+              <div 
+                className={`pl-9 flex transition-all duration-300 ease-out overflow-hidden
+                  ${isSelected || isAIExpanded ? 'opacity-100 max-h-20 mt-2' : 'opacity-0 max-h-0 pointer-events-none'}
+                `}
+              >
                 <button
                   onClick={(e) => { e.stopPropagation(); setExpandedAIBubbleId(isAIExpanded ? null : bubble.id); }}
                   className={`
-                    inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-[11px] font-bold transition-all duration-300 shadow-sm
+                    inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all duration-300 shadow-sm
                     ${isAIExpanded
                       ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
-                      : 'bg-panel text-text-muted border border-border hover:bg-amber-500/10 hover:text-amber-500 hover:border-amber-500/20'
+                      : 'bg-background text-text-muted border border-border hover:bg-amber-500/10 hover:text-amber-500 hover:border-amber-500/20'
                     }
                   `}
                 >
                   <Sparkles className={`w-3.5 h-3.5 ${isAIExpanded ? 'animate-pulse' : ''}`} />
-                  Trợ lý AI Ngữ cảnh
+                  Trợ lý AI
                 </button>
               </div>
 
               {/* 🚀 CHỐNG LAYOUT THRASHING: Hiệu ứng mở rộng bằng CSS Grid */}
               <div
-                className={`grid transition-all duration-300 ease-in-out pl-9 ${isAIExpanded ? 'grid-rows-[1fr] opacity-100 mt-3' : 'grid-rows-[0fr] opacity-0'
+                className={`grid transition-all duration-300 ease-in-out pl-9 ${isAIExpanded ? 'grid-rows-[1fr] opacity-100 mt-2' : 'grid-rows-[0fr] opacity-0'
                   }`}
               >
                 <div className="overflow-hidden">
@@ -413,9 +469,6 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
   const currentOutlineColor = activeBubble?.outlineColor || toolStore.outlineColor || '#ffffff';
   const currentHasShadow = activeBubble?.hasShadow ?? toolStore.hasShadow ?? false;
 
-  // =====================================
-  // 🚀 HÀM CẬP NHẬT TRẠNG THÁI THÔNG MINH
-  // =====================================
   // =====================================
   // 🚀 HÀM CẬP NHẬT TRẠNG THÁI THÔNG MINH
   // =====================================
@@ -516,57 +569,155 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
       <div className="p-4 space-y-2">
 
         {/* ========================================================= */}
-        {/* 🚀 CONTEXT BANNER ĐƯỢC NÂNG CẤP UX TỐI ĐA */}
+        {/* 🚀 CONTEXT BANNER & NÚT ĐỒNG BỘ (ĐƯỢC THIẾT KẾ LẠI CHUẨN UX) */}
         {/* ========================================================= */}
-        <div className={`flex items-center justify-between px-3 py-2.5 rounded-lg border shadow-sm transition-colors duration-300 ${isGlobal ? 'bg-primary/10 border-primary/20 text-primary' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'}`}>
-          <div className="flex items-center gap-2.5">
-            <div className={`p-1.5 rounded-md ${isGlobal ? 'bg-primary/20' : 'bg-emerald-500/20'}`}>
-              {isGlobal ? <Globe className="w-4 h-4" /> : <MousePointer2 className="w-4 h-4" />}
+        <div className="space-y-2 mb-4">
+          
+          {/* 1. KHỐI BANNER CHÍNH */}
+          <div className={`flex items-center justify-between px-3 py-2.5 rounded-xl border shadow-sm transition-colors duration-300 ${isGlobal ? 'bg-primary/10 border-primary/20 text-primary' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'}`}>
+            <div className="flex items-center gap-2.5">
+              <div className={`p-1.5 rounded-md ${isGlobal ? 'bg-primary/20' : 'bg-emerald-500/20'}`}>
+                {isGlobal ? <Globe className="w-4 h-4" /> : <MousePointer2 className="w-4 h-4" />}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[11px] font-bold uppercase tracking-wider leading-none mb-1">
+                  {isGlobal ? 'Cấu hình chung' : 'Đang sửa 1 Ô thoại'}
+                </span>
+                <span className="text-[9px] font-medium opacity-70 leading-none">
+                  {isGlobal ? 'Thiết lập thông số nền' : 'Chỉ sửa ô đang chọn'}
+                </span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <span className="text-[11px] font-bold uppercase tracking-wider leading-none mb-1">
-                {isGlobal ? 'Cấu hình chung' : 'Đang sửa 1 Ô thoại'}
-              </span>
-              <span className="text-[9px] font-medium opacity-70 leading-none">
-                {isGlobal ? 'Áp dụng cho toàn bộ ảnh' : 'Chỉ sửa ô đang chọn'}
-              </span>
+
+            {/* CÁC NÚT BÊN PHẢI BANNER */}
+            <div className="flex items-center gap-1.5">
+              {isGlobal ? (
+                /* NÚT RESET (CHỈ HIỆN Ở GLOBAL) */
+                <button
+                  onClick={() => {
+                    useToolStore.setState({
+                      fontFamily: 'Comic Neue', fontSize: 18, textAlign: 'center',
+                      fontColor: '#000000', outlineWidth: 5, outlineColor: '#ffffff', hasShadow: false
+                    });
+                  }}
+                  className="flex items-center justify-center p-2 bg-primary/10 hover:bg-primary/30 text-primary rounded-lg transition-colors cursor-pointer active:scale-95 shadow-sm border border-primary/20"
+                  title="Khôi phục thông số mặc định ban đầu"
+                >
+                  <RefreshCcw size={14} strokeWidth={2.5} />
+                </button>
+              ) : (
+                /* NÚT LOCAL: KHÓA VÀ BỎ CHỌN (CHỈ HIỆN KHI BẤM VÀO 1 Ô THOẠI) */
+                <>
+                  <button
+                    onClick={() => handleUpdate('isLocked', !activeBubble?.isLocked)}
+                    className={`flex items-center justify-center p-1.5 rounded-md transition-all cursor-pointer shadow-sm border ${activeBubble?.isLocked
+                      ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 border-amber-500/30'
+                      : 'bg-background hover:bg-border text-text-muted border-border'
+                      }`}
+                    title={activeBubble?.isLocked ? "Mở khóa ô thoại" : "Khóa cứng (Bảo vệ khỏi thay đổi Global)"}
+                  >
+                    {activeBubble?.isLocked ? <Lock size={12} strokeWidth={3} /> : <Unlock size={12} />}
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      useCanvasStore.getState().setActiveBubble(null);
+                      setEffectiveId(null);
+                    }}
+                    className="flex items-center gap-1 px-2 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-600 rounded-md transition-colors cursor-pointer active:scale-95 shadow-sm border border-emerald-500/30"
+                    title="Bỏ chọn để quay về Cấu hình chung"
+                  >
+                    <span className="text-[9px] font-bold uppercase">Bỏ chọn</span>
+                    <X size={12} strokeWidth={3} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
-          {/* NÚT "BỎ CHỌN" CỰC KỲ TƯỜNG MINH */}
-          {/* ===================================== */}
-          {/* CỤM NÚT CÔNG CỤ (CHỈ HIỆN KHI Ở CHẾ ĐỘ LOCAL) */}
-          {/* ===================================== */}
-          {!isGlobal && (
-            <div className="flex items-center gap-1.5">
-
-              {/* 🚀 NÚT KHÓA MỚI */}
-              <button
-                onClick={() => handleUpdate('isLocked', !activeBubble?.isLocked)}
-                className={`flex items-center justify-center p-1.5 rounded-md transition-all cursor-pointer shadow-sm border ${activeBubble?.isLocked
-                  ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 border-amber-500/30'
-                  : 'bg-background hover:bg-border text-text-muted border-border'
-                  }`}
-                title={activeBubble?.isLocked ? "Mở khóa ô thoại" : "Khóa cứng (Bảo vệ khỏi thay đổi Global)"}
-              >
-                {activeBubble?.isLocked ? <Lock size={12} strokeWidth={3} /> : <Unlock size={12} />}
-              </button>
-
-              {/* NÚT "BỎ CHỌN" CŨ */}
-              <button
-                onClick={() => {
-                  useCanvasStore.getState().setActiveBubble(null);
-                  setEffectiveId(null);
-                }}
-                className="flex items-center gap-1 px-2 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-600 rounded-md transition-colors cursor-pointer active:scale-95 shadow-sm border border-emerald-500/30"
-                title="Bỏ chọn để quay về Cấu hình chung"
-              >
-                <span className="text-[9px] font-bold uppercase">Bỏ chọn</span>
-                <X size={12} strokeWidth={3} />
-              </button>
-            </div>
+          {/* 2. 🚀 NÚT "ÁP DỤNG TOÀN TRANG" ĐƯỢC TÁCH RIÊNG (FULL WIDTH) */}
+          {isGlobal && (
+            <button
+              onClick={() => {
+                const toolState = useToolStore.getState();
+                const allBubbles = useCanvasStore.getState().bubbles;
+                let count = 0;
+                
+                allBubbles.forEach((bubble) => {
+                  if (!bubble.isLocked) {
+                    useCanvasStore.getState().updateBubble(bubble.id, {
+                      fontFamily: toolState.fontFamily,
+                      fontSize: toolState.fontSize,
+                      textAlign: toolState.textAlign,
+                      fontColor: toolState.fontColor,
+                      outlineWidth: toolState.outlineWidth,
+                      outlineColor: toolState.outlineColor,
+                      hasShadow: toolState.hasShadow
+                    });
+                    count++;
+                  }
+                });
+                
+                if (count > 0) {
+                  toast.success(`Đã áp dụng cấu hình lên ${count} ô thoại!`, { icon: '✨' });
+                } else {
+                  toast.error(`Không có ô thoại nào để áp dụng (Hoặc tất cả đã bị khóa).`);
+                }
+              }}
+              className="w-full flex items-center justify-center gap-2 px-3 py-3 bg-primary hover:bg-primary-hover text-white rounded-xl transition-all cursor-pointer active:scale-[0.98] shadow-md font-bold group"
+            >
+              <PaintBucket size={14} strokeWidth={2.5} className="group-hover:animate-bounce" />
+              <span className="text-[11px] uppercase tracking-widest">Đồng bộ cấu hình toàn trang</span>
+            </button>
           )}
         </div>
+
+        {/* ========================================================= */}
+        {/* 🚀 KHU VỰC PREVIEW TEXT (XEM TRƯỚC) */}
+        {/* ========================================================= */}
+        <section className="mt-2 mb-2">
+          <SectionHeader title="Xem trước (Preview)" />
+          <div className="relative w-full h-28 bg-[#1a1a1a] border border-border/80 rounded-xl overflow-hidden flex items-center justify-center p-4 shadow-inner">
+            {/* Nền Caro (Checkerboard) */}
+            <div 
+              className="absolute inset-0 opacity-20 pointer-events-none" 
+              style={{ 
+                backgroundImage: 'repeating-linear-gradient(45deg, #404040 25%, transparent 25%, transparent 75%, #404040 75%, #404040), repeating-linear-gradient(45deg, #404040 25%, #1a1a1a 25%, #1a1a1a 75%, #404040 75%, #404040)', 
+                backgroundPosition: '0 0, 8px 8px', 
+                backgroundSize: '16px 16px' 
+              }}
+            />
+            {/* Vùng chứa chữ Preview (ĐÃ DÙNG SVG ĐỂ KHỬ GAI VÀ CẮT CHỮ THÔNG MINH) */}
+            <div className="relative z-10 w-full h-full flex items-center justify-center overflow-hidden pointer-events-none">
+              <svg width="100%" height="100%" style={{ overflow: 'visible' }}>
+                <text
+                  x="50%"
+                  y="50%"
+                  dominantBaseline="middle"
+                  textAnchor="middle"
+                  fill={currentFillColor}
+                  stroke={currentOutlineColor}
+                  strokeWidth={currentOutlineWidth}
+                  strokeLinejoin="round"    /* Khử gai triệt để */
+                  paintOrder="stroke fill"  /* Ép viền chui xuống dưới ruột chữ */
+                  style={{
+                    fontFamily: currentFontFamily,
+                    fontSize: `${Math.min(currentFontSize, 28)}px`,
+                    fontWeight: 800,
+                    textShadow: currentHasShadow ? '3px 3px 6px rgba(0,0,0,0.8)' : 'none',
+                  }}
+                >
+                  {/* 🚀 BÍ QUYẾT 3: Cắt chữ thông minh (Lấy dòng 1, tối đa 20 ký tự) */}
+                  {activeBubble?.text 
+                    ? (activeBubble.text.split('\n')[0].length > 20 
+                        ? activeBubble.text.split('\n')[0].slice(0, 20) + '...' 
+                        : activeBubble.text.split('\n')[0]) 
+                    : 'DeepKoma Preview'}
+                </text>
+              </svg>
+            </div>
+          </div>
+        </section>
 
         {/* ==================== SECTION: TYPOGRAPHY ==================== */}
         <section>

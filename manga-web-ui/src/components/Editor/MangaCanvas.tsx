@@ -18,7 +18,9 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
   const cleanRef = useRef<HTMLCanvasElement>(null);
   const originalCleanRef = useRef<HTMLCanvasElement>(null); // 🚀 Thêm ref Két sắt
 
-  const { activeMode, brushSize, currentZoom } = useToolStore();
+  const activeMode = useToolStore((state) => state.activeMode);
+  const brushSize = useToolStore((state) => state.brushSize);
+  const currentZoom = useToolStore((state) => state.currentZoom);
 
   const currentPoints = useRef<{ x: number, y: number }[]>([]);
   const isDrawing = useRef(false);

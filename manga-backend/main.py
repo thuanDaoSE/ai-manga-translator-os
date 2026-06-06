@@ -1080,7 +1080,7 @@ async def download_psd(page_id: str, db: AsyncSession = Depends(get_db)):
         os.makedirs(psd_dir, exist_ok=True)
         psd_output_path = f"{psd_dir}/{page_id}.psd"
         
-        create_manga_psd(raw_path, clean_path, psd_output_path)
+        create_manga_psd(raw_path, clean_path, psd_output_path, payload.bubbles)
         
         return FileResponse(
             path=psd_output_path, 

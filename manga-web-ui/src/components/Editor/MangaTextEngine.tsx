@@ -21,7 +21,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
   const bubbles = useCanvasStore((state) => state.bubbles);
   // 🚀 BẢN VÁ 1: Theo dõi xem thẻ thoại nào đang được chọn ở kho tổng
   const activeBubbleId = useCanvasStore((state) => state.activeBubbleId);
-  const { activeMode } = useToolStore();
+  const activeMode = useToolStore((state) => state.activeMode);
 
   useEffect(() => {
     if (!containerRef.current || !wrapperRef.current) return;
@@ -169,13 +169,27 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
 
         // Lấy thông số Viền & Bóng từ Sidebar
         const currentOutlineColor = bubble.outlineColor || (safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000');
-        const currentOutlineWidth = bubble.outlineWidth !== undefined ? bubble.outlineWidth : 0;
+        const currentOutlineWidth = bubble.outlineWidth !== undefined ? bubble.outlineWidth : useToolStore.getState().outlineWidth;
         const currentShadow = bubble.hasShadow ? new fabric.Shadow({
           color: 'rgba(0,0,0,0.6)', blur: 4, offsetX: 2, offsetY: 4
         }) : null;
 
         const defaultFontSize = bubble.fontSize || 28;
         let textObj: fabric.Textbox | undefined;
+
+        // ==========================================
+        // 🚀 BẢN VÁ UI KHÓA FABRIC: LOGIC TÍNH TOÁN MÀU SẮC
+        // ==========================================
+        const isLocked = bubble.isLocked || false;
+        const dynamicBorderColor = isLocked ? '#f59e0b' : '#6366f1';        // Khung Cam
+        const dynamicCornerColor = isLocked ? '#f59e0b' : '#ffffff';        // Chấm Cam
+        const dynamicCornerStrokeColor = isLocked ? '#b45309' : '#6366f1';
+        
+        // Khi không chọn: Phủ lớp nền vàng siêu nhạt để dễ nhận diện từ xa
+        const dynamicBgColor = isLocked ? 'rgba(245, 158, 11, 0.2)' : '';
+        
+        // Khi click chọn: Đổi nền khung bounding box thành vàng cam nhạt
+        const dynamicSelectionBg = isLocked ? 'rgba(245, 158, 11, 0.15)' : '';
 
         if (!existingIds.includes(bubble.id)) {
           textObj = new fabric.Textbox(safeText, {
@@ -194,19 +208,32 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
             paintFirst: 'stroke',
             strokeLineJoin: 'round',
             textAlign: bubble.textAlign || 'center',
-            backgroundColor: '',
             snapAngle: 45,
             snapThreshold: 5,
             transparentCorners: false,
-            cornerColor: '#ffffff',
-            cornerStrokeColor: '#6366f1',
-            borderColor: '#6366f1',
+            
+            // 🚀 ÁP DỤNG GIAO DIỆN VÀ KHÓA VÀO FABRIC Ở ĐÂY
+            backgroundColor: dynamicBgColor,
+            selectionBackgroundColor: dynamicSelectionBg,
+            cornerColor: dynamicCornerColor,
+            cornerStrokeColor: dynamicCornerStrokeColor,
+            borderColor: dynamicBorderColor,
+            editingBorderColor: isLocked ? '#f59e0b' : '#f43f5e',
+            cursorColor: isLocked ? '#f59e0b' : '#f43f5e',
+            
+            // Khóa cứng thao tác di chuyển, xoay, scale
+            lockMovementX: isLocked,
+            lockMovementY: isLocked,
+            lockRotation: isLocked,
+            lockScalingX: isLocked,
+            lockScalingY: isLocked,
+            editable: !isLocked,    // Chặn click đúp sửa chữ
+            hasControls: !isLocked, // TUYỆT CHIÊU: Giấu 8 ô vuông và cây xoay khi bị khóa!
+            
             cornerSize: 16,
             touchCornerSize: 36,
             padding: 16,
             cornerStyle: 'circle',
-            editingBorderColor: '#f43f5e',
-            cursorColor: '#f43f5e',
             cursorWidth: 3,
             cursorDuration: 500,
           });
@@ -227,7 +254,6 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
               ctx.lineWidth = 1.5;
               ctx.strokeStyle = '#6366f1';
               ctx.stroke();
-              // LƯU Ý: Biến rotateImg sếp nhớ giữ nguyên ở trên cùng file nhé
               if (typeof rotateImg !== 'undefined') {
                 ctx.drawImage(rotateImg, -8, -8, 16, 16);
               }
@@ -262,14 +288,28 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
               originX: 'center',
               originY: 'center',
               textAlign: bubble.textAlign || 'center',
-              backgroundColor: '',
+              
+              // 🚀 CẬP NHẬT TRẠNG THÁI KHÓA LÊN OBJECT ĐÃ TỒN TẠI (KHI SẾP BẤM NÚT MỞ/KHÓA TRÊN THANH NỔI)
+              backgroundColor: dynamicBgColor,
+              selectionBackgroundColor: dynamicSelectionBg,
+              cornerColor: dynamicCornerColor,
+              cornerStrokeColor: dynamicCornerStrokeColor,
+              borderColor: dynamicBorderColor,
+              editingBorderColor: isLocked ? '#f59e0b' : '#f43f5e',
+              lockMovementX: isLocked,
+              lockMovementY: isLocked,
+              lockRotation: isLocked,
+              lockScalingX: isLocked,
+              lockScalingY: isLocked,
+              editable: !isLocked,
+              hasControls: !isLocked,
             });
             textObj.setControlsVisibility({ mt: false, mb: false, ml: true, mr: true });
           }
         }
 
         // ================================================================
-        // 🚀 BẢN VÁ TỐI THƯỢNG: SMART AUTO-FIT (CHỐNG TRÀN CHỮ)
+        // 🚀 SMART AUTO-FIT (CHỐNG TRÀN CHỮ) CỦA SẾP GIỮ NGUYÊN...
         // ================================================================
         if (textObj && !textObj.isEditing) {
           textObj.initDimensions();
@@ -304,8 +344,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
 
     // 🚀 GỌI HÀM KHI CHẠY USEEFFECT
     loadFontsAndRender();
-
-  }, [bubbles]);
+  }, [bubbles, imgWidth, imgHeight]);
 
   useEffect(() => {
     const canvas = fabricCanvas.current;

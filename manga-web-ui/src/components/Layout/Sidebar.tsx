@@ -13,17 +13,24 @@ import { mangaApi } from '../../services/api';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 
-// ==========================================
-// 1. COMPONENT CON: THẺ TRANG TRUYỆN
-// ==========================================
+// =========================================
+// 1. COMPONENT CON: THẺ TRANG TRUYỆN (UI NÂNG CẤP)
+// =========================================
 function SortableItem({
   id, file, isActive, status, displayImg, progress,
   onClick, onTranslate, onDelete, onCancel, onRetry,
-  isSelected, isSelectionMode, onToggleSelection, hasCleanUrl // 🚀 PROPS MỚI CHO MULTI-SELECT
+  isSelected, isSelectionMode, onToggleSelection, hasCleanUrl
 }: any) {
 
-  // 🚀 Vô hiệu hóa Kéo-Thả nếu đang ở Chế độ Chọn (Selection Mode)
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: id,
     disabled: isSelectionMode
   });
@@ -38,7 +45,6 @@ function SortableItem({
     <div ref={setNodeRef} style={style} {...attributes} {...(!isSelectionMode ? listeners : {})}>
       <div
         onClick={(e) => {
-          // 🚀 Nếu đang ở chế độ chọn, click vào thẻ sẽ là Tick chọn thay vì Đổi ảnh
           if (isSelectionMode) {
             e.stopPropagation();
             onToggleSelection();
@@ -46,122 +52,126 @@ function SortableItem({
             onClick(e);
           }
         }}
-        className={`w-full text-left rounded-xl flex items-center gap-2 p-2 transition-colors border group relative ${isSelectionMode ? 'cursor-pointer' : 'cursor-grab'} ${isDragging ? 'opacity-50 shadow-2xl scale-105 border-primary bg-primary/20' :
+        className={`w-full text-left rounded-xl flex items-center p-2.5 transition-colors border group relative outline-none min-h-[5.5rem] ${isSelectionMode ? 'cursor-pointer' : 'cursor-grab'} ${isDragging ? 'opacity-50 shadow-2xl scale-105 border-primary bg-primary/20' :
           isSelected ? 'bg-primary/15 border-primary/50 shadow-md ring-1 ring-primary/50' :
             isActive ? 'bg-primary/10 border-primary/40 shadow-lg' :
               status === 'error' ? 'bg-danger/5 border-danger/30 hover:bg-danger/10' :
                 'bg-panel/40 border-transparent hover:border-border hover:bg-panel/60'
           }`}
       >
-        {/* ICON KÉO THẢ (Ẩn đi khi đang ở chế độ chọn) */}
+        {/* DRAG HANDLE */}
         {!isSelectionMode && (
-          <GripVertical size={14} className="text-text-muted opacity-50 group-hover:opacity-100 shrink-0" />
+          <div ref={setActivatorNodeRef} className="flex shrink-0 w-5 h-full items-center justify-center opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity text-text-muted">
+            <GripVertical size={16} />
+          </div>
         )}
 
-        {/* 🚀 CHECKBOX TÀNG HÌNH (Two-Step Hover) */}
+        {/* CHECKBOX (SELECTION MODE) */}
         <div
           onClick={(e) => { e.stopPropagation(); onToggleSelection(); }}
-          className={`absolute left-2 z-20 w-5 h-5 rounded-md flex items-center justify-center transition-all cursor-pointer shadow-sm border ${isSelected
+          className={`absolute left-2.5 z-20 w-5 h-5 rounded-md flex items-center justify-center transition-all cursor-pointer shadow-sm border ${isSelected
             ? 'bg-primary border-primary text-white opacity-100 scale-100'
             : 'bg-background/90 border-border text-transparent hover:border-primary opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100'
-            } ${isSelectionMode && !isSelected ? 'opacity-100' : ''}`} // Ép hiện nếu đang trong Selection Mode
+            } ${isSelectionMode && !isSelected ? 'opacity-100' : ''}`}
         >
           <Check size={14} strokeWidth={3} className={isSelected ? 'opacity-100' : 'opacity-0'} />
         </div>
 
-        <div className={`relative w-12 h-16 shrink-0 rounded-md overflow-hidden border border-border bg-black/40 transition-transform ${isSelectionMode && !isSelected ? 'ml-6' : isSelected ? 'ml-6' : ''}`}>
+        {/* 🚀 BẢN VÁ UI 1: PHÓNG TO THUMBNAIL (w-14 h-20) */}
+        <div className={`relative w-14 h-20 shrink-0 rounded-lg overflow-hidden border border-border bg-black/40 transition-transform shadow-sm ${isSelectionMode && !isSelected ? 'ml-6' : isSelected ? 'ml-6' : (!isSelectionMode ? 'ml-1' : '')}`}>
           {displayImg ? (
             <img src={displayImg} className={`w-full h-full object-cover ${(status === 'processing' || status === 'error') ? 'blur-[2px] opacity-50 scale-110' : ''}`} alt="thumb" crossOrigin="anonymous" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gray-800"><Loader2 className="animate-spin text-gray-600" size={14} /></div>
+            <div className="w-full h-full flex items-center justify-center bg-gray-800"><Loader2 className="animate-spin text-gray-600" size={16} /></div>
           )}
 
-          {status === 'processing' && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={16} /></div>}
-          {status === 'completed' && <div className="absolute top-1 right-1 bg-emerald-500 rounded-full p-0.5"><CheckCircle2 size={8} className="text-white" /></div>}
-
-          {/* 🚀 Phân biệt Lỗi Runpod và Lỗi DeepSeek */}
-          {status === 'error' && (
-            <span className="flex items-center gap-1 text-[9px] text-danger font-black uppercase">
-              <AlertTriangle size={10} /> {hasCleanUrl ? 'Lỗi API Chữ' : 'Dịch thất bại'}
-            </span>
-          )}
+          {status === 'processing' && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={20} /></div>}
+          {status === 'completed' && <div className="absolute top-1 right-1 bg-emerald-500 rounded-full p-0.5 shadow-sm"><CheckCircle2 size={10} className="text-white" /></div>}
         </div>
 
-        <div className="flex flex-col gap-1 overflow-hidden w-full">
-          <span className={`text-[11px] font-bold truncate ${isActive || isSelected ? 'text-primary' : status === 'error' ? 'text-danger' : 'text-text-main'}`}>{file.name}</span>
-
-          {status === 'unprocessed' && <span className="flex items-center gap-1 text-[9px] text-text-muted font-bold uppercase"><Clock size={10} /> Đợi dịch</span>}
-
+        {/* ============================================================== */}
+        {/* 🚀 BẢN VÁ UI 2: CHIA LẠI KHÔNG GIAN (PADDING ĐỘNG) VÀ FIX BỊ ÉP CHỮ */}
+        {/* ============================================================== */}
+        <div className={`flex flex-col gap-1 overflow-hidden flex-1 min-w-0 pl-3 justify-center transition-all duration-300 ${status === 'processing' ? 'pr-12' : 'pr-[70px]'}`}>
+          <span className={`text-xs font-bold truncate block w-full ${isActive || isSelected ? 'text-primary' : status === 'error' ? 'text-danger' : 'text-text-main'}`}>
+            {file.name}
+          </span>
+          
+          {status === 'unprocessed' && <span className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold uppercase truncate"><Clock size={12} /> Đợi dịch</span>}
+          
           {status === 'processing' && (
-            <div className="flex flex-col gap-1 mt-0.5 w-full">
-              <span className="flex items-center gap-1 text-[9px] text-amber-400 font-black uppercase truncate">
-                {progress ? `${Math.round(progress.percent)}% - ${progress.message}` : "Đang tải AI..."}
+            <div className="flex flex-col gap-1.5 mt-0.5 w-full">
+              {/* 🚀 FIX 1: Bỏ truncate, dùng line-clamp-2 để chữ được phép rớt 2 dòng mà không bị cắt cụt */}
+              <span className="text-[9.5px] text-amber-400 font-bold uppercase line-clamp-2 leading-snug w-full tracking-wide">
+                {progress ? `${Math.round(progress.percent)}% - ${progress.message}` : "Đang khởi động AI..."}
               </span>
-              <div className="w-full bg-background/50 rounded-full h-1 border border-border overflow-hidden">
-                <div
-                  className="bg-amber-400 h-full rounded-full transition-all duration-500 ease-out"
+              
+              {/* 🚀 FIX 2: Thanh tiến trình được làm nổi bật với hiệu ứng 3D và Gradient */}
+              <div className="w-full bg-black/40 rounded-full h-1.5 border border-border/40 overflow-hidden shrink-0 shadow-inner">
+                <div 
+                  className="bg-gradient-to-r from-amber-500 to-amber-300 h-full rounded-full transition-all duration-300 ease-out relative" 
                   style={{ width: `${progress ? progress.percent : 0}%` }}
-                ></div>
+                >
+                  <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                </div>
               </div>
             </div>
           )}
-
-          {status === 'completed' && <span className="flex items-center gap-1 text-[9px] text-emerald-400 font-black uppercase">Hoàn tất</span>}
-
-          {status === 'error' && <span className="flex items-center gap-1 text-[9px] text-danger font-black uppercase"><AlertTriangle size={10} /> Dịch thất bại</span>}
+          
+          {status === 'completed' && <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-black uppercase truncate"><CheckCircle2 size={12} /> Hoàn tất</span>}
+          {status === 'error' && <span className="flex items-center gap-1.5 text-[10px] text-danger font-black uppercase truncate"><AlertTriangle size={12} /> {hasCleanUrl ? 'Lỗi Chữ' : 'Lỗi Dịch'}</span>}
         </div>
 
-        {/* Các nút công cụ ẨN TRONG QUÁ TRÌNH SELECT MODE để tránh click nhầm */}
-        {!isSelectionMode && (
-          <>
-            <div className="absolute top-2 right-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/95 p-1.5 rounded-lg border border-border shadow-lg z-10 backdrop-blur-sm">
-              {/* Nút 1: Dịch lại chữ (DeepSeek) */}
-              <button onClick={(e) => { e.stopPropagation(); onRetry(); }} className="p-1.5 text-text-muted hover:text-primary hover:bg-border rounded-md transition-all cursor-pointer hover:scale-110" title="Dịch lại chữ (Tiết kiệm)">
-                <RefreshCw size={15} className={status === 'processing' ? 'animate-spin' : ''} />
+        {/* ============================================================== */}
+        {/* 🚀 BẢN VÁ UI 3: TĂNG KÍCH THƯỚC CÁC NÚT BẤM DỄ THAO TÁC HƠN */}
+        {/* ============================================================== */}
+        {!isSelectionMode && status !== 'processing' && (
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex flex-col items-end gap-2 
+            opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20"
+          >
+            {/* NÚT XÓA (To hơn một chút: p-2, icon 14) */}
+            <button 
+              onClick={(e) => { e.stopPropagation(); onDelete(); }} 
+              className="p-2 text-text-muted hover:bg-danger hover:text-white rounded-lg transition-colors bg-background/80 backdrop-blur-md border border-border/50 shadow-sm cursor-pointer" 
+              title="Xóa trang"
+            >
+              <Trash2 size={14} />
+            </button>
+
+            {/* CÁC NÚT HÀNH ĐỘNG (Padding lớn hơn, chữ to hơn: text-[11px]) */}
+            {status === 'unprocessed' && (
+              <button onClick={(e) => { e.stopPropagation(); onTranslate(); }} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer">
+                <Wand2 size={12} /> Dịch
               </button>
-
-              <div className="w-px h-4 bg-border/80"></div>
-
-              {/* 🚀 NÚT 2 MỚI: QUÉT LẠI TOÀN BỘ ẢNH (RUNPOD) */}
-              <button onClick={(e) => { e.stopPropagation(); onTranslate(); }} className="p-1.5 text-text-muted hover:text-amber-500 hover:bg-amber-500/20 rounded-md transition-all cursor-pointer hover:scale-110" title="Quét lại ảnh từ đầu (Chạy lại Runpod)">
-                <Wand2 size={15} />
-              </button>
-
-              <div className="w-px h-4 bg-border/80"></div>
-
-              {/* Nút 3: Xóa */}
-              <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-1.5 text-text-muted hover:text-danger hover:bg-danger/20 rounded-md transition-all cursor-pointer hover:scale-110" title="Xóa trang này">
-                <X size={15} />
-              </button>
-            </div>
-
-            {(status === 'unprocessed' || status === 'error') && (
-              <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10" onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // 🚀 LOGIC CỨU HỘ: Nếu có nền sạch rồi -> Chỉ dịch lại chữ. Nếu chưa -> Dịch từ đầu
-                  if (status === 'error' && hasCleanUrl) {
-                    onRetry();
-                  } else {
-                    onTranslate();
-                  }
-                }}>
-                <div className={`text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 shadow-lg font-bold cursor-pointer ${status === 'error' ? 'bg-danger hover:bg-red-600' : 'bg-primary hover:bg-primary-hover'}`}>
-                  {status === 'error' ? <RefreshCw size={12} /> : <Wand2 size={12} />}
-                  {status === 'error' ? (hasCleanUrl ? 'Dịch lại chữ' : 'Thử lại') : 'Dịch'}
-                </div>
-              </div>
             )}
 
-            {status === 'processing' && (
-              <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity z-10" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onCancel(); }}>
-                <div className="text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 shadow-lg font-bold cursor-pointer bg-danger hover:bg-red-700">
-                  <Square size={10} className="fill-current" /> Dừng
-                </div>
-              </div>
+            {status === 'error' && (
+              <button onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer">
+                <RefreshCw size={12} /> Thử lại
+              </button>
             )}
-          </>
+
+            {status === 'completed' && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onRetry(); }} 
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer" 
+                title="Dịch lại văn bản"
+              >
+                <RefreshCw size={12} /> Dịch lại
+              </button>
+            )}
+          </div>
         )}
+
+        {/* NÚT DỪNG (To hơn: w-8 h-8, icon 14) */}
+        {!isSelectionMode && status === 'processing' && (
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 z-20" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onCancel(); }}>
+            <button className="flex items-center justify-center w-8 h-8 bg-background/90 backdrop-blur-md hover:bg-danger text-danger hover:text-white border border-danger/30 hover:border-danger rounded-lg shadow-sm transition-all cursor-pointer group" title="Dừng xử lý">
+              <Square size={14} className="fill-current group-hover:scale-90 transition-transform" />
+            </button>
+          </div>
+        )}
+
       </div>
     </div>
   );
@@ -190,7 +200,7 @@ export default function Sidebar() {
   const isSelectionMode = selectedPages.size > 0;
 
 
-  const [sidebarWidth, setSidebarWidth] = useState(256); // Mặc định 256px
+  const [sidebarWidth, setSidebarWidth] = useState(280); // Mặc định 256px
   const isResizing = useRef(false);
 
   const startResizing = useCallback((e: React.MouseEvent) => {
@@ -845,7 +855,7 @@ export default function Sidebar() {
 
           {/* DROPDOWN MENU TẢI XUỐNG (Thả xuống dưới) */}
           <div
-            className={`absolute top-[calc(100%+12px)] right-0 w-64 bg-panel border border-border shadow-2xl rounded-2xl p-1.5 transition-all origin-top-right duration-200 ease-out z-[101]
+            className={`absolute top-[calc(100%+12px)] right-0 w-72 bg-panel border border-border shadow-2xl rounded-2xl p-1.5 transition-all origin-top-right duration-200 ease-out z-[101]
               ${isExportMenuOpen ? 'opacity-100 scale-100 pointer-events-auto translate-y-0' : 'opacity-0 scale-95 pointer-events-none -translate-y-2'}
             `}
           >

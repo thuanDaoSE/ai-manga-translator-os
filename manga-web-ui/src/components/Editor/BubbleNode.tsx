@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useCanvasStore, type TextBubble } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
-import { RotateCw } from 'lucide-react';
+import { RotateCw,Lock } from 'lucide-react';
 
 interface Props {
   bubble: TextBubble;
@@ -210,10 +210,21 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
         height: `${localSize.h}px`,
         transform: `rotate(${bubble.rotation || 0}deg)`,
         transformOrigin: 'center center',
-        // 🚀 CHỈ BẬT KHUNG ĐỎ FOCUS KHI ĐƯỢC CLICK HOẶC DI CHUỘT QUA
-        backgroundColor: isActive ? 'rgba(255, 0, 0, 0.15)' : isHovered ? 'rgba(255, 0, 0, 0.05)' : 'transparent',
-        border: isActive ? '2px dashed red' : isHovered ? '1px dashed rgba(255, 0, 0, 0.4)' : '2px solid transparent',
-
+        
+        // 🚀 1. NỀN SỌC CHÉO: ÉP LUÔN LUÔN HIỆN NẾU BỊ KHÓA (Kể cả không click)
+        backgroundImage: bubble.isLocked 
+          ? 'repeating-linear-gradient(45deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.1) 10px, rgba(245, 158, 11, 0.25) 10px, rgba(245, 158, 11, 0.25) 20px)' 
+          : 'none',
+        
+        backgroundColor: isActive 
+          ? (bubble.isLocked ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 0, 0, 0.15)') 
+          : 'transparent',
+        
+        // 🚀 2. VIỀN CAM: ÉP LUÔN LUÔN HIỆN NẾU BỊ KHÓA
+        border: bubble.isLocked 
+          ? '2px dashed rgba(245, 158, 11, 0.9)' // Viền đậm 90%
+          : (isActive ? '2px dashed red' : (isHovered ? '2px dashed rgba(255, 0, 0, 0.4)' : '2px solid transparent')),
+        
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -221,7 +232,18 @@ export default function BubbleNode({ bubble: propBubble }: Props) {
         textAlign: bubble.textAlign || 'center',
       }}
     >
-      {/* CẦN GẠT XOAY & NÚM KÉO SIZE (GIỮ NGUYÊN) */}
+      {/* 🚀 3. HUY HIỆU Ổ KHÓA: ÉP LUÔN LUÔN HIỆN, KHÔNG ĐƯỢC MỜ ĐI */}
+      {bubble.isLocked && (
+        <div 
+          data-html2canvas-ignore="true" 
+          className="absolute -top-3.5 -right-3.5 w-7 h-7 bg-amber-500 text-amber-950 rounded-full flex items-center justify-center shadow-xl border-[2px] border-white z-[999] opacity-100"
+          title="Thiết kế đã bị khóa"
+        >
+          <Lock size={14} strokeWidth={3} />
+        </div>
+      )}
+
+      {/* CỤT XOAY & NÉO SIZE (Chỉ hiện khi KHÔNG khóa) */}
       {isActive && !isEditing && !bubble.isLocked && (
         <div data-html2canvas-ignore="true" className="absolute -top-10 left-1/2 -translate-x-1/2 flex flex-col items-center">
           <div
