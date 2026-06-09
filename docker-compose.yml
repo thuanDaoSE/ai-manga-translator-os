@@ -49,7 +49,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       # Base URL returned for workspace assets. Change "localhost:8000" to your VPS public IP or domain in production.
-      - BACKEND_BASE_URL=http://localhost:8000
+      - BACKEND_BASE_URL=http://103.77.243.60:8000
     env_file:
       - ./manga-backend/.env
     volumes:
