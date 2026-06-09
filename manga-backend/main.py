@@ -276,12 +276,20 @@ async def get_sliding_window_context(db: AsyncSession, project_id: str, current_
 
 
 
+# Danh sách khách VIP được phép gọi API
+origins = [
+    "http://localhost:5173",  # Để sếp test trên máy tính
+    "http://localhost:4173",  # Để sếp preview trên máy tính
+    "http://103.77.243.60",   # 🚨 THÊM DÒNG NÀY (IP thật không có cổng)
+    "http://103.77.243.60:80" # 🚨 THÊM DÒNG NÀY (Phòng hờ)
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Cho phép mọi phương thức GET, POST...
+    allow_headers=["*"],  # Cho phép mọi Headers
 )
 
 # 🚀 BƯỚC NGOẶT KIẾN TRÚC: Đóng /static, mở /workspace
