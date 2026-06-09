@@ -33,4 +33,4 @@ filetype
 
 
 # --- PAYMENT ---
-payos
+payos==1.1.0
