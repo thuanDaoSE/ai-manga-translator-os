@@ -11,3 +11,4 @@ shapely==2.1.2
 pyclipper
 PyYAML==6.0.3
 loguru==0.7.3
+requests==2.31.0
