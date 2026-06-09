@@ -16,6 +16,7 @@ redis==5.0.1
 # --- AUTH & SECURITY ---
 python-jose[cryptography]==3.5.0
 slowapi
+PyJWT
 
 # --- ASYNC TASKS ---
 celery==5.3.6
