@@ -1,0 +1,31 @@
+# --- CORE WEB & API ---
+fastapi==0.110.0
+uvicorn==0.29.0
+pydantic==2.6.4
+python-multipart==0.0.9
+python-dotenv==1.2.2
+requests==2.31.0
+
+# --- DATABASE & CACHE ---
+SQLAlchemy==2.0.49
+asyncpg
+psycopg2-binary
+aiosqlite==0.22.1
+redis==5.0.1
+
+# --- AUTH & SECURITY ---
+python-jose[cryptography]==3.5.0
+slowapi
+
+# --- ASYNC TASKS ---
+celery==5.3.6
+
+# --- AI API & NLP ENGINE ---
+openai==2.35.0
+pyahocorasick
+
+# --- IMAGE VALIDATION (Siêu nhẹ, không chứa GUI) ---
+Pillow==10.3.0
+opencv-python-headless==4.9.0.80
+numpy==1.26.4
+filetype
