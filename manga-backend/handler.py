@@ -6,6 +6,7 @@ import os
 import torch
 import onnxruntime as ort
 import sys
+import requests
 from PIL import Image
 
 print("Khởi động AI Engine...")
@@ -18,8 +19,126 @@ mocr = MangaOcr()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 text_detector = TextDetector(model_path=os.path.join(os.path.dirname(__file__), "comic_text_detector", "data", "comictextdetector.pt"), device=device)
 
-device_providers = ['CUDAExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
+# 1. Persistent TensorRT Engine Cache Path next to ONNX model weights
+trt_cache_path = os.path.join(os.path.dirname(__file__), 'trt_cache')
+os.makedirs(trt_cache_path, exist_ok=True)
+
+device_providers = [
+    ('TensorrtExecutionProvider', {
+        'trt_engine_cache_enable': True,
+        'trt_engine_cache_path': trt_cache_path
+    }),
+    'CUDAExecutionProvider',
+    'CPUExecutionProvider'
+]
 lama_session = ort.InferenceSession(os.path.join(os.path.dirname(__file__), "lama-manga.onnx"), providers=device_providers)
+
+# 2. Dynamic Axis Validation: Ensure the model input supports dynamic batch sizes
+try:
+    input_shape = lama_session.get_inputs()[0].shape
+    if len(input_shape) > 0 and input_shape[0] == 1:
+        print("🚨 WARNING: LaMa ONNX model input dimension 0 is fixed to 1. Dynamic batched inference may fail.")
+    else:
+        print("✅ Dynamic axis validated. LaMa ONNX model supports dynamic batch sizes. Input shape: {}".format(input_shape))
+except Exception as e:
+    print("⚠️ Dynamic axis validation check skipped: {}".format(e))
+
+import math
+
+def lama_inpaint_batched(img, mask, session, stride=256):
+    """
+    Runs LaMa ONNX model on any high-resolution image by slicing it into 512x512 tiles
+    using numpy.lib.stride_tricks.sliding_window_view (zero-copy), performing
+    batched GPU inference ONLY on active tiles containing mask/text pixels,
+    and reconstructing the image with smooth blending.
+    """
+    H, W = img.shape[:2]
+    win_h, win_w = 512, 512
+    
+    # Calculate padding and padded dimensions to fit exactly with window and stride
+    num_tiles_h = math.ceil((H - win_h) / stride) + 1 if H > win_h else 1
+    num_tiles_w = math.ceil((W - win_w) / stride) + 1 if W > win_w else 1
+    
+    H_pad = (num_tiles_h - 1) * stride + win_h
+    W_pad = (num_tiles_w - 1) * stride + win_w
+    
+    pad_y = H_pad - H
+    pad_x = W_pad - W
+    
+    # Pad image (reflect padding) and mask (constant padding)
+    img_padded = cv2.copyMakeBorder(img, 0, pad_y, 0, pad_x, cv2.BORDER_REFLECT)
+    mask_padded = cv2.copyMakeBorder(mask, 0, pad_y, 0, pad_x, cv2.BORDER_CONSTANT, value=0)
+    
+    # Prepare normalized float32 images and masks
+    img_rgb = cv2.cvtColor(img_padded, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    mask_bin = (mask_padded > 0).astype(np.float32)
+    
+    # Zero-copy tiling using sliding_window_view
+    from numpy.lib.stride_tricks import sliding_window_view
+    
+    # v_img shape: (num_tiles_h, num_tiles_w, 3, 512, 512)
+    v_img = sliding_window_view(img_rgb, (512, 512), axis=(0, 1))[::stride, ::stride]
+    # v_mask shape: (num_tiles_h, num_tiles_w, 512, 512)
+    v_mask = sliding_window_view(mask_bin, (512, 512), axis=(0, 1))[::stride, ::stride]
+    
+    active_tiles_img = []
+    active_tiles_mask = []
+    active_tile_coords = []
+    
+    for i in range(num_tiles_h):
+        for j in range(num_tiles_w):
+            mask_tile = v_mask[i, j]
+            # MLOps Fix 1: Compute Waste Avoidance (Skip blank tiles)
+            if np.max(mask_tile) > 0:
+                active_tiles_img.append(v_img[i, j])
+                active_tiles_mask.append(mask_tile[np.newaxis, ...])
+                active_tile_coords.append((i, j))
+                
+    # If no tiles contain mask pixels, return original image (saves GPU execution)
+    if len(active_tiles_img) == 0:
+        return img
+        
+    # Compile active tiles into contiguous NumPy batches
+    batched_images = np.array(active_tiles_img, dtype=np.float32) # Shape: (B, 3, 512, 512)
+    batched_masks = np.array(active_tiles_mask, dtype=np.float32)  # Shape: (B, 1, 512, 512)
+    
+    # Parallel Batched Inference on GPU
+    # Call session.run EXACTLY ONCE
+    ort_outs = session.run(None, {
+        session.get_inputs()[0].name: batched_images,
+        session.get_inputs()[1].name: batched_masks
+    })
+    
+    # Transpose back from (B, 3, 512, 512) to (B, 512, 512, 3) (RGB)
+    out_tiles = np.transpose(ort_outs[0], (0, 2, 3, 1))
+    
+    # Reconstruction with smooth blending to resolve overlapping areas
+    accumulated_img = np.zeros(img_padded.shape, dtype=np.float32)
+    accumulated_weight = np.zeros((img_padded.shape[0], img_padded.shape[1], 1), dtype=np.float32)
+    
+    # Create 2D blending weight mask
+    ramp = np.minimum(np.arange(512) + 0.5, 512 - 0.5 - np.arange(512)) / 256.0
+    ramp = np.clip(ramp, 0.0, 1.0)
+    tile_weight = np.outer(ramp, ramp)[:, :, np.newaxis] # Shape: (512, 512, 1)
+    
+    # Only blend the active inpainted tiles back to their coordinates
+    for b, (i, j) in enumerate(active_tile_coords):
+        y_start = i * stride
+        x_start = j * stride
+        
+        accumulated_img[y_start:y_start+512, x_start:x_start+512] += out_tiles[b] * tile_weight
+        accumulated_weight[y_start:y_start+512, x_start:x_start+512] += tile_weight
+        
+    P_norm = accumulated_img / np.maximum(accumulated_weight, 1e-8)
+    W_clipped = np.clip(accumulated_weight, 0.0, 1.0)
+    
+    # Blend inpainted regions with original image regions smoothly
+    reconstructed_img = P_norm * W_clipped + img_rgb * (1.0 - W_clipped)
+    
+    # Crop back to original dimensions and restore to BGR uint8 format
+    final_img = reconstructed_img[0:H, 0:W]
+    final_img_bgr = cv2.cvtColor(np.clip(final_img * 255.0, 0, 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+    return final_img_bgr
 
 def extract_text_manga_ocr(crop_bgr):
     return mocr(Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB))).strip()
@@ -34,55 +153,39 @@ def handler(job):
 
     # 🟢 2. LỆNH SCAN: Chỉ quét chữ MangaOCR
     elif action == 'scan':
-        img_b64 = job_input['image_base64']
-        nparr = np.frombuffer(base64.b64decode(img_b64), np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        image_url = job_input['image_url']
+        response = requests.get(image_url, timeout=10)
+        response.raise_for_status()
+        image_array = np.frombuffer(response.content, np.uint8)
+        image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
         return {"status": "success", "text": extract_text_manga_ocr(image)}
 
     # 🟢 3. LỆNH ERASE: Chỉ xóa mảng nhỏ (LaMa)
     elif action == 'erase':
-        img_b64 = job_input['image_base64']
-        mask_b64 = job_input['mask_base64']
-        crop_img = cv2.imdecode(np.frombuffer(base64.b64decode(img_b64), np.uint8), cv2.IMREAD_COLOR)
-        crop_mask = cv2.imdecode(np.frombuffer(base64.b64decode(mask_b64), np.uint8), cv2.IMREAD_GRAYSCALE)
-
-        h_crop, w_crop = crop_img.shape[:2]
+        image_url = job_input['image_url']
+        mask_url = job_input['mask_url']
         
-        # Xử lý tự scale và padding cho LaMa
-        scale = 1.0
-        if h_crop > 512 or w_crop > 512:
-            scale = 512.0 / max(h_crop, w_crop)
-            new_w, new_h = int(w_crop * scale), int(h_crop * scale)
-            crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-            crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-        else:
-            new_w, new_h = w_crop, h_crop
+        response_img = requests.get(image_url, timeout=10)
+        response_img.raise_for_status()
+        crop_img = cv2.imdecode(np.frombuffer(response_img.content, np.uint8), cv2.IMREAD_COLOR)
+        
+        response_mask = requests.get(mask_url, timeout=10)
+        response_mask.raise_for_status()
+        crop_mask = cv2.imdecode(np.frombuffer(response_mask.content, np.uint8), cv2.IMREAD_GRAYSCALE)
 
-        pad_bottom, pad_right = 512 - new_h, 512 - new_w
-        if pad_bottom > 0 or pad_right > 0:
-            crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
-            crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
-
-        img_t = np.transpose(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
-        mask_t = np.transpose((crop_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
-
-        ort_outs = lama_session.run(None, {lama_session.get_inputs()[0].name: img_t, lama_session.get_inputs()[1].name: mask_t})
-        out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
-        clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
-
-        if scale != 1.0:
-            clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+        clean_crop = lama_inpaint_batched(crop_img, crop_mask, lama_session)
 
         _, buffer = cv2.imencode('.png', clean_crop)
         return {"status": "success", "clean_crop_base64": base64.b64encode(buffer).decode('utf-8')}
 
     # 🟢 4. LỆNH TRANSLATE: Dịch toàn bộ trang truyện
-    img_b64 = job_input['image_base64']
-    img_data = base64.b64decode(img_b64)
-    nparr = np.frombuffer(img_data, np.uint8)
+    image_url = job_input['image_url']
+    response = requests.get(image_url, timeout=10)
+    response.raise_for_status()
+    image_array = np.frombuffer(response.content, np.uint8)
     
     # 🚀 LƯU TRỮ KÍCH THƯỚC GỐC CỦA ẢNH ĐỂ ĐỐI CHIẾU
-    original_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    original_image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
     orig_h, orig_w = original_image.shape[:2]
     clean_image = original_image.copy()
 
@@ -134,45 +237,9 @@ def handler(job):
             })
             count += 1
             
-            # LaMa Inpainting
-            pad_x, pad_y = max(40, min(int(w * 0.5), 150)), max(40, min(int(h * 0.5), 150))
-            x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
-            x2_pad, y2_pad = min(orig_w, x + w + pad_x), min(orig_h, y + h + pad_y)
-            
-            crop_img = clean_image[y1_pad:y2_pad, x1_pad:x2_pad]
-            crop_mask = final_mask[y1_pad:y2_pad, x1_pad:x2_pad]
-            
-            if cv2.countNonZero(crop_mask) == 0: continue
-            
-            h_crop, w_crop = crop_img.shape[:2]
-            original_crop_mask = crop_mask.copy()
-            
-            scale = 1.0
-            if h_crop > 512 or w_crop > 512:
-                scale = 512.0 / max(h_crop, w_crop)
-                new_w, new_h = int(w_crop * scale), int(h_crop * scale)
-                crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-            else:
-                new_w, new_h = w_crop, h_crop
-
-            pad_bottom, pad_right = 512 - new_h, 512 - new_w
-            if pad_bottom > 0 or pad_right > 0:
-                crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
-                crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
-
-            img_t = np.transpose(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
-            mask_t = np.transpose((crop_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
-
-            ort_outs = lama_session.run(None, {lama_session.get_inputs()[0].name: img_t, lama_session.get_inputs()[1].name: mask_t})
-            out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
-            clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
-            
-            if scale != 1.0: 
-                clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
-            
-            mask_bool = original_crop_mask > 0
-            clean_image[y1_pad:y2_pad, x1_pad:x2_pad][mask_bool] = clean_crop[mask_bool]
+        # Run batched LaMa inpainting on the entire image at once
+        if cv2.countNonZero(final_mask) > 0:
+            clean_image = lama_inpaint_batched(clean_image, final_mask, lama_session)
             
         _, buffer = cv2.imencode('.jpg', clean_image)
         clean_b64 = base64.b64encode(buffer).decode('utf-8')

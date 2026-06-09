@@ -30,6 +30,7 @@ from fastapi.responses import StreamingResponse
 import redis.asyncio as aioredis
 import json
 import asyncio
+from s3_utils import fetch_image_from_url
 # Sửa dòng import này (khoảng dòng 17)
 # from worker import process_manga_page, lama_session, mocr, client, text_detector
 # from celery.result import AsyncResult
@@ -199,8 +200,8 @@ COMFYUI_URL = "http://127.0.0.1:8188"
 PROJECTS_DIR = "/app/workspace/projects" # Thay đổi cho đúng đường dẫn lưu ảnh của bạn
 
 class RedrawRequest(BaseModel):
-    filename: str
-    mask_base64: str
+    image_url: str
+    mask_url: str
     prompt: str
 
 def get_base_url():
@@ -759,7 +760,9 @@ from fastapi import HTTPException
 async def quick_scan(request: Request, payload: QuickScanPayload): 
     try:
         img_raw = payload.filename
-        if img_raw.startswith("data:image"):
+        if img_raw.startswith("http://") or img_raw.startswith("https://"):
+            image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
+        elif img_raw.startswith("data:image"):
             nparr = np.frombuffer(base64.b64decode(img_raw.split(',')[1]), np.uint8)
             image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         else:
@@ -823,30 +826,23 @@ async def quick_scan(request: Request, payload: QuickScanPayload):
     
 class MaskPayload(BaseModel):
     image_url: str
-    mask_base64: str
+    mask_url: str
     page_id: str = None
 
 @app.post("/api/erase-mask")
 async def erase_mask(payload: MaskPayload, db: AsyncSession = Depends(get_db)):
     try:
+        # Fetch raw image directly to RAM
+        image = await fetch_image_from_url(payload.image_url, cv2.IMREAD_COLOR)
+        
+        # Determine clean path on local disk (VPS)
         img_raw = payload.image_url
-        if img_raw.startswith("data:image"):
-            nparr = np.frombuffer(base64.b64decode(img_raw.split(',')[1]), np.uint8)
-            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            clean_path = f"workspace/clean_{uuid.uuid4().hex}.png"
-        else:
-            img_path = img_raw.split('8000/')[-1] if '8000/' in img_raw else img_raw
-            img_path = img_path.split('?')[0]
-            base_path, _ = os.path.splitext(img_path)
-            matched_files = glob.glob(f"{base_path}.*")
-            img_path = matched_files[0] if matched_files else img_path
-            image = cv2.imread(img_path)
-            clean_path = img_path.replace("/raw/", "/clean/") if "/raw/" in img_path else f"workspace/clean_{uuid.uuid4().hex}.png"
+        img_path = get_local_path_from_url(img_raw)
+        clean_path = img_path.replace("/raw/", "/clean/") if "/raw/" in img_path else f"workspace/clean_{uuid.uuid4().hex}.png"
 
-        encoded_data_mask = payload.mask_base64.split(',')[1]
-        nparr_mask = np.frombuffer(base64.b64decode(encoded_data_mask), np.uint8)
-        mask_rgba = cv2.imdecode(nparr_mask, cv2.IMREAD_UNCHANGED)
-        mask = mask_rgba[:, :, 3] if len(mask_rgba.shape) == 3 and mask_rgba.shape[2] == 4 else cv2.imdecode(nparr_mask, cv2.IMREAD_GRAYSCALE)
+        # Fetch mask directly to RAM
+        mask_rgba = await fetch_image_from_url(payload.mask_url, cv2.IMREAD_UNCHANGED)
+        mask = mask_rgba[:, :, 3] if len(mask_rgba.shape) == 3 and mask_rgba.shape[2] == 4 else cv2.cvtColor(mask_rgba, cv2.COLOR_BGR2GRAY) if len(mask_rgba.shape) == 3 else mask_rgba
 
         x, y, w, h = cv2.boundingRect(mask)
         if w > 0 and h > 0:
@@ -912,7 +908,7 @@ async def upload_raw(file: UploadFile = File(...)):
 
 class RedrawRequest(BaseModel):
     image_url: str
-    mask_base64: str
+    mask_url: str
     prompt: str
 
 # Hàm helper bóc tách URL thành đường dẫn vật lý trên RunPod
@@ -954,12 +950,10 @@ async def redraw_image(req: RedrawRequest):
             raise HTTPException(status_code=404, detail="Không tìm thấy ảnh gốc cho ComfyUI")
 
         # 2. Lưu tạm Mask ra ổ cứng cho ComfyUI đọc
-        mask_data = req.mask_base64.split(",")[1]
+        mask_rgba = await fetch_image_from_url(req.mask_url, cv2.IMREAD_UNCHANGED)
         mask_filename = f"mask_{uuid.uuid4().hex}.png"
         mask_absolute_path = os.path.abspath(os.path.join("workspace", mask_filename))
-        
-        with open(mask_absolute_path, "wb") as fh:
-            fh.write(base64.b64decode(mask_data))
+        cv2.imwrite(mask_absolute_path, mask_rgba)
             
         # 3. Setup Prompt Tiếng Anh chuẩn Manga (Từ báo cáo Deep Research)
         positive_prompt = f"{req.prompt}, masterpiece, best quality, manga page, monochrome, grayscale, sharp lineart, seamless background, flat shading, high contrast lighting"
@@ -1502,13 +1496,12 @@ async def translate_page(page_id: str, request: Request, db: AsyncSession = Depe
     if not page:
         raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện")
 
-    # 2. Đọc ảnh và chuyển thành Base64
-    img_path = f".{page.raw_url}"
-    try:
-        with open(img_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode("utf-8")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Không đọc được file ảnh gốc")
+    # 2. Lấy URL ảnh gốc từ CSDL (tự động biến thành URL tuyệt đối nếu là đường dẫn tương đối)
+    img_url = page.raw_url
+    if not img_url:
+        raise HTTPException(status_code=400, detail="Không tìm thấy URL ảnh gốc")
+    if img_url.startswith("/"):
+        img_url = f"{get_base_url()}{img_url}"
 
     config = await request.json()
 
@@ -1520,7 +1513,7 @@ async def translate_page(page_id: str, request: Request, db: AsyncSession = Depe
     }
     payload = {
         "input": {
-            "image_base64": img_b64,
+            "image_url": img_url,
             "genre": config.get("genre", ""),
             "tone": config.get("tone", ""),
             "pronouns": config.get("pronouns", ""),
@@ -1560,7 +1553,7 @@ async def get_task_result(task_id: str):
         if isinstance(output, dict) and output.get("status") == "error":
             return {"status": "FAILURE", "message": str(output)}
             
-        clean_b64 = output.get("clean_image_base64")
+        clean_url = output.get("clean_image_url") or output.get("clean_url") or ""
         extracted_data = output.get("data", [])
         context = output.get("context", {}) # Lấy lại ngữ cảnh Runpod dội về
         
@@ -1591,15 +1584,7 @@ async def get_task_result(task_id: str):
                 for item in extracted_data:
                     item["vietnamese"] = "Lỗi dịch thuật (VPS)"
         
-        # LƯU ẢNH SẠCH LÊN Ổ CỨNG VPS
-        clean_url = ""
-        if clean_b64:
-            clean_img_data = base64.b64decode(clean_b64)
-            os.makedirs("workspace", exist_ok=True) 
-            file_path = f"workspace/temp_clean_{task_id}.jpg"
-            with open(file_path, "wb") as f:
-                f.write(clean_img_data)
-            clean_url = f"/{file_path}"
+        # S3 Migration: The clean image is already hosted on S3 (clean_url)
             
         # Trả cục dữ liệu ĐÃ ĐƯỢC DỊCH HOÀN CHỈNH về cho React vẽ
         return {
