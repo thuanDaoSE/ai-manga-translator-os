@@ -1,0 +1,40 @@
+name: Tự động Deploy lên VPS (Production)
+
+on:
+  push:
+    branches:
+      - main  # 🚨 CHÚ Ý: Robot chỉ chạy khi có code đẩy lên nhánh 'main'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kết nối VPS, Bơm biến môi trường & Build Docker
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: deepkoma  # (Hoặc root, tùy user VPS của sếp)
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            # 1. Đi vào thư mục dự án
+            cd /home/deepkoma/deepkoma
+            
+            # 2. Kéo code mới nhất từ nhánh main
+            git pull origin main
+            
+            # 3. Bơm nội dung từ GitHub Secrets vào file .env của Frontend
+            cat << 'EOF' > manga-web-ui/.env
+            ${{ secrets.ENV_FE }}
+            EOF
+            
+            # 4. Bơm nội dung từ GitHub Secrets vào file .env của Backend
+            cat << 'EOF' > manga-backend/.env
+            ${{ secrets.ENV_BE }}
+            EOF
+            
+            # 5. Tắt Docker cũ, Build lại code mới và chạy ngầm (-d)
+            docker compose down
+            docker compose up -d --build
+            
+            # 6. Dọn dẹp rác Docker để tránh đầy ổ cứng VPS
+            docker image prune -f

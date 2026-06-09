@@ -4,8 +4,9 @@ import Sidebar from './components/Layout/Sidebar';
 import Workspace from './components/Layout/Workspace';
 import TranslationConfigModal from './components/Modals/TranslationConfigModal';
 import LensModal from './components/Modals/LensModal';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import AuthModal from './components/Modals/AuthModal';
+import LandingPage from './components/LandingPage';
 import { useToolStore } from './store/useToolStore';
 import { useCanvasStore } from './store/useCanvasStore';
 import { useProjectStore } from './store/useProjectStore';
@@ -21,7 +22,7 @@ import { mangaApi } from './services/api';
 
 export default function App() {
   const { isZenMode, toggleZenMode, setActiveMode, showLeftPanel, scanModal, showRightPanel } = useToolStore();
-  const { setUser, session } = useAuthStore();
+  const { setUser, session, user, loading } = useAuthStore();
   const { projectId } = useProjectStore();
   const hasRestored = useRef(false);
 
@@ -81,10 +82,29 @@ export default function App() {
     useCanvasStore.getState().redo();
   }, { enableOnFormTags: false });
 
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <>
+        <Toaster position="top-center" reverseOrder={false} />
+        <LandingPage onOpenAuth={() => setShowAuthModal(true)} />
+        {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+      </>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-background text-text-main overflow-hidden font-sans">
       <Toaster position="top-center" reverseOrder={false} />
-      <AuthModal />
 
       {/* 🚀 FIX: KHÔI PHỤC LẠI MODAL CẤU HÌNH DỊCH VÀO ĐÂY */}
       <TranslationConfigModal />

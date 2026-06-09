@@ -39,17 +39,15 @@ export const useGlobalShortcuts = () => {
 
       if (key === 't') {
         const toolState = useToolStore.getState();
-        import('../store/useCanvasStore').then(({ useCanvasStore }) => {
-          useCanvasStore.getState().addBubble({
-            x: 200, y: 200, w: 200, h: 80,
-            text: "Gõ chữ vào đây...",
-            fontSize: toolState.fontSize || 18,
-            fontColor: toolState.fontColor || '#000000',
-            fontFamily: toolState.fontFamily || "'Comic Neue', cursive",
-            rotation: 0
-          });
-          useToolStore.getState().setActiveMode('none');
+        useCanvasStore.getState().addBubble({
+          x: 200, y: 200, w: 200, h: 80,
+          text: "Gõ chữ vào đây...",
+          fontSize: toolState.fontSize || 18,
+          fontColor: toolState.fontColor || '#000000',
+          fontFamily: toolState.fontFamily || "'Comic Neue', cursive",
+          rotation: 0
         });
+        useToolStore.getState().setActiveMode('none');
         return;
       }
 

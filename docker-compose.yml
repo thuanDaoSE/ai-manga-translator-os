@@ -1,0 +1,82 @@
+services:
+  # Database Service: PostgreSQL with pgvector (retaining local developer compatibility)
+  db:
+    image: ankane/pgvector:v0.5.1
+    container_name: manga-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: deepkoma
+      POSTGRES_PASSWORD: secretpassword
+      POSTGRES_DB: manga_studio
+    ports:
+      # Expose port 5433 on the host mapping to port 5432 inside the container
+      # Note: For strict production security, you can bind to localhost: "127.0.0.1:5433:5432"
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deepkoma -d manga_studio"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Cache Service: Redis
+  redis:
+    image: redis:alpine
+    container_name: manga-redis
+    restart: always
+    ports:
+      # Expose Redis port (bind to localhost "127.0.0.1:6379:6379" for production security)
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Backend Service: FastAPI (Python + Node.js)
+  backend:
+    build:
+      context: ./manga-backend
+      dockerfile: Dockerfile
+    container_name: manga-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      # Use service names 'db' and 'redis' in the container network instead of localhost
+      - DATABASE_URL=postgresql+asyncpg://deepkoma:secretpassword@db:5432/manga_studio
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Base URL returned for workspace assets. Change "localhost:8000" to your VPS public IP or domain in production.
+      - BACKEND_BASE_URL=http://localhost:8000
+    env_file:
+      - ./manga-backend/.env
+    volumes:
+      # Map the local workspace directory to persist uploaded files, clean files, and fonts
+      - ./manga-backend/workspace:/app/workspace
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Frontend Service: React (Vite + Nginx Alpine)
+  frontend:
+    build:
+      context: ./manga-web-ui
+      dockerfile: Dockerfile
+      args:
+        # Build argument pointing to the API URL. 
+        # MUST be set to your public VPS IP or domain when deploying to the VPS (e.g., http://<VPS_IP>:8000)
+        - VITE_API_URL=http://103.77.243.60:8000
+    container_name: manga-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+    driver: local

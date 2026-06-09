@@ -1,28 +1,49 @@
-# Lấy Base Image xịn chuẩn CUDA 12.4 của sếp
-FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+# Use official Python 3.10 slim image based on Debian Bookworm
+FROM python:3.10-slim-bookworm
+
+# Prevent Python from writing .pyc files and buffer outputs, non-interactive apt
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
-ENV DEBIAN_FRONTEND=noninteractive
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib64:$LD_LIBRARY_PATH
 
-# Cài đặt thư viện lõi (Đã xóa redis-server vì không cần thiết trên Serverless)
+# Install system-level dependencies for OpenCV and Node Canvas, and install Node.js + npm
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 \
+    curl \
+    build-essential \
+    # OpenCV dependencies
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    # Node.js canvas dependencies
+    libcairo2-dev \
+    libpango1.0-dev \
+    libjpeg-dev \
+    libgif-dev \
+    librsvg2-dev \
+    # Node.js and npm (Debian Bookworm default repository contains Node.js v18+)
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Cài đặt thư viện Python AI
-COPY requirements_serverless.txt .
-RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir -r requirements_serverless.txt
+# Copy dependency definition files first to leverage Docker layer caching
+COPY requirements.txt package.json package-lock.json ./
 
-# Cài bản ONNX GPU xịn nhất cho CUDA 12 giống sếp đã làm
-RUN pip uninstall -y onnxruntime onnxruntime-gpu && \
-    pip install --no-cache-dir onnxruntime-gpu==1.19.2
+# Upgrade pip and install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy bộ não AI vào Docker
-COPY handler.py /app/handler.py
-COPY lama-manga.onnx /app/lama-manga.onnx
-COPY comic_text_detector /app/comic_text_detector
+# Install Node.js dependencies (production only to keep image light)
+RUN npm ci --omit=dev
 
-# 🚀 LỆNH KHỞI ĐỘNG SERVERLESS (Không được dùng sleep infinity)
-CMD ["python", "-u", "/app/handler.py"]
+# Copy the rest of the application files
+COPY . .
+
+# Ensure the workspace directory is created for mount points
+RUN mkdir -p /app/workspace
+
+# Expose backend service port
+EXPOSE 8000
+
+# Start FastAPI application using Uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
