@@ -33,8 +33,8 @@ jobs:
             EOF
             
             # 5. Tắt Docker cũ, Build lại code mới và chạy ngầm (-d)
-            docker-compose down
-            docker-compose up -d --build
+            docker compose down
+            docker compose up -d --build
             
             # 6. Dọn dẹp rác Docker để tránh đầy ổ cứng VPS
             docker image prune -f
