@@ -1,5 +1,6 @@
 import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from './supabaseClient'; // 🚀 Nhớ import thêm cái này để làm tươi token tự động
+import toast from 'react-hot-toast';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const API_URL = `${BASE_URL}/api`;
@@ -10,9 +11,7 @@ const handleApiError = async (response: Response, defaultMessage: string) => {
   if (response.status === 401) {
     // 🚀 PHIÊN ĐĂNG NHẬP HẾT HẠN THỰC SỰ -> ÉP BẬT MÀN HÌNH LOGIN NGAY LẬP TỨC
     await useAuthStore.getState().signOut();
-    import('react-hot-toast').then(module =>
-      module.default.error("Phiên làm việc đã hết hạn! Vui lòng đăng nhập lại.")
-    );
+    toast.error("Phiên làm việc đã hết hạn! Vui lòng đăng nhập lại.");
     throw new Error("Phiên đăng nhập đã hết hạn!");
   }
 
