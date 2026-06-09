@@ -208,7 +208,7 @@ def get_base_url():
     pod_id = os.getenv("RUNPOD_POD_ID")
     if pod_id:
         return f"https://{pod_id}-8000.proxy.runpod.net"
-    return "http://localhost:8000"
+    return os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
 
 def queue_prompt_to_comfyui(prompt_workflow):
     p = {"prompt": prompt_workflow}
@@ -548,7 +548,9 @@ RUNPOD_ENDPOINT_ID = os.getenv("RUNPOD_ENDPOINT_ID")
 
 # 🚀 THÊM DÒNG NÀY VÀO ĐẦU FILE (Dưới các dòng import)
 import redis
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_host = os.getenv("REDIS_HOST", "localhost")
+redis_port = int(os.getenv("REDIS_PORT", 6379))
+redis_client = redis.Redis(host=redis_host, port=redis_port, db=0, decode_responses=True)
 
 def broadcast_progress(task_id, progress, message, state="PROCESSING"):
     """Hàm bắn SSE Realtime cho Frontend"""
@@ -881,7 +883,7 @@ async def erase_mask(payload: MaskPayload, db: AsyncSession = Depends(get_db)):
                 page.status = "cleaned" 
                 await db.commit()
 
-        new_url = f"http://localhost:8000/{clean_path}" 
+        new_url = f"{get_base_url()}/{clean_path}" 
         return {"status": "success", "new_url": new_url}
         
     except Exception as e:
@@ -1055,7 +1057,7 @@ async def redraw_image(req: RedrawRequest):
 
 
 # ==========================================
-# API XUẤT FILE PSD (VŨ KHÍ TỐI THƯỢNG)
+# API XUẤT FILE PSD (SỬA LỖI NHẦM ẢNH RAW)
 # ==========================================
 @app.get("/api/pages/{page_id}/download-psd")
 async def download_psd(page_id: str, db: AsyncSession = Depends(get_db)):
@@ -1067,20 +1069,25 @@ async def download_psd(page_id: str, db: AsyncSession = Depends(get_db)):
         if not page:
             raise HTTPException(status_code=404, detail="Dữ liệu cũ! Hãy tạo Project mới và Upload lại ảnh nhé sếp!")
 
-        # 2. Xử lý đường dẫn
+        # 2. Xử lý đường dẫn chuẩn xác
         raw_path = get_local_path_from_url(page.raw_url)
-        clean_path = raw_path.replace("/raw/", "/clean/")
         
-        # Nếu chưa tẩy nền thì lấy ảnh gốc làm nền luôn
+        # 🚀 BẢN VÁ TỐI THƯỢNG: Lấy đúng đường dẫn thực tế lưu trong CSDL thay vì tự chế replace
+        if page.clean_url:
+            clean_path = get_local_path_from_url(page.clean_url)
+        else:
+            clean_path = raw_path.replace("/raw/", "/clean/")
+        
+        # Nếu ảnh sạch thực tế vẫn không tồn tại trên ổ cứng thì mới lấy ảnh gốc gánh nền
         if not os.path.exists(clean_path):
             clean_path = raw_path
 
-        # 3. Tạo thư mục PSD
+        # 3. Tạo thư mục và định nghĩa file đầu ra
         psd_dir = f"workspace/{page.project_id}/psd"
         os.makedirs(psd_dir, exist_ok=True)
         psd_output_path = f"{psd_dir}/{page_id}.psd"
         
-        # 🚀 BẢN VÁ LỖI CHÍ MẠNG: Lấy Bubbles từ Database ra thay vì dùng biến payload "ma"
+        # 🚀 Đọc chuẩn danh sách ô thoại từ DB (Né lỗi payload.bubbles không định nghĩa)
         import json
         bubbles_list = []
         if page.bubbles_data:
@@ -1089,8 +1096,8 @@ async def download_psd(page_id: str, db: AsyncSession = Depends(get_db)):
             except Exception as e:
                 print(f"Lỗi đọc JSON bubbles: {e}")
                 bubbles_list = []
-
-        # 4. Truyền đúng danh sách bubbles vào hàm tạo PSD
+        
+        # 4. Gọi hàm tạo PSD với đầy đủ ảnh Clean xịn và cục chữ
         create_manga_psd(raw_path, clean_path, psd_output_path, bubbles_list)
         
         return FileResponse(

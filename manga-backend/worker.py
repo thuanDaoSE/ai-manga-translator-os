@@ -18,11 +18,13 @@ import traceback
 import redis # 🚀 IMPORT THƯ VIỆN REDIS
 
 # Khởi tạo Celery
-celery_app = Celery("manga_tasks", broker="redis://localhost:6379/0", backend="redis://localhost:6379/0")
+redis_host = os.getenv("REDIS_HOST", "localhost")
+redis_port = int(os.getenv("REDIS_PORT", 6379))
+celery_app = Celery("manga_tasks", broker=f"redis://{redis_host}:{redis_port}/0", backend=f"redis://{redis_host}:{redis_port}/0")
 celery_app.conf.update(worker_prefetch_multiplier=1, worker_max_tasks_per_child=50)
 
 # 🚀 KHỞI TẠO BỘ PHÁT SÓNG REDIS PUB/SUB
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
+redis_client = redis.Redis(host=redis_host, port=redis_port, db=0)
 
 def broadcast_progress(task_id, progress, message, state="PROCESSING"):
     """Hàm helper để vừa báo cho Celery, vừa bắn tốc độ cao qua Redis Pub/Sub"""
@@ -35,7 +37,7 @@ def get_base_url():
     pod_id = os.getenv("RUNPOD_POD_ID")
     if pod_id:
         return f"https://{pod_id}-8000.proxy.runpod.net"
-    return "http://localhost:8000"
+    return os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
 
 # ==========================================
 # KHỞI TẠO AI TRONG WORKER

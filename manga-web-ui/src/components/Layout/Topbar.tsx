@@ -81,27 +81,42 @@ export default function Topbar() {
   return (
     <header className="h-14 border-b border-border bg-panel px-4 flex items-center justify-between select-none shrink-0 relative" style={{ zIndex: 99 }}>
 
-      {/* 1. LEFT ZONE: LOGO & PROJECT (Đã nới rộng flex-1 để tên dài không bị che) */}
+      {/* 1. LEFT ZONE: LOGO & PROJECT */}
       <div className="flex items-center gap-4 flex-1">
+
+        {/* ========================================= */}
+        {/* 🚀 LOGO DEEPKOMA CHUẨN CHIẾN LƯỢC SAAS */}
+        {/* ========================================= */}
         <div className="flex items-center gap-2 cursor-pointer transition-opacity hover:opacity-80">
-          <div className="w-8 h-8 bg-gradient-to-br from-primary to-primary-hover rounded-lg flex items-center justify-center shadow-lg shadow-primary/20">
-            <Wand2 size={18} className="text-white" />
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-lg bg-gradient-to-br from-[#8A2BE2] to-[#06B6D4] relative overflow-hidden group">
+            {/* Hiệu ứng tia chớp/Spark của AI */}
+            <Wand2 size={18} className="text-white relative z-10 transform group-hover:rotate-12 transition-transform duration-300" />
+            {/* Vệt sáng chạy ngang logo (Glassmorphism) */}
+            <div className="absolute inset-0 w-[200%] h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-[100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
           </div>
-          <span className="text-sm font-black tracking-widest text-text-main hidden md:block uppercase">DeepKoma</span>
+
+          <div className="flex flex-col">
+            <span className="text-[14px] font-black tracking-widest text-text-main hidden md:block uppercase leading-none font-['Inter']">
+              Deep<span className="text-transparent bg-clip-text bg-gradient-to-r from-[#8A2BE2] to-[#06B6D4]">Koma</span>
+            </span>
+            <span className="text-[8px] font-bold tracking-[0.2em] text-text-muted hidden md:block uppercase mt-0.5">
+              AI Workspace
+            </span>
+          </div>
         </div>
 
-        <div className="w-px h-6 bg-border mx-1" />
+        <div className="w-px h-8 bg-border mx-2 hidden sm:block" />
 
         <div className="flex flex-col justify-center min-w-0 max-w-[300px]">
-          {/* Đã bỏ chữ "Dự án:", tên ngắn gọn, khung dài hơn */}
           <input
             type="text"
             defaultValue="Tiêu diệt Goblin - Chap 1"
-            className="bg-transparent font-bold text-[13px] text-text-main focus:outline-none focus:border-b border-primary w-full truncate transition-all"
+            className="bg-transparent font-bold text-[13px] text-text-main focus:outline-none focus:border-b border-[#8A2BE2] w-full truncate transition-all placeholder-text-muted/50"
+            placeholder="Nhập tên dự án..."
           />
           <div className="flex items-center text-[10px] text-text-muted font-medium mt-0.5">
-            <CloudCheck size={12} className="mr-1 text-emerald-500/80" />
-            <span>Đã đồng bộ tự động</span> {/* 🚀 Sửa lại text cho chuẩn thực tế */}
+            <CloudCheck size={12} className="mr-1 text-[#06B6D4]" />
+            <span>Đã đồng bộ tự động</span>
           </div>
         </div>
       </div>

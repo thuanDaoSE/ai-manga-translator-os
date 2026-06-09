@@ -1,3 +1,4 @@
+import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -5,7 +6,10 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 # 🚀 URL kết nối tới Docker PostgreSQL (Dùng asyncpg để tối ưu tốc độ bất đồng bộ)
 # 🚀 URL kết nối tới Docker PostgreSQL (Đã đổi sang cổng 5433 để né Postgres của máy sếp)
-SQLALCHEMY_DATABASE_URL = "postgresql+asyncpg://deepkoma:secretpassword@localhost:5433/manga_studio"
+SQLALCHEMY_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://deepkoma:secretpassword@localhost:5433/manga_studio"
+)
 
 engine = create_async_engine(
     SQLALCHEMY_DATABASE_URL, 

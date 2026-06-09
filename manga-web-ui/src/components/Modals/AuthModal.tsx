@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { supabase } from '../../services/supabaseClient';
 import { useAuthStore } from '../../store/useAuthStore';
-import { Wand2, Mail, Lock, Loader2 } from 'lucide-react';
+import { Wand2, Mail, Lock, Loader2, X } from 'lucide-react';
 
-export default function AuthModal() {
+interface AuthModalProps {
+  onClose?: () => void;
+}
+
+export default function AuthModal({ onClose }: AuthModalProps) {
   const { user, loading } = useAuthStore();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
@@ -37,8 +41,22 @@ export default function AuthModal() {
   };
 
   return (
-    <div className="fixed inset-0 bg-background/90 backdrop-blur-md flex items-center justify-center z-[9999]">
-      <div className="bg-panel p-8 rounded-3xl border border-border shadow-2xl w-[400px] animate-in zoom-in-95">
+    <div 
+      className="fixed inset-0 bg-background/90 backdrop-blur-md flex items-center justify-center z-[9999]"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && onClose) onClose();
+      }}
+    >
+      <div className="bg-panel p-8 rounded-3xl border border-border shadow-2xl w-[400px] animate-in zoom-in-95 relative">
+        {onClose && (
+          <button 
+            type="button"
+            onClick={onClose} 
+            className="absolute top-5 right-5 text-text-muted hover:text-text-main transition-colors cursor-pointer"
+          >
+            <X size={20} />
+          </button>
+        )}
         <div className="flex flex-col items-center mb-6">
           <div className="w-14 h-14 bg-primary/20 border border-primary/30 rounded-2xl flex items-center justify-center mb-4 shadow-inner">
             <Wand2 className="text-primary" size={28} />
