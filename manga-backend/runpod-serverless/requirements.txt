@@ -1,0 +1,18 @@
+diffusers==0.29.2
+transformers==4.40.2
+runpod
+opencv-python-headless
+accelerate
+scikit-image
+onnxruntime-gpu
+manga-ocr
+comic-text-detector
+
+# Supporting libraries required by handler.py
+Pillow
+requests
+numpy
+shapely
+pyclipper
+PyYAML
+loguru

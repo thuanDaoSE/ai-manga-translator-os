@@ -34,3 +34,8 @@ filetype
 
 # --- PAYMENT ---
 payos==1.1.0
+
+# --- GENERATIVE INPAINT (PHASE 3) ---
+diffusers>=0.28.0
+accelerate
+scikit-image

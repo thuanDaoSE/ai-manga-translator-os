@@ -42,7 +42,7 @@ export const useGlobalShortcuts = () => {
         useCanvasStore.getState().addBubble({
           x: 200, y: 200, w: 200, h: 80,
           text: "Gõ chữ vào đây...",
-          fontSize: toolState.fontSize || 18,
+          fontSize: toolState.fontSize || 40,
           fontColor: toolState.fontColor || '#000000',
           fontFamily: toolState.fontFamily || "'Comic Neue', cursive",
           rotation: 0

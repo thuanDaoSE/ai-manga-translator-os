@@ -160,6 +160,9 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
       // 2. Chặn luồng render, ép tải xong toàn bộ font mới cho đi tiếp
       await Promise.all(requiredFonts.map(fontName => loadFont(fontName)));
 
+      // 🚀 CHỐNG CRASH KHI CANVAS ĐÃ BỊ DISPOSE TRONG QUÁ TRÌNH CHỜ FONT
+      if (!fabricCanvas.current || fabricCanvas.current !== canvas) return;
+
       // 3. FONT ĐÃ SẴN SÀNG -> TIẾN HÀNH VẼ CANVAS
       const existingIds = canvas.getObjects().map((obj: any) => obj.id);
 
@@ -174,7 +177,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
           color: 'rgba(0,0,0,0.6)', blur: 4, offsetX: 2, offsetY: 4
         }) : null;
 
-        const defaultFontSize = bubble.fontSize || 28;
+        const defaultFontSize = bubble.fontSize || 40;
         let textObj: fabric.Textbox | undefined;
 
         // ==========================================
@@ -266,8 +269,12 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
 
           if (bubble.text === "Gõ chữ vào đây..." || bubble.text === "Nhập chữ...") {
             canvas.setActiveObject(textObj);
-            textObj.enterEditing();
-            textObj.selectAll();
+            try {
+              textObj.enterEditing();
+              textObj.selectAll();
+            } catch (err) {
+              console.warn("Failed to enter editing:", err);
+            }
           }
         } else {
           textObj = canvas.getObjects().find((obj: any) => obj.id === bubble.id) as fabric.Textbox;
@@ -325,7 +332,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
             setTimeout(() => {
               const currentBubble = useCanvasStore.getState().bubbles.find(b => b.id === bubble.id);
               if (currentBubble && currentBubble.fontSize > fs) {
-                useCanvasStore.getState().updateBubble(bubble.id, { fontSize: fs });
+                useCanvasStore.getState().updateBubble(bubble.id, { fontSize: fs }, true);
               }
             }, 10);
           }

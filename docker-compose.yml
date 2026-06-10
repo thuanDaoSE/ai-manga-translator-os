@@ -69,7 +69,7 @@ services:
       args:
         # Build argument pointing to the API URL. 
         # MUST be set to your public VPS IP or domain when deploying to the VPS (e.g., http://<VPS_IP>:8000)
-        - VITE_API_URL=http://103.77.243.60:8000
+        - VITE_API_URL=https://deepkoma.pro:8000
     container_name: manga-frontend
     restart: always
     ports:

@@ -187,11 +187,19 @@ export const mangaApi = {
   },
 
   downloadPsd: (pageId: string) => {
-    window.open(`${API_URL}/pages/${pageId}/download-psd`, '_blank'); // <--- Sửa "/psd" thành "/download-psd"
+    const link = document.createElement('a');
+    link.href = `${API_URL}/pages/${pageId}/download-psd`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   },
 
   downloadJsx: (pageId: string) => {
-    window.open(`${API_URL}/pages/${pageId}/jsx`, '_blank');
+    const link = document.createElement('a');
+    link.href = `${API_URL}/pages/${pageId}/jsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   },
 
   uploadFont: async (file: File) => {
@@ -215,7 +223,19 @@ export const mangaApi = {
   },
 
   downloadFontPack: () => {
-    window.open(`${API_URL}/fonts/download-pack`, '_blank');
+    const link = document.createElement('a');
+    link.href = `${API_URL}/fonts/download-pack`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  },
+
+  exportManga: (pageId: string) => {
+    const link = document.createElement('a');
+    link.href = `${API_URL}/pages/${pageId}/export-manga`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   },
   // 🚀 THÊM 2 HÀM NÀY VÀO ĐỂ GOM TẤT CẢ API VỀ 1 MỐI BẢO MẬT
   uploadProjectFile: async (projectId: string, file: File) => {

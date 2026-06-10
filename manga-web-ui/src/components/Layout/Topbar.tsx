@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { toJpeg } from "html-to-image";
 import {
   CloudCheck, Download, Diamond, User, Settings, LogOut, ChevronDown,
-  Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2
+  Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages
 } from "lucide-react";
 import toast from 'react-hot-toast';
 import { useConfigStore } from "../../store/useConfigStore";
@@ -15,11 +15,19 @@ import { useProjectStore } from "../../store/useProjectStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { mangaApi } from "../../services/api";
 import { PaywallDrawer } from "../Modals/PaywallDrawer";
+import DeepKomaLogo from "../ui/DeepKomaLogo";
 
 export default function Topbar() {
   const { isComparing, setIsComparing } = useToolStore();
   const { user, signOut } = useAuthStore();
   const projectStore = useProjectStore();
+
+  const storeProjectName = (projectStore as any).projectName || "";
+  const [localProjectName, setLocalProjectName] = useState(storeProjectName);
+
+  useEffect(() => {
+    setLocalProjectName(storeProjectName);
+  }, [storeProjectName]);
 
   const { isModalOpen, setModalOpen } = useConfigStore();
 
@@ -42,7 +50,7 @@ export default function Topbar() {
   const handleExportManga = () => {
     const pageId = projectStore.pageIds[projectStore.currentIndex];
     if (!pageId) return toast.error("Chưa có trang truyện nào được chọn!");
-    window.open(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/export-manga`, '_blank');
+    mangaApi.exportManga(pageId);
     setIsExportMenuOpen(false);
   };
 
@@ -87,32 +95,17 @@ export default function Topbar() {
         {/* ========================================= */}
         {/* 🚀 LOGO DEEPKOMA CHUẨN CHIẾN LƯỢC SAAS */}
         {/* ========================================= */}
-        <div className="flex items-center gap-2 cursor-pointer transition-opacity hover:opacity-80">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-lg bg-gradient-to-br from-[#8A2BE2] to-[#06B6D4] relative overflow-hidden group">
-            {/* Hiệu ứng tia chớp/Spark của AI */}
-            <Wand2 size={18} className="text-white relative z-10 transform group-hover:rotate-12 transition-transform duration-300" />
-            {/* Vệt sáng chạy ngang logo (Glassmorphism) */}
-            <div className="absolute inset-0 w-[200%] h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-[100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out" />
-          </div>
-
-          <div className="flex flex-col">
-            <span className="text-[14px] font-black tracking-widest text-text-main hidden md:block uppercase leading-none font-['Inter']">
-              Deep<span className="text-transparent bg-clip-text bg-gradient-to-r from-[#8A2BE2] to-[#06B6D4]">Koma</span>
-            </span>
-            <span className="text-[8px] font-bold tracking-[0.2em] text-text-muted hidden md:block uppercase mt-0.5">
-              AI Workspace
-            </span>
-          </div>
-        </div>
+        <DeepKomaLogo className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
 
         <div className="w-px h-8 bg-border mx-2 hidden sm:block" />
 
         <div className="flex flex-col justify-center min-w-0 max-w-[300px]">
           <input
             type="text"
-            defaultValue="Tiêu diệt Goblin - Chap 1"
+            value={localProjectName}
+            onChange={(e) => setLocalProjectName(e.target.value)}
             className="bg-transparent font-bold text-[13px] text-text-main focus:outline-none focus:border-b border-[#8A2BE2] w-full truncate transition-all placeholder-text-muted/50"
-            placeholder="Nhập tên dự án..."
+            placeholder="Dự án chưa đặt tên..."
           />
           <div className="flex items-center text-[10px] text-text-muted font-medium mt-0.5">
             <CloudCheck size={12} className="mr-1 text-[#06B6D4]" />
@@ -132,13 +125,14 @@ export default function Topbar() {
       {/* 3. RIGHT ZONE: CONFIG, CREDITS, EXPORT, ACCOUNT */}
       <div className="flex items-center justify-end gap-3 flex-1 relative">
 
-        {/* Nút Cài đặt dự án chung */}
+        {/* Nút Cài đặt dự án chung (Cấu hình dịch) */}
         <button
-          onClick={() => setModalOpen(true)} // 🚀 Gắn sự kiện click mở Modal vào đây
-          className="flex items-center justify-center w-8 h-8 rounded-full bg-background border border-border hover:bg-border/50 text-text-muted hover:text-text-main transition-colors cursor-pointer"
+          onClick={() => setModalOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm group"
           title="Cài đặt từ điển & Xưng hô AI"
         >
-          <Settings2 size={16} />
+          <Languages size={14} className="text-primary group-hover:scale-110 transition-transform" />
+          <span className="text-[12px] font-bold">Cấu hình dịch</span>
         </button>
 
         <div className="w-px h-5 bg-border mx-1" />

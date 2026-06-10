@@ -12,3 +12,6 @@ pyclipper
 PyYAML==6.0.3
 loguru==0.7.3
 requests==2.31.0
+diffusers>=0.28.0
+accelerate
+scikit-image
