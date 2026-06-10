@@ -14,6 +14,7 @@ import { useConfigStore } from '../../store/useConfigStore'; // 🚀 Bổ sung k
 import { useProjectStore } from '../../store/useProjectStore'; // 🚀 Bổ sung kho Dự án
 import { mangaApi } from '../../services/api';
 import { useAuthStore } from '../../store/useAuthStore';
+import LensModal from '../Modals/LensModal';
 
 // ==========================================
 // MICRO-COMPONENTS CHO DESIGN INSPECTOR
@@ -77,7 +78,9 @@ export default function RightSidebar() {
   }, [resize, stopResizing]);
   // ==========================================
 
-  if (!toolStore.showRightPanel) return null;
+  const scanModal = toolStore.scanModal;
+
+  if (!toolStore.showRightPanel && !scanModal?.isOpen) return null;
 
   return (
     <aside
@@ -93,31 +96,37 @@ export default function RightSidebar() {
         <div className="w-1 h-12 bg-border group-hover:bg-primary transition-all duration-300 rounded-full" />
       </div>
 
-      {/* HEADER TABS VÀ NÚT ĐÓNG */}
-      <div className="flex items-center px-2 py-2 border-b border-border bg-panel/50 shrink-0 gap-1 relative overflow-hidden">
-        {/* Nhóm Tabs */}
-        <div className="flex-1 flex items-center gap-1">
-          <TabButton icon={<Sliders size={15} />} label="Design" isActive={activeTab === 'design'} onClick={() => setActiveTab('design')} />
-          <TabButton icon={<ListIcon size={15} />} label="Script" isActive={activeTab === 'dialogue'} onClick={() => setActiveTab('dialogue')} />
-        </div>
+      {scanModal?.isOpen ? (
+        <LensModal />
+      ) : (
+        <>
+          {/* HEADER TABS VÀ NÚT ĐÓNG */}
+          <div className="flex items-center px-2 py-2 border-b border-border bg-panel/50 shrink-0 gap-1 relative overflow-hidden">
+            {/* Nhóm Tabs */}
+            <div className="flex-1 flex items-center gap-1">
+              <TabButton icon={<Sliders size={15} />} label="Design" isActive={activeTab === 'design'} onClick={() => setActiveTab('design')} />
+              <TabButton icon={<ListIcon size={15} />} label="Script" isActive={activeTab === 'dialogue'} onClick={() => setActiveTab('dialogue')} />
+            </div>
 
-        {/* Nút Đóng Right Sidebar */}
-        <div className="w-px h-8 bg-border/80 mx-1 shrink-0" />
-        <button
-          onClick={() => toolStore.toggleRightPanel()}
-          className="p-2 shrink-0 bg-border/40 hover:bg-border text-text-muted hover:text-danger rounded-md cursor-pointer transition-colors"
-          title="Đóng bảng công cụ (Thu gọn màn hình)"
-        >
-          <PanelRightClose size={16} />
-        </button>
-      </div>
+            {/* Nút Đóng Right Sidebar */}
+            <div className="w-px h-8 bg-border/80 mx-1 shrink-0" />
+            <button
+              onClick={() => toolStore.toggleRightPanel()}
+              className="p-2 shrink-0 bg-border/40 hover:bg-border text-text-muted hover:text-danger rounded-md cursor-pointer transition-colors"
+              title="Đóng bảng công cụ (Thu gọn màn hình)"
+            >
+              <PanelRightClose size={16} />
+            </button>
+          </div>
 
-      {/* NỘI DUNG CUỘN */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-sidebar">
-        {/* 🚀 ĐÃ ĐỔI SANG BẢN FIGMA STYLE MỚI */}
-        {activeTab === 'design' && <DesignInspectorTab activeId={activeBubbleId} />}
-        {activeTab === 'dialogue' && <DialogueListTab activeId={activeBubbleId} />}
-      </div>
+          {/* NỘI DUNG CUỘN */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-sidebar">
+            {/* 🚀 ĐÃ ĐỔI SANG BẢN FIGMA STYLE MỚI */}
+            {activeTab === 'design' && <DesignInspectorTab activeId={activeBubbleId} />}
+            {activeTab === 'dialogue' && <DialogueListTab activeId={activeBubbleId} />}
+          </div>
+        </>
+      )}
 
     </aside>
   );

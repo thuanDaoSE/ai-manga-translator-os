@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, memo, useCallback } from 'react';
 import { useConfigStore } from '../../store/useConfigStore';
 import { 
   X, Database, Users, Save, Plus, Trash2, 
-  ArrowRight, UploadCloud, Wand2, Loader2, FileJson, Sparkles
+  ArrowRight, UploadCloud, Download, Wand2, Loader2, FileJson, Sparkles
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
@@ -10,37 +10,116 @@ import { v4 as uuidv4 } from 'uuid';
 interface GlossaryItem { id: string; source: string; target: string; }
 interface RelationItem { id: string; speaker: string; listener: string; self_ref: string; target_ref: string; }
 
-// --- COMPONENT CON (Giữ nguyên) ---
-const GlossaryRow = memo(({ item, onUpdate, onRemove }: { item: GlossaryItem, onUpdate: (item: GlossaryItem) => void, onRemove: (id: string) => void }) => {
+// --- COMPONENT CON THUẬT NGỮ (GLOSSARY) ---
+const GlossaryRow = memo(({ item, index, onUpdate, onRemove }: { item: GlossaryItem, index: number, onUpdate: (item: GlossaryItem) => void, onRemove: (id: string) => void }) => {
   const [source, setSource] = useState(item.source);
   const [target, setTarget] = useState(item.target);
   const handleBlur = () => { if (source !== item.source || target !== item.target) onUpdate({ ...item, source, target }); };
   return (
-    <div className="grid grid-cols-[1fr_1fr_40px] gap-px group bg-background hover:bg-panel/50 transition-colors">
-      <input type="text" value={source} onChange={(e) => setSource(e.target.value)} onBlur={handleBlur} placeholder="VD: 螺旋丸" className="w-full bg-transparent border-none text-[12px] font-medium text-text-main px-4 py-2.5 focus:outline-none focus:bg-panel/80 placeholder-text-muted/30" />
-      <input type="text" value={target} onChange={(e) => setTarget(e.target.value)} onBlur={handleBlur} placeholder="VD: Rasengan" className="w-full bg-transparent border-none text-[12px] font-medium text-text-main px-4 py-2.5 focus:outline-none focus:bg-panel/80 placeholder-text-muted/30" />
-      <div className="flex items-center justify-center">
-        <button onClick={() => onRemove(item.id)} className="p-1.5 text-text-muted opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/10 rounded-md transition-all"><Trash2 size={14} /></button>
+    <div className="flex items-center gap-3 bg-panel/30 hover:bg-panel/60 p-2.5 rounded-xl border border-border/40 transition-all duration-200 group">
+      <div className="text-[10px] font-black text-text-muted w-6 text-center select-none">{String(index + 1).padStart(2, '0')}</div>
+      <div className="flex-1 relative">
+        <input 
+          type="text" 
+          value={source} 
+          onChange={(e) => setSource(e.target.value)} 
+          onBlur={handleBlur} 
+          placeholder="Tiếng Nhật gốc (VD: 螺旋丸)" 
+          className="w-full bg-background/50 border border-border rounded-lg text-xs font-semibold text-text-main px-3 py-2 focus:border-primary/50 focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
+        />
       </div>
+      <div className="text-text-muted flex items-center justify-center select-none font-bold">➔</div>
+      <div className="flex-1 relative">
+        <input 
+          type="text" 
+          value={target} 
+          onChange={(e) => setTarget(e.target.value)} 
+          onBlur={handleBlur} 
+          placeholder="Tiếng Việt dịch (VD: Rasengan)" 
+          className="w-full bg-background/50 border border-border rounded-lg text-xs font-semibold text-text-main px-3 py-2 focus:border-primary/50 focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
+        />
+      </div>
+      <button 
+        type="button"
+        onClick={() => onRemove(item.id)} 
+        className="p-2 text-text-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-all cursor-pointer"
+        title="Xóa dòng này"
+      >
+        <Trash2 size={15} />
+      </button>
     </div>
   );
 });
 
-const RelationRow = memo(({ item, onUpdate, onRemove }: { item: RelationItem, onUpdate: (item: RelationItem) => void, onRemove: (id: string) => void }) => {
+// --- COMPONENT CON XƯNG HÔ (RELATIONS) ---
+const RelationRow = memo(({ item, index, onUpdate, onRemove }: { item: RelationItem, index: number, onUpdate: (item: RelationItem) => void, onRemove: (id: string) => void }) => {
   const [speaker, setSpeaker] = useState(item.speaker);
   const [listener, setListener] = useState(item.listener);
   const [selfRef, setSelfRef] = useState(item.self_ref);
   const [targetRef, setTargetRef] = useState(item.target_ref);
   const handleBlur = () => { if (speaker !== item.speaker || listener !== item.listener || selfRef !== item.self_ref || targetRef !== item.target_ref) onUpdate({ ...item, speaker, listener, self_ref: selfRef, target_ref: targetRef }); };
   return (
-    <div className="grid grid-cols-[1.5fr_auto_1.5fr_1fr_1fr_40px] gap-px group bg-background hover:bg-panel/50 transition-colors">
-      <input type="text" value={speaker} onChange={e => setSpeaker(e.target.value)} onBlur={handleBlur} placeholder="Naruto" className="w-full bg-transparent border-none text-[12px] font-medium text-text-main px-4 py-2.5 focus:outline-none focus:bg-panel/80 placeholder-text-muted/30" />
-      <div className="flex items-center justify-center bg-transparent px-2"><ArrowRight className="text-border" size={14} /></div>
-      <input type="text" value={listener} onChange={e => setListener(e.target.value)} onBlur={handleBlur} placeholder="Sasuke" className="w-full bg-transparent border-none text-[12px] font-medium text-text-main px-4 py-2.5 focus:outline-none focus:bg-panel/80 placeholder-text-muted/30" />
-      <input type="text" value={selfRef} onChange={e => setSelfRef(e.target.value)} onBlur={handleBlur} placeholder="Tớ" className="w-full bg-transparent border-none text-[12px] font-bold text-primary/80 px-4 py-2.5 focus:outline-none focus:bg-primary/10 placeholder-text-muted/30" />
-      <input type="text" value={targetRef} onChange={e => setTargetRef(e.target.value)} onBlur={handleBlur} placeholder="Cậu" className="w-full bg-transparent border-none text-[12px] font-bold text-primary/80 px-4 py-2.5 focus:outline-none focus:bg-primary/10 placeholder-text-muted/30" />
-      <div className="flex items-center justify-center">
-        <button onClick={() => onRemove(item.id)} className="p-1.5 text-text-muted opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/10 rounded-md transition-all"><Trash2 size={14} /></button>
+    <div className="flex flex-col md:flex-row md:items-center gap-3 bg-panel/30 hover:bg-panel/60 p-3 rounded-xl border border-border/40 transition-all duration-200 group">
+      {/* Row Index */}
+      <div className="hidden md:block text-[10px] font-black text-text-muted w-6 text-center select-none">{String(index + 1).padStart(2, '0')}</div>
+      
+      {/* Speaker and Listener */}
+      <div className="flex-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+        <input 
+          type="text" 
+          value={speaker} 
+          onChange={e => setSpeaker(e.target.value)} 
+          onBlur={handleBlur} 
+          placeholder="Nhân vật A (VD: Naruto)" 
+          className="w-full bg-background/50 border border-border rounded-lg text-xs font-semibold text-text-main px-3 py-2 focus:border-primary/50 focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
+        />
+        <div className="flex items-center justify-center text-text-muted select-none"><ArrowRight size={13} /></div>
+        <input 
+          type="text" 
+          value={listener} 
+          onChange={e => setListener(e.target.value)} 
+          onBlur={handleBlur} 
+          placeholder="Nhân vật B (VD: Sasuke)" 
+          className="w-full bg-background/50 border border-border rounded-lg text-xs font-semibold text-text-main px-3 py-2 focus:border-primary/50 focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
+        />
+      </div>
+
+      <div className="hidden md:block w-px h-5 bg-border/40"></div>
+
+      {/* Pronouns */}
+      <div className="w-full md:w-64 grid grid-cols-2 gap-2">
+        <div>
+          <input 
+            type="text" 
+            value={selfRef} 
+            onChange={e => setSelfRef(e.target.value)} 
+            onBlur={handleBlur} 
+            placeholder="A tự xưng (VD: Tớ)" 
+            className="w-full bg-background/50 border border-border rounded-lg text-xs font-bold text-primary px-3 py-2 focus:border-primary focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
+          />
+        </div>
+        <div>
+          <input 
+            type="text" 
+            value={targetRef} 
+            onChange={e => setTargetRef(e.target.value)} 
+            onBlur={handleBlur} 
+            placeholder="A gọi B (VD: Cậu)" 
+            className="w-full bg-background/50 border border-border rounded-lg text-xs font-bold text-primary px-3 py-2 focus:border-primary focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
+          />
+        </div>
+      </div>
+
+      {/* Delete button */}
+      <div className="flex items-center justify-end">
+        <button 
+          type="button"
+          onClick={() => onRemove(item.id)} 
+          className="p-2 text-text-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-all cursor-pointer w-full md:w-auto flex justify-center border border-border/30 md:border-none"
+          title="Xóa dòng này"
+        >
+          <Trash2 size={15} />
+        </button>
       </div>
     </div>
   );
@@ -59,7 +138,7 @@ export default function TranslationConfigModal() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. CHẠY USE_EFFECT
+  // 1. CHẠY USE_EFFECT ĐỌC DỮ LIỆU CŨ
   useEffect(() => {
     if (config.isModalOpen) {
       const saved = localStorage.getItem('manga_trans_settings');
@@ -102,6 +181,25 @@ export default function TranslationConfigModal() {
     reader.readAsText(file); e.target.value = ''; 
   };
 
+  // HÀM XUẤT FILE JSON ĐỘC QUYỀN
+  const handleExportJSON = () => {
+    const cleanGlossary = glossaryList.filter(g => g.source.trim() !== '' && g.target.trim() !== '');
+    const cleanRelations = relationList.filter(r => r.speaker.trim() !== '' && r.listener.trim() !== '');
+    const dataObj = { terminology: cleanGlossary, relational_matrix: cleanRelations };
+    
+    const fileData = JSON.stringify(dataObj, null, 2);
+    const blob = new Blob([fileData], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `DeepKoma_Glossary_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success("Đã xuất file JSON thành công!");
+  };
+
   const executeAIExtract = () => {
     if (!aiInputText.trim()) { toast.error("Vui lòng dán văn bản tiếng Nhật trước khi phân tích!"); return; }
     setIsAIExtracting(true);
@@ -126,44 +224,47 @@ export default function TranslationConfigModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 animate-in fade-in duration-200">
-      <div className="bg-sidebar w-full max-w-4xl max-h-[85vh] rounded-xl border border-border shadow-2xl flex flex-col overflow-hidden text-text-main font-sans">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 animate-in fade-in duration-200">
+      <div className="bg-panel w-full max-w-4xl max-h-[85vh] rounded-3xl border border-border shadow-2xl flex flex-col overflow-hidden text-text-main font-sans">
         
         {/* HEADER & TABS */}
         <div className="flex flex-col border-b border-border bg-panel">
-          <div className="flex items-center justify-between px-5 py-3">
+          <div className="flex items-center justify-between px-6 py-4">
             <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-8 h-8 bg-background border border-border rounded-md shadow-inner">
-                <Database className="w-4 h-4 text-text-muted" />
+              <div className="flex items-center justify-center w-9 h-9 bg-background border border-border rounded-xl shadow-inner">
+                <Database className="w-5 h-5 text-primary" />
               </div>
               <div className="flex flex-col">
-                <h2 className="text-[13px] font-bold uppercase tracking-wider text-text-main">Hệ thống Quản trị Từ điển</h2>
-                <p className="text-[11px] text-text-muted">Cấu trúc hóa dữ liệu cho thuật toán Aho-Corasick</p>
+                <h2 className="text-[14px] font-black uppercase tracking-wider text-text-main">Hệ thống Quản trị Từ điển</h2>
+                <p className="text-[11px] text-text-muted">Cấu trúc hóa dữ liệu thuật ngữ & vai vế dịch thuật của Manga</p>
               </div>
             </div>
-            <button onClick={() => config.setModalOpen(false)} className="p-1.5 text-text-muted hover:text-text-main hover:bg-border rounded-md transition-colors"><X size={16} /></button>
+            <button onClick={() => config.setModalOpen(false)} className="p-2 text-text-muted hover:text-text-main hover:bg-border/50 rounded-xl transition-colors cursor-pointer"><X size={18} /></button>
           </div>
 
-          <div className="flex items-center justify-between px-5 bg-background border-t border-border/50">
+          <div className="flex items-center justify-between px-6 bg-background border-t border-border/50">
             <div className="flex gap-4">
-              <button onClick={() => setActiveTab('glossary')} className={`flex items-center gap-1.5 py-3 text-[11px] font-bold uppercase tracking-wider transition-all border-b-2 ${activeTab === 'glossary' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text-main'}`}>
+              <button onClick={() => setActiveTab('glossary')} className={`flex items-center gap-1.5 py-3 text-[11px] font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer ${activeTab === 'glossary' ? 'border-primary text-primary font-black' : 'border-transparent text-text-muted hover:text-text-main'}`}>
                 <FileJson size={14} /> Thuật ngữ ({glossaryList.length})
               </button>
-              <button onClick={() => setActiveTab('relations')} className={`flex items-center gap-1.5 py-3 text-[11px] font-bold uppercase tracking-wider transition-all border-b-2 ${activeTab === 'relations' ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text-main'}`}>
+              <button onClick={() => setActiveTab('relations')} className={`flex items-center gap-1.5 py-3 text-[11px] font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer ${activeTab === 'relations' ? 'border-primary text-primary font-black' : 'border-transparent text-text-muted hover:text-text-main'}`}>
                 <Users size={14} /> Xưng hô ({relationList.length})
               </button>
             </div>
 
             <div className="flex items-center gap-2">
               <input type="file" accept=".json" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-              <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-panel border border-border hover:bg-border text-text-muted hover:text-text-main rounded-md text-[11px] font-semibold transition-colors">
+              <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-1.5 bg-panel border border-border hover:bg-border/60 hover:text-text-main text-text-muted rounded-xl text-[11px] font-semibold transition-all cursor-pointer">
                 <UploadCloud size={13} /> Nhập JSON
+              </button>
+              <button onClick={handleExportJSON} className="flex items-center gap-1.5 px-3 py-1.5 bg-panel border border-border hover:bg-border/60 hover:text-text-main text-text-muted rounded-xl text-[11px] font-semibold transition-all cursor-pointer">
+                <Download size={13} /> Xuất JSON
               </button>
               <div className="w-px h-3 bg-border mx-1"></div>
               
               <button 
                 onClick={() => setShowAIInput(!showAIInput)} 
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all border ${showAIInput ? 'bg-primary text-white border-primary' : 'bg-primary/10 border-primary/20 text-primary hover:bg-primary/20'}`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border cursor-pointer ${showAIInput ? 'bg-primary text-white border-primary shadow-sm shadow-primary/20' : 'bg-primary/10 border-primary/20 text-primary hover:bg-primary/20'}`}
               >
                 <Wand2 size={13} /> {showAIInput ? 'Đóng AI' : 'AI Phân tích'}
               </button>
@@ -173,28 +274,28 @@ export default function TranslationConfigModal() {
 
         {/* 🚀 KHU VỰC NHẬP LIỆU AI */}
         {showAIInput && (
-          <div className="bg-panel border-b border-border p-4 animate-in slide-in-from-top-2 duration-200">
-            <div className="flex gap-4">
+          <div className="bg-panel border-b border-border p-5 animate-in slide-in-from-top-3 duration-200">
+            <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1">
                 <label className="block text-[11px] font-bold text-primary uppercase tracking-widest mb-2 flex items-center gap-1">
-                  <Sparkles size={12} /> Dán văn bản cần phân tích
+                  <Sparkles size={12} /> Dán văn bản tiếng Nhật cần phân tích
                 </label>
                 <textarea 
                   value={aiInputText}
                   onChange={(e) => setAiInputText(e.target.value)}
                   placeholder="Dán toàn bộ chữ tiếng Nhật của 1 chapter vào đây. AI sẽ tự động đọc, nhặt ra các Danh từ riêng, Địa danh, Tên chiêu thức và điền vào bảng bên dưới..."
-                  className="w-full h-24 bg-background border border-border rounded-lg p-3 text-[12px] text-text-main resize-none focus:outline-none focus:border-primary/50 transition-colors placeholder-text-muted/40 custom-scrollbar"
+                  className="w-full h-24 bg-background border border-border rounded-xl p-3.5 text-xs text-text-main resize-none focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all placeholder-text-muted/40 custom-scrollbar font-medium"
                 />
               </div>
-              <div className="w-48 flex flex-col justify-end">
+              <div className="w-full md:w-52 flex flex-col justify-end">
                 <p className="text-[10px] text-text-muted mb-3 leading-relaxed">
-                  * Trích xuất tốn <strong>5 Credits</strong> mỗi lần.<br/>
+                  * Hệ thống sẽ phân tích văn bản để tìm ra từ ngữ chuyên môn, danh từ riêng.<br/>
                   * Độ dài tối đa: 10,000 ký tự.
                 </p>
                 <button 
                   onClick={executeAIExtract}
                   disabled={isAIExtracting || !aiInputText.trim()}
-                  className="flex items-center justify-center gap-2 w-full py-2.5 bg-primary text-white rounded-lg text-[12px] font-bold hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 bg-primary text-white rounded-xl text-[12px] font-bold hover:bg-primary/95 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-primary/20 cursor-pointer"
                 >
                   {isAIExtracting ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />} 
                   {isAIExtracting ? 'Đang chạy AI...' : 'Bắt đầu quét'}
@@ -205,56 +306,74 @@ export default function TranslationConfigModal() {
         )}
 
         {/* BODY TABS */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar bg-background">
+        <div className="flex-1 overflow-y-auto custom-scrollbar bg-background p-5">
           {activeTab === 'glossary' && (
             <div className="animate-in fade-in duration-200">
-              <div className="grid grid-cols-[1fr_1fr_40px] gap-px bg-border text-[10px] font-bold text-text-muted uppercase tracking-widest sticky top-0 z-10 border-b border-border">
-                <div className="bg-panel px-4 py-2">Tiếng Nhật (Key)</div>
-                <div className="bg-panel px-4 py-2">Tiếng Việt (Value)</div>
-                <div className="bg-panel px-2 py-2 text-center">Xóa</div>
-              </div>
-              <div className="flex flex-col gap-px bg-border/50">
-                {glossaryList.map((item) => <GlossaryRow key={item.id} item={item} onUpdate={handleUpdateGlossary} onRemove={removeGlossary} />)}
-              </div>
-              <div className="p-4">
-                <button onClick={() => setGlossaryList([...glossaryList, { id: uuidv4(), source: '', target: '' }])} className="w-full py-2 border border-dashed border-border hover:border-text-muted bg-panel/30 hover:bg-panel text-text-muted hover:text-text-main rounded-lg flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wider transition-all">
-                  <Plus size={14} /> Thêm dòng mới
-                </button>
-              </div>
+              {glossaryList.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-panel border border-border flex items-center justify-center text-text-muted/50 mb-4 shadow-inner">
+                    <FileJson size={24} className="text-primary" />
+                  </div>
+                  <h3 className="text-xs font-bold text-text-main uppercase tracking-wider">Từ điển chưa có thuật ngữ</h3>
+                  <p className="text-[11px] text-text-muted mt-1.5 max-w-[320px] leading-relaxed">
+                    Sếp có thể tự thêm thuật ngữ mới hoặc sử dụng tính năng <strong>"AI Phân tích"</strong> để tự động quét từ ngữ manga từ ảnh truyện.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2 mb-4">
+                  {glossaryList.map((item, index) => (
+                    <GlossaryRow key={item.id} item={item} index={index} onUpdate={handleUpdateGlossary} onRemove={removeGlossary} />
+                  ))}
+                </div>
+              )}
+              
+              <button onClick={() => setGlossaryList([...glossaryList, { id: uuidv4(), source: '', target: '' }])} className="w-full py-3.5 border border-dashed border-border hover:border-primary/50 bg-panel/10 hover:bg-panel/30 text-text-muted hover:text-primary rounded-xl flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer">
+                <Plus size={14} /> Thêm dòng mới
+              </button>
             </div>
           )}
 
           {activeTab === 'relations' && (
             <div className="animate-in fade-in duration-200">
-               <div className="grid grid-cols-[1.5fr_auto_1.5fr_1fr_1fr_40px] gap-px bg-border text-[10px] font-bold text-text-muted uppercase tracking-widest sticky top-0 z-10 border-b border-border">
-                <div className="bg-panel px-4 py-2">Người nói (A)</div>
-                <div className="bg-panel px-2 py-2"></div>
-                <div className="bg-panel px-4 py-2">Người nghe (B)</div>
-                <div className="bg-panel px-4 py-2 text-primary">A Tự xưng</div>
-                <div className="bg-panel px-4 py-2 text-primary">A Gọi B</div>
-                <div className="bg-panel px-2 py-2 text-center">Xóa</div>
-              </div>
-              <div className="flex flex-col gap-px bg-border/50">
-                {relationList.map((item) => <RelationRow key={item.id} item={item} onUpdate={handleUpdateRelation} onRemove={removeRelation} />)}
-              </div>
-              <div className="p-4">
-                <button onClick={() => setRelationList([...relationList, { id: uuidv4(), speaker: '', listener: '', self_ref: '', target_ref: '' }])} className="w-full py-2 border border-dashed border-border hover:border-text-muted bg-panel/30 hover:bg-panel text-text-muted hover:text-text-main rounded-lg flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wider transition-all">
-                  <Plus size={14} /> Thêm quy tắc mới
-                </button>
-              </div>
+              {relationList.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-panel border border-border flex items-center justify-center text-text-muted/50 mb-4 shadow-inner">
+                    <Users size={24} className="text-primary" />
+                  </div>
+                  <h3 className="text-xs font-bold text-text-main uppercase tracking-wider">Chưa cấu hình quan hệ xưng hô</h3>
+                  <p className="text-[11px] text-text-muted mt-1.5 max-w-[320px] leading-relaxed">
+                    Cài đặt quan hệ xưng hô giữa các nhân vật (tớ-cậu, anh-em...) giúp AI dịch manga tự nhiên, đúng vai vế và ngữ cảnh.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 mb-4">
+                  {/* Bảng chỉ dẫn xưng hô nhân vật */}
+                  <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 text-[11px] text-primary leading-relaxed font-semibold">
+                    💡 <strong>Hướng dẫn thiết lập:</strong> Khi <strong>Nhân vật A</strong> nói chuyện với <strong>Nhân vật B</strong>, quy định cách A xưng mình là <strong>[A Tự xưng]</strong> và gọi B là <strong>[A Gọi B]</strong>.
+                  </div>
+                  
+                  {relationList.map((item, index) => (
+                    <RelationRow key={item.id} item={item} index={index} onUpdate={handleUpdateRelation} onRemove={removeRelation} />
+                  ))}
+                </div>
+              )}
+              
+              <button onClick={() => setRelationList([...relationList, { id: uuidv4(), speaker: '', listener: '', self_ref: '', target_ref: '' }])} className="w-full py-3.5 border border-dashed border-border hover:border-primary/50 bg-panel/10 hover:bg-panel/30 text-text-muted hover:text-primary rounded-xl flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer">
+                <Plus size={14} /> Thêm quy tắc mới
+              </button>
             </div>
           )}
         </div>
 
         {/* FOOTER */}
-        <div className="px-5 py-3 bg-panel border-t border-border flex justify-between items-center">
+        <div className="px-6 py-4 bg-panel border-t border-border flex justify-between items-center">
           <div className="flex items-center gap-2">
             <span className="flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
             <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">PostgreSQL Synced</span>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => config.setModalOpen(false)} className="px-4 py-2 rounded-md text-[11px] font-bold text-text-muted hover:text-text-main hover:bg-border transition-colors">Hủy</button>
-            <button onClick={handleSave} className="flex items-center gap-1.5 px-4 py-2 rounded-md text-[11px] font-bold text-white bg-primary hover:bg-primary/90 shadow-sm transition-all active:scale-95">
+            <button onClick={() => config.setModalOpen(false)} className="px-4 py-2 rounded-xl text-[11px] font-bold text-text-muted hover:text-text-main hover:bg-border/60 transition-colors cursor-pointer">Hủy</button>
+            <button onClick={handleSave} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-[11px] font-bold text-white bg-primary hover:bg-primary/95 shadow-md shadow-primary/20 transition-all active:scale-95 cursor-pointer">
               <Save size={14} /> Lưu Cấu Hình
             </button>
           </div>

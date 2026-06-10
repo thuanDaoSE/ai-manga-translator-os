@@ -2,7 +2,7 @@ import React from 'react';
 import { useToolStore } from '../../store/useToolStore'; //[cite: 12]
 import { useCanvasStore } from '../../store/useCanvasStore'; //[cite: 12]
 // 🚀 Thêm icon ScanLine vào đây
-import { MousePointer2, Eraser, Paintbrush, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff } from 'lucide-react';
+import { MousePointer2, Eraser, Paintbrush, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff, Sparkles } from 'lucide-react';
 export const FloatingCanvasToolbar: React.FC = () => {
   // 🚀 Lấy thêm showAiGuides và toggleAiGuides từ store
 const { activeMode, setActiveMode, brushSize, setBrushSize, restoreType, toggleRestoreType, showAiGuides, toggleAiGuides, showText, setShowText } = useToolStore();
@@ -121,6 +121,7 @@ const { activeMode, setActiveMode, brushSize, setBrushSize, restoreType, toggleR
           <div className="w-px h-6 bg-border mx-1"></div>
 
           <ToolButton mode="erase" icon={Eraser} label="Tẩy nền (E)" shortLabel="Tẩy nền (E)" />
+          <ToolButton mode="redraw" icon={Sparkles} label="Vẽ lại AI (R)" shortLabel="Vẽ lại AI (R)" />
           <ToolButton mode="restore" icon={Paintbrush} label="Phục hồi (B)" shortLabel="Phục hồi (B)" />
           <ToolButton mode="scan" icon={ScanSearch} label="Dịch Lens (S)" shortLabel="Dịch Lens (S)" />
 

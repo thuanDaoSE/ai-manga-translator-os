@@ -135,6 +135,7 @@ export default function Workspace() {
   const isSpaceDown = useRef(false);
 
   const [isProcessing, setIsProcessing] = useState(false);
+  const [redrawPrompt, setRedrawPrompt] = useState("");
   const dynamicLoadingText = useDynamicLoadingText(isProcessing);
 
   const zoomRef = useRef(currentZoom);
@@ -347,7 +348,7 @@ export default function Workspace() {
     img.src = `${targetUrl.split('?')[0]}?nocache=${Date.now()}`;
   };
 
-  // 4. AI Backend Integration (Refactored to callAITranslation)
+  // 4. AI Backend Integration (Actual Erase Mask)
   const handleErase = async () => {
     if (!projectStore.pageIds[currentIndex]) return toast.error("Ảnh đang tải lên!");
     const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
@@ -357,25 +358,71 @@ export default function Workspace() {
     setIsProcessing(true);
     setActionPosition(null);
     try {
-      // Set ref current to canvas being translated/erased
-      canvasRef.current = drawCanvas;
-      
-      // Execute the version-checked serverless AI pipeline
-      await useMangaEditorStore.getState().callAITranslation(canvasRef.current);
+      const maskBase64 = drawCanvas.toDataURL("image/png");
+      const pageId = projectStore.pageIds[currentIndex];
+
+      const fileName = fileQueue[currentIndex]?.name || "";
+      const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
+      const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
+      const targetUrl = processedUrls[currentIndex] || serverRawUrl;
+
+      // Call API
+      const newUrl = await mangaApi.eraseMask(targetUrl, maskBase64, pageId);
+
+      // Save history and set image in editor store
+      useMangaEditorStore.getState().saveHistory();
+      useMangaEditorStore.getState().setImageUrl(newUrl);
 
       // Sync stored URL with projectStore
-      const newUrl = useMangaEditorStore.getState().imageUrl;
-      if (newUrl) {
-        projectStore.setProcessedUrl(currentIndex, newUrl);
-      }
+      projectStore.setProcessedUrl(currentIndex, newUrl);
 
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       toast.success("Đã xóa nền!");
       setActiveMode("none");
     } catch (e: any) { 
-      toast.error(e.message); 
+      toast.error(e.message || "Lỗi xóa nền!"); 
     } finally { 
       setIsProcessing(false); 
+    }
+  };
+
+  // 4.5. AI Redraw Integration (Waifu SDXL Model)
+  const handleRedraw = async () => {
+    if (!redrawPrompt.trim()) return toast.error("Vui lòng nhập prompt!");
+    if (!projectStore.pageIds[currentIndex]) return toast.error("Ảnh đang tải lên!");
+    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
+    const ctx = drawCanvas?.getContext("2d");
+    if (!ctx?.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data.some((p, i) => i % 4 === 3 && p > 0)) return toast.error("Hãy khoanh vùng đỏ!");
+
+    setIsProcessing(true);
+    setActionPosition(null);
+    try {
+      const maskBase64 = drawCanvas.toDataURL("image/png");
+      const pageId = projectStore.pageIds[currentIndex];
+
+      const fileName = fileQueue[currentIndex]?.name || "";
+      const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
+      const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
+      const targetUrl = processedUrls[currentIndex] || serverRawUrl;
+
+      // Call API
+      const newUrl = await mangaApi.redrawMask(targetUrl, maskBase64, redrawPrompt, pageId);
+
+      // Save history and set image in editor store
+      useMangaEditorStore.getState().saveHistory();
+      useMangaEditorStore.getState().setImageUrl(newUrl);
+
+      // Sync stored URL with projectStore
+      projectStore.setProcessedUrl(currentIndex, newUrl);
+
+      ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      toast.success("Đã vẽ lại vùng chọn!");
+      setActiveMode("none");
+      setRedrawPrompt("");
+    } catch (e: any) {
+      toast.error(e.message || "Lỗi vẽ lại AI!");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -526,6 +573,45 @@ export default function Workspace() {
               <button onClick={handleErase} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm">
                 {isProcessing ? <span className="animate-spin">⏳</span> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
                 {isProcessing ? dynamicLoadingText : "✨ Xóa AI"}
+              </button>
+            </div>
+          )}
+
+          {actionPosition && activeMode === 'redraw' && (
+            <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-2.5 p-2 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto">
+              <input
+                type="text"
+                value={redrawPrompt}
+                onChange={(e) => setRedrawPrompt(e.target.value)}
+                placeholder="Nhập Prompt tiếng Anh (ví dụ: speedlines, wall detail)..."
+                className="w-64 px-3 py-2 text-xs bg-background border border-border rounded-xl text-white focus:outline-none focus:border-primary placeholder-text-muted"
+                disabled={isProcessing}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleRedraw();
+                  }
+                }}
+              />
+              <button
+                onClick={handleRedraw}
+                disabled={isProcessing || !redrawPrompt.trim()}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-primary text-white hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer shadow-sm"
+              >
+                {isProcessing ? <span className="animate-spin">⏳</span> : <Sparkles size={16} />}
+                {isProcessing ? dynamicLoadingText : "✨ Vẽ lại AI"}
+              </button>
+              <button
+                onClick={() => {
+                  const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
+                  const ctx = drawCanvas?.getContext("2d");
+                  if (ctx) ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+                  setActionPosition(null);
+                  setRedrawPrompt("");
+                }}
+                disabled={isProcessing}
+                className="px-3 py-2.5 rounded-xl font-bold text-xs bg-panel border border-border text-text-muted hover:text-text-main transition-colors cursor-pointer"
+              >
+                Hủy
               </button>
             </div>
           )}

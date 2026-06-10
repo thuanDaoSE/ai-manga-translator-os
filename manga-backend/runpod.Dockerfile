@@ -4,6 +4,7 @@ FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
 WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib64:$LD_LIBRARY_PATH
+ENV RUNPOD_ENDPOINT_TYPE=translate
 
 # Cài đặt thư viện lõi (Đã xóa redis-server vì không cần thiết trên Serverless)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -11,9 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Cài đặt thư viện Python AI
-COPY requirements_serverless.txt .
+COPY requirements-serverless.txt .
 RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir -r requirements_serverless.txt
+RUN pip install --no-cache-dir -r requirements-serverless.txt
 
 # Cài bản ONNX GPU xịn nhất cho CUDA 12 giống sếp đã làm
 RUN pip uninstall -y onnxruntime onnxruntime-gpu && \

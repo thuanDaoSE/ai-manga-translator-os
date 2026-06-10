@@ -36,7 +36,7 @@ from s3_utils import fetch_image_from_url
 # from celery.result import AsyncResult
 
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # 1. KHỞI TẠO APP TRƯỚC
 app = FastAPI(title="Manga AI Backend API", version="2.0.0")
@@ -377,16 +377,23 @@ import base64
 import json
 from fastapi import Request, HTTPException
 
-# 🚀 CỬA KHẨU BẢO MẬT: Bóc tách JWT thuần túy (Chống crash 100%)
+# 🚀 CỬA KHẨU BẢO MẬT: Bóc tách JWT thuần túy (Chống crash 100% + Hỗ trợ Query Param cho tải file)
 async def get_current_user_id(request: Request):
     auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
+    print(f"🔑 [AUTH DEBUG] Request path: {request.url.path} | Authorization Header: {auth_header}")
+    token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    else:
+        token = request.query_params.get("token")
+        
+    if not token:
+        print("🔑 [AUTH DEBUG] No token found in header or query params!")
         raise HTTPException(status_code=401, detail="Bạn chưa đăng nhập!")
-    
-    token = auth_header.split(" ")[1]
     
     try:
         # JWT có 3 phần (Header, Payload, Signature) cách nhau bởi dấu chấm. Ta lấy phần giữa (Payload).
+        print(f"🔑 [AUTH DEBUG] Extracting token: {token[:15]}...{token[-15:] if len(token) > 30 else ''}")
         payload_b64 = token.split(".")[1]
         
         # Thêm các dấu "=" vào cuối để chuẩn hóa định dạng Base64 nếu bị thiếu padding
@@ -398,24 +405,62 @@ async def get_current_user_id(request: Request):
         
         # Moi ID của User ra
         user_id = payload.get("sub")
+        print(f"🔑 [AUTH DEBUG] Decoded payload sub: {user_id} | email: {payload.get('email')}")
         
         if not user_id:
+            print("🔑 [AUTH DEBUG] Token is missing 'sub' (User ID)!")
             raise HTTPException(status_code=401, detail="Token thiếu thông tin User ID!")
             
+        # Lưu email thật vào request.state để các API tạo User có thể lấy
+        request.state.user_email = payload.get("email")
+        
         return user_id
 
     except Exception as e:
-        # Bổ sung in lỗi ra Terminal để nếu có vấn đề sếp sẽ thấy ngay!
         print(f"🛑 [LỖI GIẢI MÃ TOKEN]: {e}")
         raise HTTPException(status_code=401, detail="Cấu trúc Token không hợp lệ hoặc bị hỏng!")
+
+# 🚀 HELPER: Đảm bảo User tồn tại trong DB trước khi tạo các ràng buộc khóa ngoại
+async def ensure_user_exists(db: AsyncSession, user_id: str, email: str = None):
+    from sqlalchemy import select
+    stmt = select(models.User).where(models.User.id == user_id)
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if not user:
+        if not email:
+            email = f"user_{user_id}@deepkoma.local"
+        user = models.User(id=user_id, email=email, credits=20)
+        db.add(user)
+        await db.flush()
+    return user
+
+# 🚀 HELPER: Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng bảo mật IDOR)
+async def check_page_ownership(page_id: str, user_id: str, db: AsyncSession) -> models.Page:
+    from sqlalchemy import select
+    stmt = select(models.Page).join(models.Project, models.Page.project_id == models.Project.id).where(
+        models.Page.id == page_id,
+        models.Project.user_id == user_id
+    )
+    result = await db.execute(stmt)
+    page = result.scalars().first()
+    if not page:
+        raise HTTPException(
+            status_code=403, 
+            detail="Bạn không có quyền truy cập trang này hoặc trang không tồn tại!"
+        )
+    return page
 
 # 🚀 TẠO DỰ ÁN MỚI
 @app.post("/api/projects")
 async def create_project(
     payload: dict, # Nhận JSON {"name": "..."}
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
+    # Đảm bảo User tồn tại trong DB
+    email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
+    await ensure_user_exists(db, user_id, email)
+
     project_id = str(uuid.uuid4())
     db_project = models.Project(id=project_id, name=payload.get("name", "New Project"), user_id=user_id)
     db.add(db_project)
@@ -432,34 +477,73 @@ async def list_projects(db: AsyncSession = Depends(get_db), user_id: str = Depen
 import json # 🚀 Nhớ đảm bảo có import json ở đầu file nhé sếp
 
 @app.post("/api/pages/{page_id}/bubbles")
-async def save_page_bubbles(page_id: str, payload: BubbleListPayload, db: AsyncSession = Depends(get_db)):
+async def save_page_bubbles(
+    page_id: str, 
+    payload: BubbleListPayload, 
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+):
     try:
-        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
-        page = result.scalars().first()
-        if page:
-            page.bubbles_data = json.dumps(payload.dict()["bubbles"])
+        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+        page = await check_page_ownership(page_id, user_id, db)
+        
+        # 🚀 TÍCH LŨY TÀI SẢN DỮ LIỆU: Ghi nhận sửa đổi của người dùng để Fine-tune model dịch sau này
+        bubbles = payload.dict()["bubbles"]
+        for b in bubbles:
+            raw_jp = (b.get("japanese") or "").strip()
+            ai_vi = (b.get("vietnamese") or "").strip()
+            user_vi = (b.get("text") or "").strip()
             
-            # 🚀 BẢN VÁ UX: Chỉ đổi sang "translating" (Đang dịch) chứ KHÔNG PHẢI là Hoàn tất!
-            # Nếu user đã chủ động bấm Completed trước đó thì giữ nguyên, không hạ cấp
-            if page.status != "completed":
-                page.status = "translating" 
-                
-            await db.commit()
+            # Chỉ ghi nhận nếu câu gốc tiếng Nhật có nội dung và người dùng thực sự đã thay đổi bản dịch gợi ý của AI
+            if raw_jp and user_vi and (user_vi != ai_vi):
+                # Tránh lưu trùng lặp bản ghi chỉnh sửa cùng nội dung trên cùng 1 trang
+                stmt_corr = select(models.TranslationCorrection).where(
+                    models.TranslationCorrection.page_id == page_id,
+                    models.TranslationCorrection.japanese_raw == raw_jp,
+                    models.TranslationCorrection.user_corrected == user_vi
+                )
+                existing_corr = (await db.execute(stmt_corr)).scalars().first()
+                if not existing_corr:
+                    corr = models.TranslationCorrection(
+                        project_id=page.project_id,
+                        page_id=page.id,
+                        japanese_raw=raw_jp,
+                        ai_translation=ai_vi,
+                        user_corrected=user_vi
+                    )
+                    db.add(corr)
+
+        page.bubbles_data = json.dumps(bubbles)
+        
+        # 🚀 BẢN VÁ UX: Chỉ đổi sang "translating" (Đang dịch) chứ KHÔNG PHẢI là Hoàn tất!
+        # Nếu user đã chủ động bấm Completed trước đó thì giữ nguyên, không hạ cấp
+        if page.status != "completed":
+            page.status = "translating" 
+            
+        await db.commit()
         return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/pages/{page_id}/bubbles")
-async def get_page_bubbles(page_id: str, db: AsyncSession = Depends(get_db)):
+async def get_page_bubbles(
+    page_id: str, 
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+):
     try:
-        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
-        page = result.scalars().first()
+        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+        page = await check_page_ownership(page_id, user_id, db)
         
         # 🚀 Lấy chuỗi JSON từ Database và dịch ngược lại thành Mảng trả về cho Frontend
-        if page and page.bubbles_data:
+        if page.bubbles_data:
             return {"bubbles": json.loads(page.bubbles_data)}
             
         return {"bubbles": []}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -553,7 +637,14 @@ from fastapi import BackgroundTasks
 # CẤU HÌNH RUNPOD LẤY TỪ FILE .ENV (CHUẨN BẢO MẬT)
 # ==========================================
 RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY")
-RUNPOD_ENDPOINT_ID = os.getenv("RUNPOD_ENDPOINT_ID")
+RUNPOD_TRANSLATE_ENDPOINT_ID = os.getenv("RUNPOD_TRANSLATE_ENDPOINT_ID") or os.getenv("RUNPOD_ENDPOINT_ID")
+RUNPOD_REDRAW_ENDPOINT_ID = os.getenv("RUNPOD_REDRAW_ENDPOINT_ID")
+
+# Secure Fail-safe configuration check
+if not RUNPOD_API_KEY or not RUNPOD_REDRAW_ENDPOINT_ID:
+    raise ValueError("Missing RUNPOD_API_KEY or RUNPOD_REDRAW_ENDPOINT_ID in environment variables")
+
+RUNPOD_ENDPOINT_ID = RUNPOD_TRANSLATE_ENDPOINT_ID
 
 # 🚀 THÊM DÒNG NÀY VÀO ĐẦU FILE (Dưới các dòng import)
 import redis
@@ -705,18 +796,20 @@ async def save_results(
     page_id: str, 
     data: List[Dict[str, Any]], # Chấp nhận mảng dữ liệu OCR
     clean_url: str = Query(...), 
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
     try:
-        # Code cập nhật Database của bạn ở đây...
-        query = await db.execute(select(models.Page).where(models.Page.id == page_id))
-        page = query.scalars().first()
-        if page:
-            page.clean_url = clean_url
-            page.status = "completed"
-            await db.commit()
+        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+        page = await check_page_ownership(page_id, user_id, db)
+        
+        page.clean_url = clean_url
+        page.status = "completed"
+        await db.commit()
             
         return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         print("Lỗi save-results:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -826,12 +919,21 @@ async def quick_scan(request: Request, payload: QuickScanPayload):
     
 class MaskPayload(BaseModel):
     image_url: str
-    mask_url: str
-    page_id: str = None
+    mask_url: Optional[str] = None
+    mask_base64: Optional[str] = None
+    page_id: Optional[str] = None
 
 @app.post("/api/erase-mask")
-async def erase_mask(payload: MaskPayload, db: AsyncSession = Depends(get_db)):
+async def erase_mask(
+    payload: MaskPayload, 
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+):
     try:
+        if payload.page_id:
+            # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+            await check_page_ownership(payload.page_id, user_id, db)
+        
         # Fetch raw image directly to RAM
         image = await fetch_image_from_url(payload.image_url, cv2.IMREAD_COLOR)
         
@@ -840,8 +942,19 @@ async def erase_mask(payload: MaskPayload, db: AsyncSession = Depends(get_db)):
         img_path = get_local_path_from_url(img_raw)
         clean_path = img_path.replace("/raw/", "/clean/") if "/raw/" in img_path else f"workspace/clean_{uuid.uuid4().hex}.png"
 
-        # Fetch mask directly to RAM
-        mask_rgba = await fetch_image_from_url(payload.mask_url, cv2.IMREAD_UNCHANGED)
+        # Fetch mask directly to RAM (either from URL or from Base64)
+        if payload.mask_base64:
+            b64_data = payload.mask_base64
+            if "," in b64_data:
+                b64_data = b64_data.split(",")[1]
+            mask_bytes = base64.b64decode(b64_data)
+            nparr = np.frombuffer(mask_bytes, np.uint8)
+            mask_rgba = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
+        elif payload.mask_url:
+            mask_rgba = await fetch_image_from_url(payload.mask_url, cv2.IMREAD_UNCHANGED)
+        else:
+            raise HTTPException(status_code=400, detail="Vui lòng cung cấp mask_base64 hoặc mask_url")
+
         mask = mask_rgba[:, :, 3] if len(mask_rgba.shape) == 3 and mask_rgba.shape[2] == 4 else cv2.cvtColor(mask_rgba, cv2.COLOR_BGR2GRAY) if len(mask_rgba.shape) == 3 else mask_rgba
 
         x, y, w, h = cv2.boundingRect(mask)
@@ -902,14 +1015,34 @@ async def upload_raw(file: UploadFile = File(...)):
     return {"status": "success", "filename": file.filename}
 
 # ==========================================
+# API UPLOAD FILE DÀNH CHO RUNPOD WORKER (PUT)
+# ==========================================
+@app.put("/api/upload-file")
+async def upload_file(path: str, request: Request):
+    try:
+        # Sanitize path to prevent directory traversal
+        clean_path = os.path.normpath(path).replace("\\", "/")
+        if not clean_path.startswith("workspace/"):
+            raise HTTPException(status_code=400, detail="Invalid path destination")
+        
+        body = await request.body()
+        os.makedirs(os.path.dirname(clean_path), exist_ok=True)
+        with open(clean_path, "wb") as f:
+            f.write(body)
+        return {"status": "success", "path": clean_path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
+
+# ==========================================
 # CÁC CLASS MODEL NHẬN DỮ LIỆU
 # ==========================================
-  # 🚀 THÊM DÒNG NÀY ĐỂ NHẬN ID TỪ FRONTEND
-
 class RedrawRequest(BaseModel):
     image_url: str
-    mask_url: str
+    mask_url: Optional[str] = None
+    mask_base64: Optional[str] = None
     prompt: str
+    page_id: Optional[str] = None
+
 
 # Hàm helper bóc tách URL thành đường dẫn vật lý trên RunPod
 def get_local_path_from_url(url: str) -> str:
@@ -938,123 +1071,121 @@ class TranslateConfig(BaseModel):
 
 
 # ==========================================
-# API VẼ LẠI BẰNG COMFYUI (REDRAW)
-# ==========================================
 @app.post("/api/redraw")
-async def redraw_image(req: RedrawRequest):
+async def redraw_image(
+    req: RedrawRequest,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+):
     try:
+        if req.page_id:
+            # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+            await check_page_ownership(req.page_id, user_id, db)
+
         # 1. Tìm đường dẫn file gốc
         img_path = get_local_path_from_url(req.image_url)
-        image_absolute_path = os.path.abspath(img_path) # ComfyUI cần đường dẫn tuyệt đối
-        if not os.path.exists(image_absolute_path):
-            raise HTTPException(status_code=404, detail="Không tìm thấy ảnh gốc cho ComfyUI")
+        if not os.path.exists(img_path):
+            raise HTTPException(status_code=404, detail="Không tìm thấy ảnh gốc để vẽ lại")
 
-        # 2. Lưu tạm Mask ra ổ cứng cho ComfyUI đọc
-        mask_rgba = await fetch_image_from_url(req.mask_url, cv2.IMREAD_UNCHANGED)
+        clean_path = img_path.replace("/raw/", "/clean/") if "/raw/" in img_path else f"workspace/clean_{uuid.uuid4().hex}.png"
+
+        # 2. Xử lý mặt nạ (Mask): Hỗ trợ Base64 hoặc URL
+        mask_bytes = None
+        if req.mask_base64:
+            b64_data = req.mask_base64
+            if "," in b64_data:
+                b64_data = b64_data.split(",")[1]
+            mask_bytes = base64.b64decode(b64_data)
+        elif req.mask_url:
+            async with httpx.AsyncClient() as client:
+                res = await client.get(req.mask_url, follow_redirects=True)
+                res.raise_for_status()
+                mask_bytes = res.content
+        else:
+            raise HTTPException(status_code=400, detail="Vui lòng cung cấp mask_base64 hoặc mask_url")
+
+        # Lưu tạm mặt nạ ra đĩa làm URL tĩnh cho RunPod tải
         mask_filename = f"mask_{uuid.uuid4().hex}.png"
-        mask_absolute_path = os.path.abspath(os.path.join("workspace", mask_filename))
-        cv2.imwrite(mask_absolute_path, mask_rgba)
-            
-        # 3. Setup Prompt Tiếng Anh chuẩn Manga (Từ báo cáo Deep Research)
+        mask_temp_path = f"workspace/{mask_filename}"
+        os.makedirs("workspace", exist_ok=True)
+        with open(mask_temp_path, "wb") as f:
+            f.write(mask_bytes)
+
+        # Tạo URL tuyệt đối trỏ tới ảnh gốc và mặt nạ trên VPS này
+        public_image_url = req.image_url
+        if not public_image_url.startswith("http"):
+            public_image_url = f"{get_base_url()}/{img_path}"
+
+        public_mask_url = f"{get_base_url()}/{mask_temp_path}"
+
+        # 3. Setup Prompt Tiếng Anh chuẩn Manga
         positive_prompt = f"{req.prompt}, masterpiece, best quality, manga page, monochrome, grayscale, sharp lineart, seamless background, flat shading, high contrast lighting"
         negative_prompt = "text, speech bubble, watermark, color, photorealistic, 3d render, blurry, artifacts, smooth gradient, western comic"
 
-        # 4. Kịch bản ComfyUI Chuẩn Production Manga
-        workflow = {
-            # --- TẢI ẢNH VÀ MODEL ---
-            "LoadImage_Raw": {"class_type": "LoadImage", "inputs": {"image": image_absolute_path}},
-            "LoadImage_Mask": {"class_type": "LoadImage", "inputs": {"image": mask_absolute_path}},
-            "Checkpoint": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "NoobAI-XL-V1.0.safetensors"}},
-            
-            # --- CONTROLNET LINEART (Giữ khung nét vẽ) ---
-            "AnyLine": {"class_type": "AnyLinePreprocessor", "inputs": {"image": ["LoadImage_Raw", 0]}},
-            "ControlNetModel": {"class_type": "ControlNetLoader", "inputs": {"control_net_name": "controlnet-sdxl-lineart.safetensors"}},
-            "ApplyControlNet": {
-                "class_type": "ControlNetApplyAdvanced", 
-                "inputs": {
-                    "positive": ["Prompt_Pos", 0], "negative": ["Prompt_Neg", 0],
-                    "control_net": ["ControlNetModel", 0], "image": ["AnyLine", 0],
-                    "strength": 0.75, "start_percent": 0.0, "end_percent": 0.7 # Cho phép AI bịa chi tiết ở 30% cuối
-                }
-            },
-
-            # --- PROMPT VÀ INPAINTING ---
-            "Prompt_Pos": {"class_type": "CLIPTextEncode", "inputs": {"text": positive_prompt, "clip": ["Checkpoint", 1]}},
-            "Prompt_Neg": {"class_type": "CLIPTextEncode", "inputs": {"text": negative_prompt, "clip": ["Checkpoint", 1]}},
-            "VAE_Inpaint": {"class_type": "VAEEncodeForInpaint", "inputs": {"grow_mask_by": 6, "pixels": ["LoadImage_Raw", 0], "vae": ["Checkpoint", 2], "mask": ["LoadImage_Mask", 1]}},
-            
-            # --- SAMPLER (Sử dụng Restart Sampler theo báo cáo) ---
-            "Sampler": {
-                "class_type": "KSampler",
-                "inputs": {
-                    "seed": int(time.time()), "steps": 35, "cfg": 6.0,
-                    "sampler_name": "dpmpp_2m", "scheduler": "normal", "denoise": 0.90,
-                    "model": ["Checkpoint", 0], "positive": ["ApplyControlNet", 0], "negative": ["ApplyControlNet", 1], "latent_image": ["VAE_Inpaint", 0]
-                }
-            },
-            "VAEDecode": {"class_type": "VAEDecode", "inputs": {"samples": ["Sampler", 0], "vae": ["Checkpoint", 2]}},
-
-            # --- HALFTONE POST-PROCESSING (Tạo chấm bi Screentone) ---
-            "Halftone": {
-                "class_type": "CR Halftone Filter",
-                "inputs": {
-                    "image": ["VAEDecode", 0], 
-                    "resolution": "normal",
-                    "dot_shape": "circle",
-                    "dot_size": 2,
-                    "border_blending": 0,
-                    "antialias_scale": 1
-                }
-            },
-
-            # --- COMPOSITE (Chỉ đè vùng AI vẽ lên ảnh gốc, giữ nguyên các vùng khác) ---
-            "Composite": {
-                "class_type": "ImageCompositeMasked",
-                "inputs": {
-                    "destination": ["LoadImage_Raw", 0],
-                    "source": ["Halftone", 0],
-                    "x": 0, "y": 0, "resize_source": False,
-                    "mask": ["LoadImage_Mask", 1]
-                }
-            },
-
-            # --- LƯU ẢNH ---
-            "Save": {"class_type": "SaveImage", "inputs": {"filename_prefix": "MangaRedraw_Pro", "images": ["Composite", 0]}}
+        # 4. Gửi Job lên RunPod Serverless
+        runpod_payload = {
+            "input": {
+                "action": "redraw",
+                "image_url": public_image_url,
+                "mask_url": public_mask_url,
+                "prompt": positive_prompt,
+                "negative_prompt": negative_prompt,
+                "output_url": f"{get_base_url()}/api/upload-file?path={clean_path}"
+            }
         }
 
-        # 5. Gửi cho ComfyUI chạy
-        queue_res = queue_prompt_to_comfyui(workflow)
-        prompt_id = queue_res['prompt_id']
+        headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
+        runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_REDRAW_ENDPOINT_ID}/run"
 
-        # 6. Chờ kết quả
-        output_image_path = None
-        while True:
-            time.sleep(1)
-            history = get_comfyui_history(prompt_id)
-            if prompt_id in history:
-                outputs = history[prompt_id]['outputs']
-                for node_id in outputs:
-                    if 'images' in outputs[node_id]:
-                        comfy_filename = outputs[node_id]['images'][0]['filename']
-                        output_image_path = f"/app/workspace/ComfyUI/output/{comfy_filename}"
-                        break
-                break
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            res = await client.post(runpod_url, json=runpod_payload, headers=headers)
+            if res.status_code != 200:
+                raise Exception(f"RunPod request failed with status {res.status_code}: {res.text}")
+            
+            job_data = res.json()
+            runpod_job_id = job_data.get("id")
+            if not runpod_job_id:
+                raise Exception(f"RunPod failed to queue job: {job_data}")
 
-        if not output_image_path:
-            raise Exception("ComfyUI không trả về ảnh")
+            # 5. Polling thăm hỏi trạng thái của Job (Timeout 5 phút)
+            start_time = time.time()
+            success = False
+            while time.time() - start_time < 300:
+                status_res = await client.get(f"https://api.runpod.ai/v2/{RUNPOD_REDRAW_ENDPOINT_ID}/status/{runpod_job_id}", headers=headers)
+                status_data = status_res.json()
+                status = status_data.get("status")
 
-        # 7. Di chuyển ảnh vẽ xong vào đúng thư mục Clean
-        clean_path = img_path.replace("/raw/", "/clean/")
-        os.rename(output_image_path, clean_path)
-        
-        # Xóa file mask rác
-        if os.path.exists(mask_absolute_path): os.remove(mask_absolute_path)
+                if status == "COMPLETED":
+                    success = True
+                    break
+                elif status in ["FAILED", "CANCELLED"]:
+                    raise Exception(f"RunPod Serverless báo lỗi: {status_data.get('error', 'Lỗi không xác định')}")
+                
+                await asyncio.sleep(3)
 
-        new_url = f"{get_base_url()}/{clean_path}"
+            if not success:
+                raise Exception("Thời gian chờ xử lý AI trên RunPod Serverless đã quá hạn (Timeout 5 phút)")
+
+        # 6. Đồng bộ DB nếu có page_id
+        if req.page_id:
+            result = await db.execute(select(models.Page).where(models.Page.id == req.page_id))
+            page = result.scalars().first()
+            if page:
+                page.clean_url = f"/{clean_path}"
+                page.status = "cleaned" 
+                await db.commit()
+
+        # 7. Dọn dẹp file mặt nạ tạm
+        if os.path.exists(mask_temp_path):
+            os.remove(mask_temp_path)
+
+        new_url = f"{get_base_url()}/{clean_path}?t={int(time.time())}"
         return {"status": "success", "new_url": new_url}
 
     except Exception as e:
         print("Lỗi Redraw:", str(e))
+        if 'mask_temp_path' in locals() and os.path.exists(mask_temp_path):
+            os.remove(mask_temp_path)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1062,14 +1193,14 @@ async def redraw_image(req: RedrawRequest):
 # API XUẤT FILE PSD (SỬA LỖI NHẦM ẢNH RAW)
 # ==========================================
 @app.get("/api/pages/{page_id}/download-psd")
-async def download_psd(page_id: str, db: AsyncSession = Depends(get_db)):
+async def download_psd(
+    page_id: str, 
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+):
     try:
-        # 1. Tìm thông tin trang truyện từ DB
-        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
-        page = result.scalars().first()
-        
-        if not page:
-            raise HTTPException(status_code=404, detail="Dữ liệu cũ! Hãy tạo Project mới và Upload lại ảnh nhé sếp!")
+        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+        page = await check_page_ownership(page_id, user_id, db)
 
         # 2. Xử lý đường dẫn chuẩn xác
         raw_path = get_local_path_from_url(page.raw_url)
@@ -1119,20 +1250,26 @@ import glob # Bổ sung dòng import này ở tít trên cùng file main.py nế
 import json # Bổ sung nếu chưa có
 
 @app.get("/api/pages/{page_id}/jsx")
-async def download_jsx(page_id: str, db: AsyncSession = Depends(get_db)):
+async def download_jsx(
+    page_id: str, 
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+):
     """
     API Tạo và Tải file JSX Động (Realtime):
     Đọc thẳng từ CSDL, sếp gõ tay hay AI dịch nó đều xuất ra được hết!
     """
-    # 1. Tìm trang truyện
-    result = await db.execute(select(models.Page).where(models.Page.id == page_id))
-    page = result.scalar_one_or_none()
-    if not page:
-        raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện")
+    # 1. Tìm trang truyện & Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+    page = await check_page_ownership(page_id, user_id, db)
 
-    # 2. Lấy toàn bộ bong bóng thoại của trang này từ CSDL (kể cả do sếp tự vẽ tay)
-    bubbles_result = await db.execute(select(models.TextBubble).where(models.TextBubble.page_id == page_id))
-    bubbles = bubbles_result.scalars().all()
+    # 2. Lấy toàn bộ bong bóng thoại của trang này từ JSON trong CSDL
+    bubbles = []
+    if page.bubbles_data:
+        try:
+            bubbles = json.loads(page.bubbles_data)
+        except Exception as e:
+            print(f"Lỗi đọc JSON bubbles: {e}")
+            bubbles = []
 
     if not bubbles:
         raise HTTPException(status_code=404, detail="Trang này chưa có chữ nào! Hãy dùng AI Dịch hoặc tự thêm chữ rồi Lưu lại.")
@@ -1140,20 +1277,16 @@ async def download_jsx(page_id: str, db: AsyncSession = Depends(get_db)):
     # 3. Gom dữ liệu tọa độ và chữ để nạp vào Script
     js_data = []
     for b in bubbles:
-        text = (b.vietnamese_text or "").strip()
+        text = (b.get("text") or "").strip()
         if not text:
             continue # Bỏ qua ô nào không có chữ
         
-        # Tính toán chiều rộng, chiều cao từ tọa độ
-        w = b.box_x2 - b.box_x1
-        h = b.box_y2 - b.box_y1
-        
         js_data.append({
             "text": text,
-            "x": b.box_x1,
-            "y": b.box_y1,
-            "w": w,
-            "h": h
+            "x": b.get("x", 0),
+            "y": b.get("y", 0),
+            "w": b.get("w", 100),
+            "h": b.get("h", 100)
         })
         
     if not js_data:
@@ -1263,15 +1396,15 @@ async def startup_event():
     asyncio.create_task(auto_cleanup_workspace())
 
 @app.delete("/api/pages/{page_id}")
-async def delete_page_from_server(page_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_page_from_server(
+    page_id: str, 
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+):
     try:
-        # 1. Tìm thông tin trang trong Database
-        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
-        page = result.scalars().first()
+        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+        page = await check_page_ownership(page_id, user_id, db)
         
-        if not page:
-            raise HTTPException(status_code=404, detail="Trang không tồn tại trên Server")
-            
         project_id = page.project_id
 
         # 2. XÓA FILE RAW VẬT LÝ
@@ -1378,12 +1511,14 @@ async def get_project_pages(project_id: str, db: AsyncSession = Depends(get_db),
 
 
 @app.get("/api/pages/{page_id}/export-manga")
-async def export_manga(page_id: str, db: AsyncSession = Depends(get_db)):
+async def export_manga(
+    page_id: str, 
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+):
     """Đóng gói Ảnh và Chữ thành 1 file .manga (Thực chất là file ZIP) để người dùng tải về"""
-    result = await db.execute(select(models.Page).where(models.Page.id == page_id))
-    page = result.scalars().first()
-    if not page:
-        raise HTTPException(status_code=404, detail="Không tìm thấy trang!")
+    # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+    page = await check_page_ownership(page_id, user_id, db)
 
     # 1. Lấy đường dẫn ảnh (Ưu tiên ảnh đã Clean, nếu chưa có thì lấy ảnh Raw)
     img_path_url = page.clean_url if page.clean_url else page.raw_url
@@ -1487,14 +1622,14 @@ import httpx # Nhớ đảm bảo có dòng này ở đầu file
 # 1. BẮN LỆNH LÊN RUNPOD (Thay Celery)
 # ==========================================
 @app.post("/api/pages/{page_id}/translate")
-async def translate_page(page_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    from sqlalchemy.future import select
-    
-    # 1. Lấy thông tin trang truyện từ DB
-    result = await db.execute(select(models.Page).where(models.Page.id == page_id))
-    page = result.scalar_one_or_none()
-    if not page:
-        raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện")
+async def translate_page(
+    page_id: str, 
+    request: Request, 
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+):
+    # 1. Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+    page = await check_page_ownership(page_id, user_id, db)
 
     # 2. Lấy URL ảnh gốc từ CSDL (tự động biến thành URL tuyệt đối nếu là đường dẫn tương đối)
     img_url = page.raw_url
@@ -1673,13 +1808,14 @@ async def import_manga_file(
 
 # 🚀 API BỔ SUNG: CHỈ DỊCH LẠI CHỮ (BẢN VÁ LỖI CHỐNG ĐẠN)
 @app.post("/api/pages/{page_id}/retry-text-translation")
-async def retry_text_translation(page_id: str, db: AsyncSession = Depends(get_db)):
+async def retry_text_translation(
+    page_id: str, 
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+):
     try:
-        # 1. Tìm thông tin trang trong DB
-        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
-        page = result.scalars().first()
-        if not page:
-            raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện này!")
+        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+        page = await check_page_ownership(page_id, user_id, db)
         
         # 🚀 BẢN VÁ: Hướng dẫn người dùng bấm đúng nút
         if not page.bubbles_data or page.bubbles_data == "[]":
@@ -1969,7 +2105,7 @@ payos_client = PayOS(
 # API 1: TẠO MÃ QR THANH TOÁN CHO NGƯỜI DÙNG
 # ==========================================
 @app.post("/api/payment/create-link")
-async def create_payment_link(user_id: str, package_id: str, db: AsyncSession = Depends(get_db)):
+async def create_payment_link(request: Request, package_id: str, db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user_id)):
     # 1. Định nghĩa các gói bán
     packages = {
         "pack_test": {"name": "Gói Test Luồng", "price": 2000, "credits": 20},
@@ -1985,33 +2121,13 @@ async def create_payment_link(user_id: str, package_id: str, db: AsyncSession = 
     # ========================================================
     # 🚀 BẢN VÁ LỖI KHÓA NGOẠI: TỰ ĐỘNG TẠO USER NẾU CHƯA CÓ
     # ========================================================
-    from sqlalchemy import select
-    stmt_user = select(User).where(User.id == user_id)
-    existing_user = (await db.execute(stmt_user)).scalar_one_or_none()
-    
-    if not existing_user:
-        # Tạo user giả định để thỏa mãn khóa ngoại Database
-        new_user = User(id=user_id, email=f"user_{user_id}@deepkoma.local")
-        db.add(new_user)
-        # Flush để đẩy data xuống ổ cứng ngay lập tức, giúp lệnh Transaction bên dưới có thể trỏ tới!
-        await db.flush() 
+    email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
+    await ensure_user_exists(db, user_id, email)
 
     # 2. Tạo mã đơn hàng duy nhất bằng Timestamp
     order_code = int(time.time() * 1000)
     
-    # 3. Lưu giao dịch PENDING vào Database
-    new_txn = Transaction(
-        order_code=order_code,
-        user_id=user_id,
-        package_name=selected_pack["name"],
-        amount=selected_pack["price"],
-        credits_added=selected_pack["credits"],
-        status="PENDING"
-    )
-    db.add(new_txn)
-    await db.commit()
-
-    # 4. Gọi API PayOS SDK Mới để tạo link
+    # 3. Gọi API PayOS SDK Mới để tạo link thanh toán trước
     from payos.types import CreatePaymentLinkRequest
     payment_request = CreatePaymentLinkRequest(
         order_code=order_code,
@@ -2021,7 +2137,24 @@ async def create_payment_link(user_id: str, package_id: str, db: AsyncSession = 
         return_url="http://localhost:5173/workspace?payment=success"
     )
     
-    payment_link = payos_client.payment_requests.create(payment_request)
+    try:
+        payment_link = payos_client.payment_requests.create(payment_request)
+    except Exception as e:
+        print(f"🛑 [LỖI TẠO LINK PAYOS]: {e}")
+        raise HTTPException(status_code=500, detail="Không thể tạo link thanh toán từ cổng PayOS!")
+        
+    # 4. Lưu giao dịch PENDING kèm link thanh toán vào Database
+    new_txn = Transaction(
+        order_code=order_code,
+        user_id=user_id,
+        package_name=selected_pack["name"],
+        amount=selected_pack["price"],
+        credits_added=selected_pack["credits"],
+        status="PENDING",
+        checkout_url=payment_link.checkout_url
+    )
+    db.add(new_txn)
+    await db.commit()
     
     return {"checkoutUrl": payment_link.checkout_url}
 
@@ -2044,36 +2177,62 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     txn = result.scalar_one_or_none()
     
     if txn and txn.status == "PENDING":
-        txn.status = "PAID"
-        
-        stmt_user = select(User).where(User.id == txn.user_id)
-        user = (await db.execute(stmt_user)).scalar_one_or_none()
-        
-        if user:
-            if "PRO" in txn.package_name:
-                user.is_pro = True
-            else:
-                user.credits += txn.credits_added
-        
-        await db.commit()
-        print(f"💰 TING TING! Đã cộng {txn.credits_added} credits cho user {txn.user_id}")
+        payos_status = webhook_data.get("status")
+        if payos_status == "CANCELLED":
+            txn.status = "CANCELLED"
+            await db.commit()
+            print(f"❌ Giao dịch {order_code} đã bị HỦY từ cổng PayOS")
+        else:
+            txn.status = "PAID"
+            
+            stmt_user = select(User).where(User.id == txn.user_id)
+            user = (await db.execute(stmt_user)).scalar_one_or_none()
+            
+            if user:
+                if "PRO" in txn.package_name:
+                    user.is_pro = True
+                else:
+                    user.credits += txn.credits_added
+            
+            await db.commit()
+            print(f"💰 TING TING! Đã cộng {txn.credits_added} credits cho user {txn.user_id}")
 
     return {"success": True}
+
+# ==========================================
+# API 3: LẤY LỊCH SỬ GIAO DỊCH CỦA USER
+# ==========================================
+@app.get("/api/payment/history")
+async def get_payment_history(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    """API lấy lịch sử giao dịch của người dùng hiện tại"""
+    stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.created_at.desc())
+    result = await db.execute(stmt)
+    txns = result.scalars().all()
+    
+    return {
+        "transactions": [
+            {
+                "order_code": txn.order_code,
+                "package_name": txn.package_name,
+                "amount": txn.amount,
+                "credits_added": txn.credits_added,
+                "status": txn.status,
+                "checkout_url": getattr(txn, "checkout_url", None),
+                "created_at": txn.created_at.isoformat() if txn.created_at else None
+            }
+            for txn in txns
+        ]
+    }
 
 # ==========================================
 # QUẢN LÝ CREDITS: LẤY SỐ DƯ & TRỪ TIỀN
 # ==========================================
 @app.get("/api/users/me")
-async def get_user_profile(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+async def get_user_profile(request: Request, user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     """API lấy thông tin User (Bao gồm Credits và gói Pro)"""
-    stmt = select(User).where(User.id == user_id)
-    user = (await db.execute(stmt)).scalar_one_or_none()
-    
-    if not user:
-        # Tự động tạo user mới tặng 20 credits nếu lần đầu đăng nhập
-        user = User(id=user_id, email=f"user_{user_id}@deepkoma.local", credits=20)
-        db.add(user)
-        await db.commit()
+    email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
+    user = await ensure_user_exists(db, user_id, email)
+    await db.commit()
         
     return {
         "id": user.id,

@@ -4,7 +4,8 @@ FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
 # Prevent Python from writing .pyc files and buffering outputs
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    RUNPOD_ENDPOINT_TYPE=redraw
 
 # Working Directory set to /workspace
 WORKDIR /workspace

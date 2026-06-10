@@ -68,9 +68,13 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
         setIsProcessing(true);
 
         try {
+            const token = useAuthStore.getState().session?.access_token || "";
             const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-            const response = await fetch(`${API_URL}/api/payment/create-link?user_id=${userId}&package_id=${activeTier.id}`, {
+            const response = await fetch(`${API_URL}/api/payment/create-link?package_id=${activeTier.id}`, {
                 method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
             });
 
             const data = await response.json();

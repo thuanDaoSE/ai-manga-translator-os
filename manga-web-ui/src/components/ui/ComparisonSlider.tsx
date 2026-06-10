@@ -56,18 +56,18 @@ export const ComparisonSlider: React.FC = () => {
       }}
     >
       {/* Base Layer: Raw Japanese Manga Visualization */}
-      <div className="absolute inset-0 bg-neutral-800 bg-[url('https://images.unsplash.com/photo-1607513746994-51f730a44832?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center grayscale opacity-60 pointer-events-none">
-        <span className="absolute top-4 right-4 bg-black/70 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white/95 border border-white/10 tracking-wider">
+      <div className="absolute inset-0 bg-neutral-950 bg-[url('/raw_manga.png')] bg-cover bg-center pointer-events-none">
+        <span className="absolute top-4 right-4 bg-black/80 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white/95 border border-white/10 tracking-wider">
           Manga Gốc (RAW Japanese)
         </span>
       </div>
 
       {/* Dynamic Overlay Layer: Translated & Typeset Vietnamese Visualization */}
       <div
-        className="absolute inset-0 bg-neutral-900 overflow-hidden bg-[url('https://images.unsplash.com/photo-1607513746994-51f730a44832?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center pointer-events-none"
+        className="absolute inset-0 bg-neutral-950 overflow-hidden bg-[url('/translated_manga.png')] bg-cover bg-center pointer-events-none"
         style={{ width: `${sliderPosition}%` }}
       >
-        <span className="absolute top-4 left-4 bg-indigo-600/90 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white whitespace-nowrap border border-indigo-400/30 tracking-wider">
+        <span className="absolute top-4 left-4 bg-indigo-600/95 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white whitespace-nowrap border border-indigo-400/30 tracking-wider">
           Bản Dịch AI (CLEAN Vietnamese)
         </span>
       </div>
