@@ -16,11 +16,58 @@ import VisualGuideOverlay from '../Editor/VisualGuideOverlay';
 import FloatingTextToolbar from '../Editor/FloatingTextToolbar';
 import { useConfigStore } from '../../store/useConfigStore';
 import { PaywallDrawer } from '../Modals/PaywallDrawer';
+import { useHotkeys } from 'react-hotkeys-hook';
+import { useMangaEditorStore } from '../../store/useMangaEditorStore';
 
 export default function Workspace() {
   const [showPaywall, setShowPaywall] = useState(false);
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // 1. Lifecycle Garbage Collection (CRITICAL)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      useMangaEditorStore.getState().clearHistory();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      useMangaEditorStore.getState().clearHistory();
+    };
+  }, []);
+
+  // 2. Undo/Redo Hotkeys
+  useHotkeys('mod+z', (e) => {
+    e.preventDefault();
+    const canvasStore = useCanvasStore.getState();
+    const editorStore = useMangaEditorStore.getState();
+    if (canvasStore.past.length > 0) {
+      canvasStore.undo();
+    } else if (editorStore.past.length > 0) {
+      editorStore.undo();
+      const newUrl = editorStore.imageUrl;
+      if (newUrl) {
+        projectStore.setProcessedUrl(currentIndex, newUrl);
+      }
+    }
+  }, { preventDefault: true, enableOnFormTags: false });
+
+  useHotkeys('mod+y, mod+shift+z', (e) => {
+    e.preventDefault();
+    const canvasStore = useCanvasStore.getState();
+    const editorStore = useMangaEditorStore.getState();
+    if (canvasStore.future.length > 0) {
+      canvasStore.redo();
+    } else if (editorStore.future.length > 0) {
+      editorStore.redo();
+      const newUrl = editorStore.imageUrl;
+      if (newUrl) {
+        projectStore.setProcessedUrl(currentIndex, newUrl);
+      }
+    }
+  }, { preventDefault: true, enableOnFormTags: false });
 
   // Dán đoạn này vào đầu hàm Workspace()
   useEffect(() => {
@@ -247,6 +294,7 @@ export default function Workspace() {
   useGlobalShortcuts();
   useGlobalErrorHandler();
 
+  // 3. Replace Base64 State Captures (Refactored to use saveCanvasImageState)
   const handleFillColor = (color: 'white' | 'black') => {
     const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
     const maskCtx = drawCanvas?.getContext("2d");
@@ -259,7 +307,7 @@ export default function Workspace() {
 
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.onload = () => {
+    img.onload = async () => {
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = drawCanvas.width;
       tempCanvas.height = drawCanvas.height;
@@ -280,7 +328,17 @@ export default function Workspace() {
       }
 
       tempCtx.putImageData(imgData, 0, 0);
-      projectStore.setProcessedUrl(currentIndex, tempCanvas.toDataURL("image/png"));
+
+      // Set ref current to canvas being captured
+      canvasRef.current = tempCanvas;
+      await useMangaEditorStore.getState().saveCanvasImageState(canvasRef.current);
+
+      // Sync stored URL with the project store
+      const newUrl = useMangaEditorStore.getState().imageUrl;
+      if (newUrl) {
+        projectStore.setProcessedUrl(currentIndex, newUrl);
+      }
+
       maskCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       setActiveMode("none");
       setActionPosition(null);
@@ -289,26 +347,36 @@ export default function Workspace() {
     img.src = `${targetUrl.split('?')[0]}?nocache=${Date.now()}`;
   };
 
+  // 4. AI Backend Integration (Refactored to callAITranslation)
   const handleErase = async () => {
     if (!projectStore.pageIds[currentIndex]) return toast.error("Ảnh đang tải lên!");
     const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
     const ctx = drawCanvas?.getContext("2d");
     if (!ctx?.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data.some((p, i) => i % 4 === 3 && p > 0)) return toast.error("Hãy khoanh vùng đỏ!");
 
-    const fileName = fileQueue[currentIndex]?.name || "";
-    const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
-    const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${projectStore.pageIds[currentIndex]}.${fileExt}`;
-    const targetUrl = processedUrls[currentIndex] || serverRawUrl;
-
     setIsProcessing(true);
     setActionPosition(null);
     try {
-      const newUrl = await mangaApi.eraseMask(targetUrl, drawCanvas.toDataURL("image/png"), projectStore.pageIds[currentIndex]);
-      projectStore.setProcessedUrl(currentIndex, newUrl);
+      // Set ref current to canvas being translated/erased
+      canvasRef.current = drawCanvas;
+      
+      // Execute the version-checked serverless AI pipeline
+      await useMangaEditorStore.getState().callAITranslation(canvasRef.current);
+
+      // Sync stored URL with projectStore
+      const newUrl = useMangaEditorStore.getState().imageUrl;
+      if (newUrl) {
+        projectStore.setProcessedUrl(currentIndex, newUrl);
+      }
+
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       toast.success("Đã xóa nền!");
       setActiveMode("none");
-    } catch (e: any) { toast.error(e.message); } finally { setIsProcessing(false); }
+    } catch (e: any) { 
+      toast.error(e.message); 
+    } finally { 
+      setIsProcessing(false); 
+    }
   };
 
   // Tải Custom Fonts
@@ -476,13 +544,6 @@ export default function Workspace() {
           <ChevronLeft size={24} />
         </button>
       )}
-      {/* 🚀 NÚT TEST TẠM THỜI (Bấm vào để xem UI) */}
-      {/* <button
-        onClick={() => setShowPaywall(true)}
-        className="fixed top-4 right-[350px] z-[100] px-4 py-2 bg-amber-500 text-amber-950 font-bold rounded-lg shadow-lg hover:bg-amber-400"
-      >
-        👀 Xem thử Paywall
-      </button> */}
 
       {/* 🚀 COMPONENT GIAO DIỆN THANH TOÁN */}
       <PaywallDrawer

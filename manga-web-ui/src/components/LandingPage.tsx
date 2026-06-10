@@ -1,207 +1,27 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Wand2, 
-  ScanText, 
-  Type, 
-  ChevronRight, 
-  UploadCloud, 
-  Cpu, 
-  Download, 
+import {
+  Wand2,
+  ScanText,
+  Type,
+  UploadCloud,
+  Cpu,
+  Download,
   CheckCircle2
 } from 'lucide-react';
+import SpotlightCard from './ui/SpotlightCard';
+import ComparisonSlider from './ui/ComparisonSlider';
+import PulsatingButton from './ui/PulsatingButton';
+import { cn } from '../utils';
 
 // --- Type Definitions for Props ---
-interface SpotlightCardProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
 interface LandingPageProps {
   onOpenAuth?: () => void;
 }
 
-// --- Specialized UI Components ---
-
-/**
- * SpotlightCard: Engineered to track cursor proximity and render a dynamic 
- * radial gradient mask simulating an external light source, enhancing tactile interaction.
- */
-const SpotlightCard: React.FC<SpotlightCardProps> = ({ children, className = '' }) => {
-  const divRef = useRef<HTMLDivElement>(null);
-  const [isFocused, setIsFocused] = useState(false);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [opacity, setOpacity] = useState(0);
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!divRef.current || isFocused) return;
-    const rect = divRef.current.getBoundingClientRect();
-    setPosition({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-  };
-
-  const handleFocus = () => {
-    setIsFocused(true);
-    setOpacity(1);
-  };
-
-  const handleBlur = () => {
-    setIsFocused(false);
-    setOpacity(0);
-  };
-
-  const handleMouseEnter = () => setOpacity(1);
-  const handleMouseLeave = () => setOpacity(0);
-
-  return (
-    <div
-      ref={divRef}
-      onMouseMove={handleMouseMove}
-      onFocus={handleFocus}
-      onBlur={handleBlur}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      className={`relative overflow-hidden rounded-3xl border border-white/10 bg-neutral-900/40 backdrop-blur-md shadow-2xl transition-colors duration-300 ${className}`}
-    >
-      <div
-        className="pointer-events-none absolute -inset-px opacity-0 transition duration-300 z-0"
-        style={{
-          opacity,
-          background: `radial-gradient(600px circle at ${position.x}px ${position.y}px, rgba(255,255,255,0.08), transparent 40%)`,
-        }}
-      />
-      <div className="relative z-10 p-8 h-full flex flex-col">
-        {children}
-      </div>
-    </div>
-  );
-};
-
-/**
- * ComparisonSlider: A robust implementation of before/after image masking.
- * Utilizes window-level event listeners to prevent dropped dragging states 
- * during high-velocity cursor movements across the viewport.
- */
-const ComparisonSlider: React.FC = () => {
-  const [sliderPosition, setSliderPosition] = useState(50);
-  const [isDragging, setIsDragging] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const handleMove = (clientX: number) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    // Clamp the horizontal coordinate between 0 and the total width of the container
-    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-    // Calculate and clamp percentage
-    const percent = Math.max(0, Math.min((x / rect.width) * 100, 100));
-    setSliderPosition(percent);
-  };
-
-  useEffect(() => {
-    const handleMouseUp = () => setIsDragging(false);
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) handleMove(e.clientX);
-    };
-    const handleTouchMove = (e: TouchEvent) => {
-      if (isDragging && e.touches[0]) {
-        handleMove(e.touches[0].clientX);
-      }
-    };
-
-    // Attach to window object to persist dragging outside the immediate container bounds
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      window.addEventListener('touchmove', handleTouchMove);
-      window.addEventListener('touchend', handleMouseUp);
-    }
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleMouseUp);
-    };
-  }, [isDragging]);
-
-  return (
-    <div 
-      className="relative w-full aspect-[3/4] md:aspect-[16/10] max-w-4xl mx-auto rounded-3xl overflow-hidden cursor-ew-resize border border-white/10 shadow-2xl bg-neutral-900 group select-none"
-      ref={containerRef}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        setIsDragging(true);
-        handleMove(e.clientX);
-      }}
-      onTouchStart={(e) => {
-        setIsDragging(true);
-        if (e.touches[0]) {
-          handleMove(e.touches[0].clientX);
-        }
-      }}
-    >
-      {/* Base Layer: Raw Japanese Manga Visualization */}
-      <div className="absolute inset-0 bg-neutral-800 bg-[url('https://images.unsplash.com/photo-1607513746994-51f730a44832?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center grayscale opacity-60 pointer-events-none">
-        <span className="absolute top-4 right-4 bg-black/70 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white/95 border border-white/10 tracking-wider">Manga Gốc (RAW Japanese)</span>
-      </div>
-
-      {/* Dynamic Overlay Layer: Translated & Typeset Vietnamese Visualization */}
-      <div 
-        className="absolute inset-0 bg-neutral-900 overflow-hidden bg-[url('https://images.unsplash.com/photo-1607513746994-51f730a44832?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center pointer-events-none"
-        style={{ width: `${sliderPosition}%` }}
-      >
-        <span className="absolute top-4 left-4 bg-indigo-600/90 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white whitespace-nowrap border border-indigo-400/30 tracking-wider">Bản Dịch AI (CLEAN Vietnamese)</span>
-      </div>
-
-      {/* Hardware-Accelerated Divider and Interactive Handle */}
-      <div 
-        className="absolute top-0 bottom-0 w-1 bg-white shadow-[0_0_20px_rgba(255,255,255,0.7)] z-20 flex items-center justify-center -translate-x-1/2"
-        style={{ left: `${sliderPosition}%` }}
-      >
-        <div className="w-10 h-10 rounded-full bg-white text-neutral-950 flex items-center justify-center shadow-xl transition-transform duration-300 group-hover:scale-110">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="rotate-180">
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/**
- * Pulsating CTA Button: Implements Framer Motion physics for scale mechanics
- * and CSS absolute layering for liquid gradient glows without engine overhead.
- */
-const PulsatingButton: React.FC<{ text: string; primary?: boolean; onClick?: () => void }> = ({ text, primary = true, onClick }) => {
-  return (
-    <motion.button
-      onClick={onClick}
-      whileHover={{ scale: 1.03 }}
-      whileTap={{ scale: 0.97 }}
-      className={`relative group overflow-hidden rounded-full font-bold transition-all tracking-wide cursor-pointer ${
-        primary ? 'px-8 py-4 text-white shadow-lg' : 'px-6 py-3 text-neutral-300 hover:text-white bg-white/5 border border-white/10'
-      }`}
-    >
-      {primary && (
-        <>
-          <span className="absolute inset-0 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-full opacity-80 group-hover:opacity-100 transition-opacity duration-300 blur-xl pointer-events-none" />
-          <span className="absolute inset-px bg-neutral-950 rounded-full z-0" />
-          <span className="absolute inset-0 bg-gradient-to-r from-indigo-600/30 to-purple-600/30 rounded-full z-0" />
-        </>
-      )}
-      <span className="relative z-10 flex items-center justify-center gap-2">
-        {text}
-        {primary && <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
-      </span>
-    </motion.button>
-  );
-};
-
 // --- Page Assembly & Application Layout ---
 
-// Motion primitives for coordinated scroll-reveal sequences
+// Motion primitives for coordinated scroll-reveal sequences using composite properties (no CLS)
 const fadeInUp: any = {
   hidden: { opacity: 0, y: 30 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: [0.22, 1, 0.36, 1] } }
@@ -216,7 +36,6 @@ const staggerContainer: any = {
 };
 
 export default function LandingPage({ onOpenAuth }: LandingPageProps) {
-
   const workflowSteps = [
     {
       icon: UploadCloud,
@@ -259,25 +78,25 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
   ];
 
   return (
-    <div className="h-screen w-screen overflow-y-auto bg-neutral-950 text-neutral-200 font-sans selection:bg-indigo-500/30 selection:text-white overflow-x-hidden antialiased relative z-10">
-      
-      {/* Global Fluid Glassmorphic Background Canvas */}
-      <div className="fixed inset-0 z-0 pointer-events-none flex justify-center items-center overflow-hidden">
-        <div className="absolute top-[-15%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-indigo-900/15 blur-[140px] mix-blend-screen animate-pulse" />
-        <div className="absolute bottom-[-10%] right-[-15%] w-[50vw] h-[50vw] rounded-full bg-purple-900/15 blur-[140px] mix-blend-screen" />
+    <div className={cn("h-[100dvh] w-full overflow-x-hidden overflow-y-auto bg-neutral-950 text-neutral-200 font-sans selection:bg-indigo-500/30 selection:text-white antialiased relative z-10")}>
+
+      {/* Global Fluid Glassmorphic Background Canvas - GPU Accelerated */}
+      <div className={cn("fixed inset-0 z-0 pointer-events-none flex justify-center items-center overflow-hidden")}>
+        <div className={cn("absolute top-[-15%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-indigo-900/15 blur-[140px] mix-blend-screen animate-pulse transform-gpu will-change-[opacity] pointer-events-none")} />
+        <div className={cn("absolute bottom-[-10%] right-[-15%] w-[50vw] h-[50vw] rounded-full bg-purple-900/15 blur-[140px] mix-blend-screen transform-gpu will-change-[opacity] pointer-events-none")} />
       </div>
 
       {/* Main Navigation Header */}
-      <nav className="relative z-50 w-full px-6 py-5 border-b border-white/5 bg-neutral-950/60 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-extrabold text-white shadow-lg shadow-purple-500/20 text-lg">DK</div>
-            <span className="font-bold text-2xl tracking-tight text-white">DeepKoma</span>
+      <nav className={cn("relative z-50 w-full px-6 py-5 border-b border-white/5 bg-neutral-950/60 backdrop-blur-xl")}>
+        <div className={cn("max-w-7xl mx-auto flex justify-between items-center")}>
+          <div className={cn("flex items-center gap-3")}>
+            <div className={cn("w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-extrabold text-white shadow-lg shadow-purple-500/20 text-lg")}>DK</div>
+            <span className={cn("font-bold text-2xl tracking-tight text-white")}>DeepKoma</span>
           </div>
-          <div className="hidden md:flex items-center gap-8 text-sm font-semibold text-neutral-400">
-            <a href="#features" className="hover:text-white transition-colors">Tính Năng</a>
-            <a href="#how-it-works" className="hover:text-white transition-colors">Quy Trình</a>
-            <a href="#pricing" className="hover:text-white transition-colors">Bảng Giá</a>
+          <div className={cn("hidden md:flex items-center gap-8 text-sm font-semibold text-neutral-400")}>
+            <a href="#features" className={cn("hover:text-white transition-colors")}>Tính Năng</a>
+            <a href="#how-it-works" className={cn("hover:text-white transition-colors")}>Quy Trình</a>
+            <a href="#pricing" className={cn("hover:text-white transition-colors")}>Bảng Giá</a>
           </div>
           <div>
             <PulsatingButton text="Đăng Nhập" primary={false} onClick={onOpenAuth} />
@@ -286,37 +105,37 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
       </nav>
 
       {/* 1. Hero Section (The Hook) */}
-      <section className="relative z-10 pt-24 pb-20 px-6">
-        <div className="max-w-7xl mx-auto text-center flex flex-col items-center">
+      <section className={cn("relative z-10 pt-24 pb-20 px-6")}>
+        <div className={cn("max-w-7xl mx-auto text-center flex flex-col items-center")}>
           <motion.div
             initial="hidden"
             animate="visible"
             variants={staggerContainer}
-            className="max-w-4xl flex flex-col items-center"
+            className={cn("max-w-4xl flex flex-col items-center")}
           >
-            <motion.div variants={fadeInUp} className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs md:text-sm font-medium text-neutral-300 mb-8 backdrop-blur-md shadow-xl select-none">
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse shadow-[0_0_10px_rgba(74,222,128,0.8)]" />
+            <motion.div variants={fadeInUp} className={cn("inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs md:text-sm font-medium text-neutral-300 mb-8 backdrop-blur-md shadow-xl select-none")}>
+              <span className={cn("w-2 h-2 rounded-full bg-green-400 animate-pulse shadow-[0_0_10px_rgba(74,222,128,0.8)]")} />
               YOLO-Nano OCR & Hạ Tầng DeepSeek-V3 Đang Hoạt Động
             </motion.div>
-            
-            <motion.h1 variants={fadeInUp} className="text-4xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-white via-white/95 to-white/40 tracking-tighter leading-[1.1] mb-8">
-              Dịch Thuật Manga <br className="hidden md:block"/> Nhanh Hơn 10 Lần Với AI
+
+            <motion.h1 variants={fadeInUp} className={cn("text-4xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-b from-white via-white/95 to-white/40 tracking-tighter leading-[1.1] mb-8")}>
+              Dịch Thuật Manga <br className={cn("hidden md:block")} /> Nhanh Hơn 10 Lần Với AI
             </motion.h1>
-            
-            <motion.p variants={fadeInUp} className="text-base md:text-xl text-neutral-400 mb-10 max-w-3xl leading-relaxed">
+
+            <motion.p variants={fadeInUp} className={cn("text-base md:text-xl text-neutral-400 mb-10 max-w-3xl leading-relaxed")}>
               Giải phóng sức lao động trong dịch truyện. Tích hợp dịch thuật ngữ cảnh DeepSeek, tẩy nền inpainting LaMa tăng tốc bằng GPU và tự động căn chữ typesetting thông minh chỉ trong một quy trình duy nhất.
             </motion.p>
-            
-            <motion.div variants={fadeInUp} className="flex flex-col sm:flex-row gap-5 mb-20">
+
+            <motion.div variants={fadeInUp} className={cn("flex flex-col sm:flex-row gap-5 mb-20")}>
               <PulsatingButton text="Bắt Đầu Miễn Phí - Nhận 20 Credits" onClick={onOpenAuth} />
             </motion.div>
           </motion.div>
 
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4, duration: 0.9, ease: [0.22, 1, 0.36, 1] as any }}
-            className="w-full relative"
+            className={cn("w-full relative")}
           >
             <ComparisonSlider />
           </motion.div>
@@ -324,51 +143,51 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
       </section>
 
       {/* 2. Features Matrix (The "Aha!" Moment) */}
-      <section id="features" className="relative z-10 py-28 px-6 bg-neutral-950/40 border-t border-white/5">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-20">
-            <h2 className="text-3xl md:text-5xl font-extrabold text-white mb-6 tracking-tight animate-fade-in">Chuẩn Mực Mới Trong Dịch Thuật Manga</h2>
-            <p className="text-base md:text-lg text-neutral-400 max-w-2xl mx-auto">Chúng tôi thay thế hàng ngày làm việc thủ công (xóa chữ, vẽ nền, căn chữ) bằng các mô hình học máy song song chạy trên GPU tốc độ cao.</p>
+      <section id="features" className={cn("relative z-10 py-28 px-6 bg-neutral-950/40 border-t border-white/5")}>
+        <div className={cn("max-w-7xl mx-auto")}>
+          <div className={cn("text-center mb-20")}>
+            <h2 className={cn("text-3xl md:text-5xl font-extrabold text-white mb-6 tracking-tight animate-fade-in")}>Chuẩn Mực Mới Trong Dịch Thuật Manga</h2>
+            <p className={cn("text-base md:text-lg text-neutral-400 max-w-2xl mx-auto")}>Chúng tôi thay thế hàng ngày làm việc thủ công (xóa chữ, vẽ nền, căn chữ) bằng các mô hình học máy song song chạy trên GPU tốc độ cao.</p>
           </div>
 
-          <motion.div 
+          <motion.div
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true, margin: "-100px" }}
             variants={staggerContainer}
-            className="grid grid-cols-1 md:grid-cols-3 gap-8"
+            className={cn("grid grid-cols-1 md:grid-cols-3 gap-8")}
           >
-            <motion.div variants={fadeInUp} className="h-full">
+            <motion.div variants={fadeInUp} className={cn("h-full")}>
               <SpotlightCard>
-                <div className="w-14 h-14 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-6 shadow-lg shadow-indigo-500/5">
-                  <ScanText className="w-7 h-7" />
+                <div className={cn("w-14 h-14 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-6 shadow-lg shadow-indigo-500/5")}>
+                  <ScanText className={cn("w-7 h-7")} />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-3">Nhận Diện OCR & DeepSeek</h3>
-                <p className="text-neutral-400 leading-relaxed text-sm">
+                <h3 className={cn("text-xl font-bold text-white mb-3")}>Nhận Diện OCR & DeepSeek</h3>
+                <p className={cn("text-neutral-400 leading-relaxed text-sm")}>
                   Mô hình YOLO-Nano tùy chỉnh định vị bong bóng thoại siêu tốc. Kết hợp trí tuệ nhân tạo DeepSeek dịch sát nghĩa ngữ cảnh, giữ nguyên đại từ nhân xưng và tôn trọng bản sắc văn hóa truyện.
                 </p>
               </SpotlightCard>
             </motion.div>
 
-            <motion.div variants={fadeInUp} className="h-full">
+            <motion.div variants={fadeInUp} className={cn("h-full")}>
               <SpotlightCard>
-                <div className="w-14 h-14 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-6 shadow-lg shadow-purple-500/5">
-                  <Wand2 className="w-7 h-7" />
+                <div className={cn("w-14 h-14 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-6 shadow-lg shadow-purple-500/5")}>
+                  <Wand2 className={cn("w-7 h-7")} />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-3">Tẩy Nền LaMa GPU</h3>
-                <p className="text-neutral-400 leading-relaxed text-sm">
+                <h3 className={cn("text-xl font-bold text-white mb-3")}>Tẩy Nền LaMa GPU</h3>
+                <p className={cn("text-neutral-400 leading-relaxed text-sm")}>
                   Được vận hành trên cụm GPU hiệu năng cao của Runpod, thuật toán LaMa Inpainting tự động vẽ lại hoàn hảo những chi tiết tranh bị chữ gốc đè lên, tạo ra sản phẩm sạch tinh tươm không tì vết.
                 </p>
               </SpotlightCard>
             </motion.div>
 
-            <motion.div variants={fadeInUp} className="h-full">
+            <motion.div variants={fadeInUp} className={cn("h-full")}>
               <SpotlightCard>
-                <div className="w-14 h-14 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400 mb-6 shadow-lg shadow-pink-500/5">
-                  <Type className="w-7 h-7" />
+                <div className={cn("w-14 h-14 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400 mb-6 shadow-lg shadow-pink-500/5")}>
+                  <Type className={cn("w-7 h-7")} />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-3 font-sans">Typesetting Thông Minh</h3>
-                <p className="text-neutral-400 leading-relaxed text-sm">
+                <h3 className={cn("text-xl font-bold text-white mb-3 font-sans")}>Typesetting Thông Minh</h3>
+                <p className={cn("text-neutral-400 leading-relaxed text-sm")}>
                   Được xây dựng với thuật toán chống tràn chữ (anti-overflow). Tự động co giãn kích thước chữ cho vừa khít hình học khung thoại, tự ngắt dòng tự nhiên và căn lề chuyên nghiệp.
                 </p>
               </SpotlightCard>
@@ -378,31 +197,31 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
       </section>
 
       {/* 3. Workflow Timeline (Frictionless Flow) */}
-      <section id="how-it-works" className="relative z-10 py-28 px-6 border-t border-white/5">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-20">
-            <h2 className="text-3xl md:text-5xl font-extrabold text-white mb-6 tracking-tight">Quy Trình Hoạt Động Siêu Tốc</h2>
-            <p className="text-base md:text-lg text-neutral-400">Từ các trang scan gốc thô sơ đến chap truyện dịch hoàn chỉnh chỉ trong 3 bước trực quan.</p>
+      <section id="how-it-works" className={cn("relative z-10 py-28 px-6 border-t border-white/5")}>
+        <div className={cn("max-w-6xl mx-auto")}>
+          <div className={cn("text-center mb-20")}>
+            <h2 className={cn("text-3xl md:text-5xl font-extrabold text-white mb-6 tracking-tight")}>Quy Trình Hoạt Động Siêu Tốc</h2>
+            <p className={cn("text-base md:text-lg text-neutral-400")}>Từ các trang scan gốc thô sơ đến chap truyện dịch hoàn chỉnh chỉ trong 3 bước trực quan.</p>
           </div>
 
-          <motion.div 
+          <motion.div
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true, margin: "-50px" }}
             variants={staggerContainer}
-            className="flex flex-col md:flex-row justify-between items-start md:items-center relative"
+            className={cn("flex flex-col md:flex-row justify-between items-start md:items-center relative")}
           >
             {/* Visual connecting line (Desktop only) */}
-            <div className="hidden md:block absolute top-12 left-[15%] right-[15%] h-[1.5px] bg-gradient-to-r from-transparent via-indigo-500/30 to-transparent z-0" />
+            <div className={cn("hidden md:block absolute top-12 left-[15%] right-[15%] h-[1.5px] bg-gradient-to-r from-transparent via-indigo-500/30 to-transparent z-0")} />
 
             {workflowSteps.map((step, idx) => (
-              <motion.div key={idx} variants={fadeInUp} className="relative z-10 flex flex-col items-center text-center w-full md:w-1/3 mb-12 md:mb-0 px-6">
-                <div className="w-20 h-20 rounded-full bg-neutral-950 border border-white/10 flex items-center justify-center text-white mb-6 shadow-[0_0_40px_rgba(99,102,241,0.08)] relative">
-                  <div className="absolute inset-0 rounded-full border border-indigo-500/50 animate-ping opacity-20" style={{ animationDelay: `${idx * 0.3}s`, animationDuration: '3s' }} />
-                  <step.icon className="w-8 h-8 text-indigo-400" />
+              <motion.div key={idx} variants={fadeInUp} className={cn("relative z-10 flex flex-col items-center text-center w-full md:w-1/3 mb-12 md:mb-0 px-6")}>
+                <div className={cn("w-20 h-20 rounded-full bg-neutral-950 border border-white/10 flex items-center justify-center text-white mb-6 shadow-[0_0_40px_rgba(99,102,241,0.08)] relative")}>
+                  <div className={cn("absolute inset-0 rounded-full border border-indigo-500/50 animate-ping opacity-20")} style={{ animationDelay: `${idx * 0.3}s`, animationDuration: '3s' }} />
+                  <step.icon className={cn("w-8 h-8 text-indigo-400")} />
                 </div>
-                <h4 className="text-xl font-bold text-white mb-2">{step.title}</h4>
-                <p className="text-sm text-neutral-400 max-w-xs">{step.desc}</p>
+                <h4 className={cn("text-xl font-bold text-white mb-2")}>{step.title}</h4>
+                <p className={cn("text-sm text-neutral-400 max-w-xs")}>{step.desc}</p>
               </motion.div>
             ))}
           </motion.div>
@@ -410,124 +229,124 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
       </section>
 
       {/* 4. Transparent Pay-As-You-Go Pricing */}
-      <section id="pricing" className="relative z-10 py-28 px-6 bg-neutral-950/80 border-t border-white/5">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-20">
-            <h2 className="text-3xl md:text-5xl font-extrabold text-white mb-6 tracking-tight">Thanh Toán Theo Mức Sử Dụng</h2>
-            <p className="text-base md:text-lg text-neutral-400 max-w-2xl mx-auto">Không phí duy trì hàng tháng. Không gói cước ẩn. Bạn chỉ cần trả tiền mua Tín dụng (Credits) cho số lượng trang truyện thực tế cần dịch.</p>
+      <section id="pricing" className={cn("relative z-10 py-28 px-6 bg-neutral-950/80 border-t border-white/5")}>
+        <div className={cn("max-w-7xl mx-auto")}>
+          <div className={cn("text-center mb-20")}>
+            <h2 className={cn("text-3xl md:text-5xl font-extrabold text-white mb-6 tracking-tight")}>Thanh Toán Theo Mức Sử Dụng</h2>
+            <p className={cn("text-base md:text-lg text-neutral-400 max-w-2xl mx-auto")}>Không phí duy trì hàng tháng. Không gói cước ẩn. Bạn chỉ cần trả tiền mua Tín dụng (Credits) cho số lượng trang truyện thực tế cần dịch.</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto items-stretch">
+          <div className={cn("grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto items-stretch")}>
             {/* Base Tier */}
-            <motion.div 
-              initial={{ opacity: 0, y: 30 }} 
-              whileInView={{ opacity: 1, y: 0 }} 
-              viewport={{ once: true }} 
-              transition={{ duration: 0.6 }} 
-              className="p-8 md:p-10 rounded-3xl bg-neutral-900/40 border border-white/10 backdrop-blur-md flex flex-col justify-between"
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+              className={cn("p-8 md:p-10 rounded-3xl bg-neutral-900/40 border border-white/10 backdrop-blur-md flex flex-col justify-between")}
             >
               <div>
-                <h3 className="text-xl font-semibold text-white mb-2">Gói Trải Nghiệm</h3>
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-4xl font-extrabold text-white">4.99 USD</span>
+                <h3 className={cn("text-xl font-semibold text-white mb-2")}>Gói Trải Nghiệm</h3>
+                <div className={cn("flex items-baseline gap-1 mb-6")}>
+                  <span className={cn("text-4xl font-extrabold text-white")}>4.99 USD</span>
                 </div>
-                <p className="text-sm text-neutral-400 mb-8 border-b border-white/10 pb-6 font-bold text-indigo-400">50 Credits (~2 Chương truyện)</p>
-                <ul className="space-y-4 mb-8">
+                <p className={cn("text-sm text-neutral-400 mb-8 border-b border-white/10 pb-6 font-bold text-indigo-400")}>50 Credits (~2 Chương truyện)</p>
+                <ul className={cn("space-y-4 mb-8")}>
                   {lightFeatures.map((feature, i) => (
-                    <li key={i} className="flex items-start gap-3 text-sm text-neutral-300">
-                      <CheckCircle2 className="w-5 h-5 text-neutral-500 shrink-0 mt-0.5" /> 
+                    <li key={i} className={cn("flex items-start gap-3 text-sm text-neutral-300")}>
+                      <CheckCircle2 className={cn("w-5 h-5 text-neutral-500 shrink-0 mt-0.5")} />
                       <span>{feature}</span>
                     </li>
                   ))}
                 </ul>
               </div>
-              <button onClick={onOpenAuth} className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-semibold border border-white/10 transition-colors text-base cursor-pointer">Mua Credits</button>
+              <button onClick={onOpenAuth} className={cn("w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-semibold border border-white/10 transition-colors text-base cursor-pointer")}>Mua Credits</button>
             </motion.div>
 
-            {/* Optimal Tier (Highlighted with dynamic glow styling) */}
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }} 
-              whileInView={{ opacity: 1, scale: 1.02 }} 
-              viewport={{ once: true }} 
-              transition={{ duration: 0.6 }} 
-              className="relative p-8 md:p-10 rounded-3xl bg-neutral-900 border-2 border-indigo-500/60 shadow-2xl shadow-indigo-500/10 z-20 flex flex-col justify-between"
+            {/* Optimal Tier */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              whileInView={{ opacity: 1, scale: 1.02 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+              className={cn("relative p-8 md:p-10 rounded-3xl bg-neutral-900 border-2 border-indigo-500/60 shadow-2xl shadow-indigo-500/10 z-20 flex flex-col justify-between")}
             >
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-5 py-1.5 rounded-full text-xs font-bold tracking-widest shadow-lg">KHUYÊN DÙNG</div>
+              <div className={cn("absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-5 py-1.5 rounded-full text-xs font-bold tracking-widest shadow-lg")}>KHUYÊN DÙNG</div>
               <div>
-                <h3 className="text-xl font-semibold text-white mb-2">Dịch Giả Nghiệp Dư</h3>
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-4xl font-extrabold text-white">14.99 USD</span>
+                <h3 className={cn("text-xl font-semibold text-white mb-2")}>Dịch Giả Nghiệp Dư</h3>
+                <div className={cn("flex items-baseline gap-1 mb-6")}>
+                  <span className={cn("text-4xl font-extrabold text-white")}>14.99 USD</span>
                 </div>
-                <p className="text-sm text-indigo-300 mb-8 border-b border-white/10 pb-6 font-bold">200 Credits (~10 Chương truyện)</p>
-                <ul className="space-y-4 mb-8">
+                <p className={cn("text-sm text-indigo-300 mb-8 border-b border-white/10 pb-6 font-bold")}>200 Credits (~10 Chương truyện)</p>
+                <ul className={cn("space-y-4 mb-8")}>
                   {popularFeatures.map((feature, i) => (
-                    <li key={i} className="flex items-start gap-3 text-sm text-white">
-                      <CheckCircle2 className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" /> 
+                    <li key={i} className={cn("flex items-start gap-3 text-sm text-white")}>
+                      <CheckCircle2 className={cn("w-5 h-5 text-indigo-400 shrink-0 mt-0.5")} />
                       <span>{feature}</span>
                     </li>
                   ))}
                 </ul>
               </div>
-              <button onClick={onOpenAuth} className="w-full py-3.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-bold shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all text-base tracking-wide cursor-pointer">Mua Credits</button>
+              <button onClick={onOpenAuth} className={cn("w-full py-3.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-bold shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all text-base tracking-wide cursor-pointer")}>Mua Credits</button>
             </motion.div>
 
             {/* Enterprise Tier */}
-            <motion.div 
-              initial={{ opacity: 0, y: 30 }} 
-              whileInView={{ opacity: 1, y: 0 }} 
-              viewport={{ once: true }} 
-              transition={{ duration: 0.6 }} 
-              className="p-8 md:p-10 rounded-3xl bg-neutral-900/40 border border-white/10 backdrop-blur-md flex flex-col justify-between"
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+              className={cn("p-8 md:p-10 rounded-3xl bg-neutral-900/40 border border-white/10 backdrop-blur-md flex flex-col justify-between")}
             >
               <div>
-                <h3 className="text-xl font-semibold text-white mb-2">Scanlation Studio</h3>
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-4xl font-extrabold text-white">49.99 USD</span>
+                <h3 className={cn("text-xl font-semibold text-white mb-2")}>Scanlation Studio</h3>
+                <div className={cn("flex items-baseline gap-1 mb-6")}>
+                  <span className={cn("text-4xl font-extrabold text-white")}>49.99 USD</span>
                 </div>
-                <p className="text-sm text-neutral-400 mb-8 border-b border-white/10 pb-6 font-bold text-indigo-400">1000 Credits (~50 Chương truyện)</p>
-                <ul className="space-y-4 mb-8">
+                <p className={cn("text-sm text-neutral-400 mb-8 border-b border-white/10 pb-6 font-bold text-indigo-400")}>1000 Credits (~50 Chương truyện)</p>
+                <ul className={cn("space-y-4 mb-8")}>
                   {studioFeatures.map((feature, i) => (
-                    <li key={i} className="flex items-start gap-3 text-sm text-neutral-300">
-                      <CheckCircle2 className="w-5 h-5 text-neutral-500 shrink-0 mt-0.5" /> 
+                    <li key={i} className={cn("flex items-start gap-3 text-sm text-neutral-300")}>
+                      <CheckCircle2 className={cn("w-5 h-5 text-neutral-500 shrink-0 mt-0.5")} />
                       <span>{feature}</span>
                     </li>
                   ))}
                 </ul>
               </div>
-              <button onClick={onOpenAuth} className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-semibold border border-white/10 transition-colors text-base cursor-pointer">Mua Credits</button>
+              <button onClick={onOpenAuth} className={cn("w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-semibold border border-white/10 transition-colors text-base cursor-pointer")}>Mua Credits</button>
             </motion.div>
           </div>
         </div>
       </section>
 
       {/* 5. Footer & Trust Signals */}
-      <footer className="relative z-10 pt-32 pb-12 px-6 border-t border-white/5 overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,_var(--tw-gradient-stops))] from-indigo-900/20 via-neutral-950 to-neutral-950 pointer-events-none" />
-        
-        <div className="max-w-4xl mx-auto text-center relative z-10 mb-32">
-          <h2 className="text-3xl md:text-5xl font-extrabold text-white mb-6 tracking-tight">Sẵn sàng tăng tốc dự án của bạn?</h2>
-          <p className="text-base md:text-lg text-neutral-400 mb-10 max-w-xl mx-auto">Tham gia cùng hàng trăm nhóm dịch tự do và các dịch giả độc lập tối ưu hóa quy trình làm việc ngay hôm nay.</p>
-          <div className="flex justify-center">
+      <footer className={cn("relative z-10 pt-32 pb-12 px-6 border-t border-white/5 overflow-hidden")}>
+        <div className={cn("absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,_var(--tw-gradient-stops))] from-indigo-900/20 via-neutral-950 to-neutral-950 pointer-events-none")} />
+
+        <div className={cn("max-w-4xl mx-auto text-center relative z-10 mb-32")}>
+          <h2 className={cn("text-3xl md:text-5xl font-extrabold text-white mb-6 tracking-tight")}>Sẵn sàng tăng tốc dự án của bạn?</h2>
+          <p className={cn("text-base md:text-lg text-neutral-400 mb-10 max-w-xl mx-auto")}>Tham gia cùng hàng trăm nhóm dịch tự do và các dịch giả độc lập tối ưu hóa quy trình làm việc ngay hôm nay.</p>
+          <div className={cn("flex justify-center")}>
             <PulsatingButton text="Bắt Đầu Trải Nghiệm Miễn Phí" onClick={onOpenAuth} />
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6 text-xs md:text-sm text-neutral-500 relative z-10">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-sm shadow-md">DK</div>
-            <span className="font-medium">© 2026 DeepKoma Inc. Bảo lưu mọi quyền.</span>
+        <div className={cn("max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6 text-xs md:text-sm text-neutral-500 relative z-10")}>
+          <div className={cn("flex items-center gap-3")}>
+            <div className={cn("w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-bold text-white text-sm shadow-md")}>DK</div>
+            <span className={cn("font-medium")}>© 2026 DeepKoma Inc. Bảo lưu mọi quyền.</span>
           </div>
-          <div className="flex items-center gap-6 md:gap-8 font-medium">
-            <a href="#" className="hover:text-white transition-colors">Điều khoản dịch vụ</a>
-            <a href="#" className="hover:text-white transition-colors">Chính sách bảo mật</a>
-            <a href="#" className="hover:text-white transition-colors flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+          <div className={cn("flex items-center gap-6 md:gap-8 font-medium")}>
+            <a href="#" className={cn("hover:text-white transition-colors")}>Điều khoản dịch vụ</a>
+            <a href="#" className={cn("hover:text-white transition-colors")}>Chính sách bảo mật</a>
+            <a href="#" className={cn("hover:text-white transition-colors flex items-center gap-1.5")}>
+              <svg className={cn("w-3.5 h-3.5 fill-current")} viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path>
               </svg>
               Twitter
             </a>
-            <a href="#" className="hover:text-white transition-colors flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+            <a href="#" className={cn("hover:text-white transition-colors flex items-center gap-1.5")}>
+              <svg className={cn("w-3.5 h-3.5 fill-current")} viewBox="0 0 24 24" aria-hidden="true">
                 <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"></path>
               </svg>
               GitHub

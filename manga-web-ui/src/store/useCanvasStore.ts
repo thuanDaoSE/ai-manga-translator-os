@@ -47,8 +47,8 @@ interface CanvasState {
   future: TextBubble[][];
 
   setBubbles: (bubbles: TextBubble[]) => void;
-  addBubble: (bubble: Omit<TextBubble, 'id'>) => void;
-  updateBubble: (id: string, data: Partial<TextBubble>) => void;
+  addBubble: (bubble: Omit<TextBubble, 'id'>, skipHistory?: boolean) => void;
+  updateBubble: (id: string, data: Partial<TextBubble>, skipHistory?: boolean) => void;
   removeBubble: (id: string) => void;
   setActiveBubble: (id: string | null) => void;
   setHoveredBubble: (id: string | null) => void;
@@ -93,8 +93,10 @@ export const useCanvasStore = create<CanvasState>()(
       },
 
       // 🚀 BẢN VÁ 2: SINH ID ĐỘC LẬP TUYỆT ĐỐI (Chống trùng lặp mili-giây)
-      addBubble: (bubbleData) => {
-        get().saveHistory();
+      addBubble: (bubbleData, skipHistory = false) => {
+        if (!skipHistory) {
+          get().saveHistory();
+        }
         set((state) => ({
           bubbles: [
             ...state.bubbles,
@@ -107,8 +109,10 @@ export const useCanvasStore = create<CanvasState>()(
         }));
       },
 
-      updateBubble: (id, data) => {
-        get().saveHistory();
+      updateBubble: (id, data, skipHistory = false) => {
+        if (!skipHistory) {
+          get().saveHistory();
+        }
         set((state) => ({
           bubbles: state.bubbles.map((b) => b.id === id ? { ...b, ...data } : b)
         }));

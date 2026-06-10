@@ -463,7 +463,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
   // 🚀 LẤY DỮ LIỆU (Đọc từ Bubble hoặc Mặc định Global)
   // =====================================
   const currentFontFamily = activeBubble?.fontFamily || toolStore.fontFamily || 'Wild Words';
-  const currentFontSize = activeBubble?.fontSize || toolStore.fontSize || 18;
+  const currentFontSize = activeBubble?.fontSize || toolStore.fontSize || 40;
   const currentTextAlign = activeBubble?.textAlign || toolStore.textAlign || 'center';
   const currentFillColor = activeBubble?.fontColor || toolStore.fontColor || '#000000';
   const currentOutlineWidth = activeBubble?.outlineWidth ?? toolStore.outlineWidth ?? 0;
@@ -482,12 +482,14 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
       useToolStore.setState({ [key]: value });
 
       const allBubbles = useCanvasStore.getState().bubbles;
-      allBubbles.forEach((bubble) => {
-        // 🚀 BẢN VÁ TỐI THƯỢNG: TUYỆT ĐỐI KHÔNG ĐỤNG VÀO NHỮNG Ô THOẠI ĐÃ BỊ KHÓA!
-        if (!bubble.isLocked) {
-          updateBubble(bubble.id, { [key]: value });
-        }
-      });
+      const bubblesToUpdate = allBubbles.filter(bubble => !bubble.isLocked);
+      if (bubblesToUpdate.length > 0) {
+        // Chỉ lưu lịch sử 1 lần duy nhất trước vòng lặp
+        useCanvasStore.getState().saveHistory();
+        bubblesToUpdate.forEach((bubble) => {
+          updateBubble(bubble.id, { [key]: value }, true);
+        });
+      }
     }
   };
 
@@ -597,7 +599,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                 <button
                   onClick={() => {
                     useToolStore.setState({
-                      fontFamily: 'Comic Neue', fontSize: 18, textAlign: 'center',
+                      fontFamily: 'Comic Neue', fontSize: 40, textAlign: 'center',
                       fontColor: '#000000', outlineWidth: 5, outlineColor: '#ffffff', hasShadow: false
                     });
                   }}
