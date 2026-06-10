@@ -104,15 +104,14 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
   }, [rawUrl, displayUrl, originalCleanUrl]);
 
   useEffect(() => {
-    if (activeMode === 'none') {
-      const ctx1 = drawRef.current?.getContext('2d');
-      const ctx2 = committedRef.current?.getContext('2d');
-      if (drawRef.current && committedRef.current) {
-        ctx1?.clearRect(0, 0, drawRef.current.width, drawRef.current.height);
-        ctx2?.clearRect(0, 0, committedRef.current.width, committedRef.current.height);
-      }
-      currentPoints.current = [];
+    const ctx1 = drawRef.current?.getContext('2d');
+    const ctx2 = committedRef.current?.getContext('2d');
+    if (drawRef.current && committedRef.current) {
+      ctx1?.clearRect(0, 0, drawRef.current.width, drawRef.current.height);
+      ctx2?.clearRect(0, 0, committedRef.current.width, committedRef.current.height);
     }
+    currentPoints.current = [];
+    useToolStore.getState().setActionPosition(null);
   }, [activeMode]);
 
   useEffect(() => {

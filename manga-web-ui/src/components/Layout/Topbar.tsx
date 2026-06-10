@@ -7,6 +7,7 @@ import {
 import toast from 'react-hot-toast';
 import { useConfigStore } from "../../store/useConfigStore";
 import TranslationConfigModal from "../Modals/TranslationConfigModal";
+import PaymentHistoryModal from "../Modals/PaymentHistoryModal";
 import { saveAs } from 'file-saver';
 
 // Import Stores & API
@@ -32,6 +33,7 @@ export default function Topbar() {
   const { isModalOpen, setModalOpen } = useConfigStore();
 
   const [isPaywallOpen, setIsPaywallOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
 
@@ -176,7 +178,12 @@ export default function Topbar() {
                   <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><Diamond size={14} className="text-amber-500" /><span>{user?.isPro ? "GÓI PRO" : `${(user?.credits || 0).toLocaleString()} Credits`}</span></div>
                   <button onClick={() => { setIsAccountMenuOpen(false); setIsPaywallOpen(true); }} className="text-[10px] font-black uppercase text-primary hover:text-primary-hover transition-colors cursor-pointer">Nạp thêm</button>
                 </div>
-                <button className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer"><CreditCard size={14} /> Lịch sử giao dịch</button>
+                <button 
+                  onClick={() => { setIsAccountMenuOpen(false); setIsHistoryOpen(true); }} 
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer"
+                >
+                  <CreditCard size={14} /> Lịch sử giao dịch
+                </button>
               </div>
               <div className="px-2 py-2 bg-background/30">
                 <button onClick={signOut} className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-bold text-danger/80 hover:bg-danger/10 hover:text-danger rounded-md transition-colors cursor-pointer"><LogOut size={14} strokeWidth={2.5} /> Đăng xuất</button>
@@ -188,6 +195,7 @@ export default function Topbar() {
       </div>
 
       <PaywallDrawer isOpen={isPaywallOpen} onClose={() => setIsPaywallOpen(false)} />
+      <PaymentHistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
 
       {/* 🚀 Bảng cấu hình dịch thuật sẽ hiện lên khi isModalOpen = true */}
       {isModalOpen && <TranslationConfigModal />}

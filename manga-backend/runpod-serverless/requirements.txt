@@ -6,12 +6,12 @@ accelerate
 scikit-image
 onnxruntime-gpu
 manga-ocr
-comic-text-detector
+torchsummary
 
 # Supporting libraries required by handler.py
 Pillow
 requests
-numpy
+numpy==1.26.4
 shapely
 pyclipper
 PyYAML

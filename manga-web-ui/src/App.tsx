@@ -3,7 +3,6 @@ import Topbar from './components/Layout/Topbar';
 import Sidebar from './components/Layout/Sidebar';
 import Workspace from './components/Layout/Workspace';
 import TranslationConfigModal from './components/Modals/TranslationConfigModal';
-import LensModal from './components/Modals/LensModal';
 import { useEffect, useRef, useState } from 'react';
 import AuthModal from './components/Modals/AuthModal';
 import LandingPage from './components/LandingPage';
@@ -123,15 +122,8 @@ export default function App() {
           <Workspace />
         </div>
 
-        {/* 3. LENS MODAL (Kính lúp) */}
-        {(!isZenMode && scanModal?.isOpen) && (
-          <div className="w-[340px] shrink-0 bg-sidebar border-l border-border shadow-2xl z-20 transition-all animate-in slide-in-from-right-8 duration-300">
-            <LensModal />
-          </div>
-        )}
-
-        {/* 🚀 4. RIGHT SIDEBAR (Nằm gọn gàng bên phải) */}
-        {(!isZenMode && showRightPanel) && <RightSidebar />}
+        {/* 🚀 4. RIGHT SIDEBAR (Nằm gọn gàng bên phải và Tích hợp LensModal) */}
+        {(!isZenMode && (showRightPanel || scanModal?.isOpen)) && <RightSidebar />}
 
       </div>
 

@@ -328,17 +328,12 @@ export default function Sidebar() {
     try {
       const configStore = useConfigStore.getState();
 
-      const res = await fetch(`${API_URL}/pages/${pageId}/translate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          genre: configStore.genre,
-          tone: configStore.tone,
-          pronouns: configStore.pronoun,
-          glossary: configStore.glossary
-        })
+      const data = await mangaApi.translatePageById(pageId, {
+        genre: configStore.genre,
+        tone: configStore.tone,
+        pronouns: configStore.pronoun,
+        glossary: configStore.glossary
       });
-      const data = await res.json();
 
       if (data.task_id) {
         const taskId = data.task_id;
@@ -430,11 +425,8 @@ export default function Sidebar() {
                 projectStore.setPageStatus(pageIndex, "completed"); // Xanh tuyệt đối!
               }
 
-              await fetch(`${API_URL}/pages/${pageId}/save-results?clean_url=${encodeURIComponent(result.clean_url)}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newBubbles),
-              }).catch(err => console.error("Lỗi lưu kết quả vào DB:", err));
+              await mangaApi.savePageResults(pageId, result.clean_url, newBubbles)
+                .catch(err => console.error("Lỗi lưu kết quả vào DB:", err));
 
               // 🚀 CHỈ KHI CHỮ ĐÃ ĐƯỢC VẼ LÊN HÌNH THÌ MỚI XÓA THANH TIẾN TRÌNH
               setTimeout(() => projectStore.clearProgress(pageIndex), 1000);

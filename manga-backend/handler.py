@@ -11,19 +11,13 @@ from PIL import Image
 from diffusers import StableDiffusionXLInpaintPipeline, AutoencoderKL
 from redraw_utils import apply_laplacian_pyramid_blend
 
-print("Khởi động AI Engine...")
+ENDPOINT_TYPE = os.getenv("RUNPOD_ENDPOINT_TYPE", "translate")
+print(f"Khởi động AI Engine với ENDPOINT_TYPE: {ENDPOINT_TYPE}")
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "comic_text_detector"))
-from manga_ocr import MangaOcr
-from comic_text_detector.inference import TextDetector
-
-mocr = MangaOcr() 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-text_detector = TextDetector(model_path=os.path.join(os.path.dirname(__file__), "comic_text_detector", "data", "comictextdetector.pt"), device=device)
-
-# Initialize SDXL Inpaint Pipeline using local directories.
-# No runtime downloading is allowed to avoid cold start timeouts.
-# We use FP16 precision, Model CPU Offloading, and VAE Slicing for VRAM safety.
+# Khai báo rỗng ban đầu cho tất cả các mô hình
+mocr = None
+text_detector = None
+lama_session = None
 sdxl_inpaint_pipeline = None
 
 def get_sdxl_inpaint_pipeline():
@@ -66,35 +60,50 @@ def get_sdxl_inpaint_pipeline():
             
     return sdxl_inpaint_pipeline
 
-# Pre-load the SDXL Inpaint pipeline at startup to warm up serverless container
-try:
-    get_sdxl_inpaint_pipeline()
-except Exception as e:
-    print(f"Failed to pre-load SDXL Inpaint pipeline at startup: {e}")
+# ----------------- NẠP MODEL THEO PHÂN LOẠI ENDPOINT -----------------
+if ENDPOINT_TYPE == "translate":
+    print("Initializing Translate/Erase/Scan Models (MangaOCR, CTD, LaMa ONNX)...")
+    
+    sys.path.append(os.path.join(os.path.dirname(__file__), "comic_text_detector"))
+    from manga_ocr import MangaOcr
+    from comic_text_detector.inference import TextDetector
 
-# 1. Persistent TensorRT Engine Cache Path next to ONNX model weights
-trt_cache_path = os.path.join(os.path.dirname(__file__), 'trt_cache')
-os.makedirs(trt_cache_path, exist_ok=True)
+    mocr = MangaOcr() 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    text_detector = TextDetector(model_path=os.path.join(os.path.dirname(__file__), "comic_text_detector", "data", "comictextdetector.pt"), device=device)
 
-device_providers = [
-    ('TensorrtExecutionProvider', {
-        'trt_engine_cache_enable': True,
-        'trt_engine_cache_path': trt_cache_path
-    }),
-    'CUDAExecutionProvider',
-    'CPUExecutionProvider'
-]
-lama_session = ort.InferenceSession(os.path.join(os.path.dirname(__file__), "lama-manga.onnx"), providers=device_providers)
+    # 1. Persistent TensorRT Engine Cache Path next to ONNX model weights
+    trt_cache_path = os.path.join(os.path.dirname(__file__), 'trt_cache')
+    os.makedirs(trt_cache_path, exist_ok=True)
 
-# 2. Dynamic Axis Validation: Ensure the model input supports dynamic batch sizes
-try:
-    input_shape = lama_session.get_inputs()[0].shape
-    if len(input_shape) > 0 and input_shape[0] == 1:
-        print("🚨 WARNING: LaMa ONNX model input dimension 0 is fixed to 1. Dynamic batched inference may fail.")
-    else:
-        print("✅ Dynamic axis validated. LaMa ONNX model supports dynamic batch sizes. Input shape: {}".format(input_shape))
-except Exception as e:
-    print("⚠️ Dynamic axis validation check skipped: {}".format(e))
+    device_providers = [
+        ('TensorrtExecutionProvider', {
+            'trt_engine_cache_enable': True,
+            'trt_engine_cache_path': trt_cache_path
+        }),
+        'CUDAExecutionProvider',
+        'CPUExecutionProvider'
+    ]
+    lama_session = ort.InferenceSession(os.path.join(os.path.dirname(__file__), "lama-manga.onnx"), providers=device_providers)
+
+    # 2. Dynamic Axis Validation: Ensure the model input supports dynamic batch sizes
+    try:
+        input_shape = lama_session.get_inputs()[0].shape
+        if len(input_shape) > 0 and input_shape[0] == 1:
+            print("🚨 WARNING: LaMa ONNX model input dimension 0 is fixed to 1. Dynamic batched inference may fail.")
+        else:
+            print("✅ Dynamic axis validated. LaMa ONNX model supports dynamic batch sizes. Input shape: {}".format(input_shape))
+    except Exception as e:
+        print("⚠️ Dynamic axis validation check skipped: {}".format(e))
+
+elif ENDPOINT_TYPE == "redraw":
+    print("Initializing Redraw Models (SDXL Inpaint)...")
+    # Pre-load the SDXL Inpaint pipeline at startup to warm up serverless container
+    try:
+        get_sdxl_inpaint_pipeline()
+    except Exception as e:
+        print(f"Failed to pre-load SDXL Inpaint pipeline at startup: {e}")
+
 
 import math
 
@@ -199,6 +208,12 @@ def extract_text_manga_ocr(crop_bgr):
 def handler(job):
     job_input = job['input']
     action = job_input.get('action', 'translate') # Mặc định là dịch nguyên trang
+
+    # Kiểm tra tính hợp lệ của action dựa trên ENDPOINT_TYPE
+    if ENDPOINT_TYPE == "redraw" and action != "redraw" and action != "ping":
+        return {"status": "error", "message": f"Action '{action}' is not supported on Redraw endpoint."}
+    if ENDPOINT_TYPE == "translate" and action == "redraw":
+        return {"status": "error", "message": "Action 'redraw' is not supported on Translate endpoint."}
 
     # 🟢 1. LỆNH PING: Giữ máy luôn thức
     if action == 'ping':

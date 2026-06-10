@@ -163,11 +163,11 @@ export const mangaApi = {
     return (await response.json()).new_url;
   },
 
-  redrawMask: async (imageUrl: string, maskBase64: string, prompt: string) => {
+  redrawMask: async (imageUrl: string, maskBase64: string, prompt: string, pageId?: string) => {
     const response = await fetch(`${API_URL}/redraw`, {
       method: "POST",
       headers: await getAuthHeaders(), // Đã thêm await
-      body: JSON.stringify({ image_url: imageUrl, mask_base64: maskBase64, prompt }),
+      body: JSON.stringify({ image_url: imageUrl, mask_base64: maskBase64, prompt, page_id: pageId }),
     });
     await handleApiError(response, "Lỗi Server Redraw AI");
 
@@ -187,16 +187,18 @@ export const mangaApi = {
   },
 
   downloadPsd: (pageId: string) => {
+    const token = useAuthStore.getState().session?.access_token || "";
     const link = document.createElement('a');
-    link.href = `${API_URL}/pages/${pageId}/download-psd`;
+    link.href = `${API_URL}/pages/${pageId}/download-psd?token=${token}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   },
 
   downloadJsx: (pageId: string) => {
+    const token = useAuthStore.getState().session?.access_token || "";
     const link = document.createElement('a');
-    link.href = `${API_URL}/pages/${pageId}/jsx`;
+    link.href = `${API_URL}/pages/${pageId}/jsx?token=${token}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -231,8 +233,9 @@ export const mangaApi = {
   },
 
   exportManga: (pageId: string) => {
+    const token = useAuthStore.getState().session?.access_token || "";
     const link = document.createElement('a');
-    link.href = `${API_URL}/pages/${pageId}/export-manga`;
+    link.href = `${API_URL}/pages/${pageId}/export-manga?token=${token}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -303,6 +306,39 @@ export const mangaApi = {
       headers: await getAuthHeaders()
     });
     await handleApiError(response, "Lỗi trừ credits");
+    return await response.json();
+  },
+
+  getPaymentHistory: async () => {
+    const response = await fetch(`${API_URL}/payment/history`, {
+      headers: await getAuthHeaders()
+    });
+    await handleApiError(response, "Lỗi tải lịch sử giao dịch");
+    return await response.json();
+  },
+
+  translatePageById: async (pageId: string, config: any) => {
+    const response = await fetch(`${API_URL}/pages/${pageId}/translate`, {
+      method: "POST",
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({
+        genre: config.genre,
+        tone: config.tone,
+        pronouns: config.pronouns || config.pronoun,
+        glossary: config.glossary
+      }),
+    });
+    await handleApiError(response, "Lỗi Server Dịch thuật!");
+    return await response.json();
+  },
+
+  savePageResults: async (pageId: string, cleanUrl: string, bubbles: any[]) => {
+    const response = await fetch(`${API_URL}/pages/${pageId}/save-results?clean_url=${encodeURIComponent(cleanUrl)}`, {
+      method: "POST",
+      headers: await getAuthHeaders(),
+      body: JSON.stringify(bubbles),
+    });
+    await handleApiError(response, "Lỗi Server Lưu kết quả!");
     return await response.json();
   },
 };
