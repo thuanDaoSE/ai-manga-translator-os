@@ -1043,55 +1043,98 @@ async def erase_mask(
             _, buf_img = cv2.imencode('.png', crop_image)
             _, buf_mask = cv2.imencode('.png', crop_mask)
             
-            runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/runsync"
-            headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
-            
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                res = await client.post(runpod_url, json={
-                    "input": {
-                        "action": "erase", 
-                        "image_base64": base64.b64encode(buf_img).decode('utf-8'),
-                        "mask_base64": base64.b64encode(buf_mask).decode('utf-8')
-                    }
-                }, headers=headers)
+            clean_crop_b64 = None
+            try:
+                runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/runsync"
+                headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
                 
-                if res.status_code != 200:
-                    raise Exception(f"RunPod runsync failed with status {res.status_code}: {res.text}")
-                
-                res_data = res.json()
-                job_status = res_data.get("status")
-                job_id = res_data.get("id")
-                
-                # Nếu chưa COMPLETED (ví dụ: đang cold start), chuyển sang chế độ polling
-                if job_status != "COMPLETED":
-                    if not job_id:
-                        raise Exception(f"RunPod runsync failed without job ID: {res_data}")
-                    print(f"[erase_mask] Worker is booting or busy (status: {job_status}). Polling job {job_id}...")
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    res = await client.post(runpod_url, json={
+                        "input": {
+                            "action": "erase", 
+                            "image_base64": base64.b64encode(buf_img).decode('utf-8'),
+                            "mask_base64": base64.b64encode(buf_mask).decode('utf-8')
+                        }
+                    }, headers=headers)
                     
-                    import time
-                    start_time = time.time()
-                    success = False
-                    while time.time() - start_time < 300: # Timeout 5 phút
-                        status_res = await client.get(
-                            f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{job_id}",
-                            headers=headers
-                        )
-                        status_data = status_res.json()
-                        status = status_data.get("status")
-
-                        if status == "COMPLETED":
-                            res_data = status_data
-                            success = True
-                            break
-                        elif status in ["FAILED", "CANCELLED"]:
-                            raise Exception(f"RunPod Serverless báo lỗi trong lúc xóa: {status_data.get('error', 'Lỗi không xác định')}")
+                    if res.status_code != 200:
+                        raise Exception(f"RunPod runsync failed with status {res.status_code}: {res.text}")
+                    
+                    res_data = res.json()
+                    job_status = res_data.get("status")
+                    job_id = res_data.get("id")
+                    
+                    # Nếu chưa COMPLETED (ví dụ: đang cold start), chuyển sang chế độ polling
+                    if job_status != "COMPLETED":
+                        if not job_id:
+                            raise Exception(f"RunPod runsync failed without job ID: {res_data}")
+                        print(f"[erase_mask] Worker is booting or busy (status: {job_status}). Polling job {job_id}...")
                         
-                        await asyncio.sleep(3)
+                        import time
+                        start_time = time.time()
+                        success = False
+                        while time.time() - start_time < 300: # Timeout 5 phút
+                            status_res = await client.get(
+                                f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{job_id}",
+                                headers=headers
+                            )
+                            status_data = status_res.json()
+                            status = status_data.get("status")
+
+                            if status == "COMPLETED":
+                                res_data = status_data
+                                success = True
+                                break
+                            elif status in ["FAILED", "CANCELLED"]:
+                                raise Exception(f"RunPod Serverless báo lỗi trong lúc xóa: {status_data.get('error', 'Lỗi không xác định')}")
+                            
+                            await asyncio.sleep(3)
+                        
+                        if not success:
+                            raise Exception("Thời gian chờ xử lý xóa ảnh trên RunPod Serverless đã quá hạn (Timeout 5 phút)")
+                
+                clean_crop_b64 = res_data.get('output', {}).get('clean_crop_base64')
+            except Exception as e:
+                print(f"⚠️ [LAMA FALLBACK] RunPod failed or timed out: {e}. Falling back to local LaMa ONNX execution!")
+                session = get_lama_session()
+                if session is None:
+                    raise HTTPException(status_code=500, detail=f"RunPod failed and local LaMa is not available: {str(e)}")
+                
+                try:
+                    h_crop, w_crop = crop_image.shape[:2]
+                    scale = 1.0
+                    if h_crop > 512 or w_crop > 512:
+                        scale = 512.0 / max(h_crop, w_crop)
+                        new_w, new_h = int(w_crop * scale), int(h_crop * scale)
+                        local_img = cv2.resize(crop_image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                        local_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                    else:
+                        new_w, new_h = w_crop, h_crop
+                        local_img = crop_image.copy()
+                        local_mask = crop_mask.copy()
+
+                    pad_bottom, pad_right = 512 - new_h, 512 - new_w
+                    if pad_bottom > 0 or pad_right > 0:
+                        local_img = cv2.copyMakeBorder(local_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+                        local_mask = cv2.copyMakeBorder(local_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+
+                    img_t = np.transpose(cv2.cvtColor(local_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
+                    mask_t = np.transpose((local_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
+
+                    ort_outs = session.run(None, {session.get_inputs()[0].name: img_t, session.get_inputs()[1].name: mask_t})
+                    out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
+                    clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+
+                    if scale != 1.0:
+                        clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
                     
-                    if not success:
-                        raise Exception("Thời gian chờ xử lý xóa ảnh trên RunPod Serverless đã quá hạn (Timeout 5 phút)")
+                    _, buffer = cv2.imencode('.png', clean_crop)
+                    clean_crop_b64 = base64.b64encode(buffer).decode('utf-8')
+                    print("🚀 [LAMA FALLBACK] Local LaMa completed successfully!")
+                except Exception as local_err:
+                    print(f"❌ [LAMA FALLBACK ERROR] Local LaMa execution failed: {local_err}")
+                    raise HTTPException(status_code=500, detail=f"RunPod failed, and local LaMa execution failed: {str(local_err)}")
             
-            clean_crop_b64 = res_data.get('output', {}).get('clean_crop_base64')
             if clean_crop_b64:
                 clean_crop = cv2.imdecode(np.frombuffer(base64.b64decode(clean_crop_b64), np.uint8), cv2.IMREAD_COLOR)
                 mask_bool = crop_mask > 0
@@ -1162,6 +1205,49 @@ def get_local_path_from_url(url: str) -> str:
     if "/workspace/" in clean_url:
         return "workspace/" + clean_url.split("/workspace/")[-1]
     return clean_url.split("/")[-1]
+
+
+def get_image_ahash(image_path: str) -> str:
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return ""
+        # Resize to 8x8
+        img_resized = cv2.resize(img, (8, 8), interpolation=cv2.INTER_AREA)
+        # Get average pixel value
+        avg = img_resized.mean()
+        # Compute bits: 1 if pixel >= average, else 0
+        diff = img_resized >= avg
+        # Convert bits to hex string
+        hash_val = 0
+        for i, b in enumerate(diff.flatten()):
+            if b:
+                hash_val |= (1 << i)
+        return f"{hash_val:016x}"
+    except Exception as e:
+        print(f"⚠️ [HASH ERROR] Failed to calculate image hash: {e}")
+        return ""
+
+
+_lama_session = None
+
+def get_lama_session():
+    global _lama_session
+    if _lama_session is None:
+        try:
+            import onnxruntime as ort
+            providers = ["CPUExecutionProvider"]
+            model_path = os.path.join(os.path.dirname(__file__), "lama-manga.onnx")
+            if os.path.exists(model_path):
+                _lama_session = ort.InferenceSession(model_path, providers=providers)
+                print("🚀 [LAMA FALLBACK] Local LaMa ONNX session loaded successfully!")
+            else:
+                print("⚠️ [LAMA FALLBACK] lama-manga.onnx not found locally!")
+        except Exception as e:
+            print(f"❌ [LAMA FALLBACK ERROR] Failed to load local LaMa session: {e}")
+    return _lama_session
 
 # ==========================================
 # API XÓA NỀN BẰNG LAMA (ERASE)
@@ -1761,6 +1847,27 @@ async def translate_page(
     if not os.path.exists(raw_path):
         raise HTTPException(status_code=404, detail="Không tìm thấy file ảnh gốc trên VPS")
 
+    # 🚀 BƯỚC LỌC ĐẦU TIÊN: KIỂM TRA REDIS CACHE BẰNG IMAGE AHASH
+    img_hash = get_image_ahash(raw_path)
+    if img_hash:
+        try:
+            cache_key = f"ocr_translate_cache:{img_hash}"
+            cached_data = redis_client.get(cache_key)
+            if cached_data:
+                print(f"🚀 [CACHE HIT] Lấy dữ liệu dịch của hình ảnh cũ từ Redis Cache! Hash: {img_hash}")
+                cached_result_dict = json.loads(cached_data)
+                
+                # Giả lập task_id để Frontend polling
+                task_id = f"cached_{uuid.uuid4().hex}"
+                result_payload = {
+                    "status": "SUCCESS",
+                    "result": cached_result_dict
+                }
+                redis_client.set(f"celery-task-meta-{task_id}", json.dumps(result_payload), ex=3600)
+                return {"task_id": task_id}
+        except Exception as e:
+            print(f"⚠️ [CACHE ERROR] Lỗi kiểm tra cache Redis: {e}")
+
     # Đọc ảnh và nén thành JPEG chất lượng 90 để giảm dung lượng dưới 10MiB
     import cv2
     img = cv2.imread(raw_path)
@@ -1818,15 +1925,15 @@ async def translate_page(
                 detail=f"RunPod không trả về JSON hợp lệ: {response.text}"
             )
 
-    if not isinstance(data, dict) or "id" not in data:
-        print(f"🛑 [RUNPOD ERROR] Response missing 'id': {data}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"RunPod Serverless không trả về Job ID: {data}"
-        )
+    runpod_job_id = data["id"]
+    if img_hash:
+        try:
+            redis_client.set(f"task_image_hash:{runpod_job_id}", img_hash, ex=86400)
+        except Exception as e:
+            print(f"⚠️ [CACHE ERROR] Không thể lưu task image hash mapping vào Redis: {e}")
 
     # Trả về Job ID của Runpod cho Frontend
-    return {"task_id": data["id"]}
+    return {"task_id": runpod_job_id}
 
 
 
@@ -1840,6 +1947,18 @@ async def translate_page(
 # ==========================================
 @app.get("/api/task/{task_id}")
 async def get_task_result(task_id: str):
+    # 🚀 KIỂM TRA XEM KẾT QUẢ CỦA TASK NÀY ĐÃ ĐƯỢC CACHE SẴN TRONG REDIS CHƯA
+    try:
+        redis_cache = redis_client.get(f"celery-task-meta-{task_id}")
+        if redis_cache:
+            data = json.loads(redis_cache)
+            if data.get("status") == "SUCCESS":
+                return data
+            elif data.get("status") == "FAILURE":
+                return {"status": "FAILURE", "message": data.get("result")}
+    except Exception as e:
+        print(f"⚠️ [CACHE ERROR] Lỗi đọc kết quả cached từ Redis: {e}")
+
     runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{task_id}"
     headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
     
@@ -1893,13 +2012,28 @@ async def get_task_result(task_id: str):
                 f.write(clean_img_data)
             clean_url = f"/{file_path}"
             
+        result_payload = {
+            "clean_url": clean_url,
+            "data": extracted_data 
+        }
+
+        # Lưu kết quả dịch hoàn chỉnh này vào Redis Cache keyed bằng img_hash của ảnh gốc
+        try:
+            img_hash = redis_client.get(f"task_image_hash:{task_id}")
+            if img_hash:
+                if isinstance(img_hash, bytes):
+                    img_hash = img_hash.decode('utf-8')
+                cache_key = f"ocr_translate_cache:{img_hash}"
+                redis_client.set(cache_key, json.dumps(result_payload), ex=2592000) # Lưu cache trong 30 ngày
+                redis_client.delete(f"task_image_hash:{task_id}")
+                print(f"🚀 [CACHE WRITE] Đã lưu kết quả dịch của ảnh có hash {img_hash} vào Redis Cache!")
+        except Exception as e:
+            print(f"⚠️ [CACHE ERROR] Không thể lưu kết quả dịch vào Redis Cache: {e}")
+
         # Trả cục dữ liệu ĐÃ ĐƯỢC DỊCH HOÀN CHỈNH về cho React vẽ
         return {
             "status": "SUCCESS", 
-            "result": {
-                "clean_url": clean_url,
-                "data": extracted_data 
-            }
+            "result": result_payload
         }
     
     return {"status": data.get("status")}
