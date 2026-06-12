@@ -1,13 +1,29 @@
 import React from 'react';
-import { useToolStore } from '../../store/useToolStore'; //[cite: 12]
-import { useCanvasStore } from '../../store/useCanvasStore'; //[cite: 12]
-// 🚀 Thêm icon ScanLine vào đây
-import { MousePointer2, Eraser, Paintbrush, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff, Sparkles } from 'lucide-react';
+import { useToolStore } from '../../store/useToolStore';
+import { useCanvasStore } from '../../store/useCanvasStore';
+import { ScreentoneSelector } from './ScreentoneSelector';
+// 🚀 Thêm icon ScanLine và Grid vào đây
+import { MousePointer2, Eraser, Paintbrush, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff, Sparkles, Grid } from 'lucide-react';
 export const FloatingCanvasToolbar: React.FC = () => {
-  // 🚀 Lấy thêm showAiGuides và toggleAiGuides từ store
-const { activeMode, setActiveMode, brushSize, setBrushSize, restoreType, toggleRestoreType, showAiGuides, toggleAiGuides, showText, setShowText } = useToolStore();
+  // 🚀 Lấy thêm showAiGuides, toggleAiGuides và các biến Screentone từ store
+  const { 
+    activeMode, 
+    setActiveMode, 
+    brushSize, 
+    setBrushSize, 
+    restoreType, 
+    toggleRestoreType, 
+    showAiGuides, 
+    toggleAiGuides, 
+    showText, 
+    setShowText,
+    screentoneType,
+    setScreentoneType,
+    screentoneColor,
+    setScreentoneColor
+  } = useToolStore();
   
-  const isBrushMode = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw'; //[cite: 12]
+  const isBrushMode = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw' || activeMode === 'screentone';
 
 
   const handleUndo = () => useCanvasStore.getState().undo();
@@ -55,38 +71,66 @@ const { activeMode, setActiveMode, brushSize, setBrushSize, restoreType, toggleR
   return (
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3 z-[100] pointer-events-none">
       
-      {/* TẦNG 1: THANH SIZE CỌ VÀ CHẾ ĐỘ PHỤC HỒI */}
-      <div className={`transition-all duration-300 transform pointer-events-auto flex items-center gap-3 px-4 py-2 bg-panel/95 backdrop-blur-xl border border-border rounded-full shadow-lg
+      {/* TẦNG 1: THANH SIZE CỌ VÀ CHẾ ĐỘ PHỤC HỒI / CHỌN SCREENTONE */}
+      <div className={`transition-all duration-300 transform pointer-events-auto flex flex-col gap-2.5 px-4 py-3 bg-panel/95 backdrop-blur-xl border border-border shadow-lg
+          ${activeMode === 'screentone' ? 'rounded-2xl' : 'rounded-full'}
           ${isBrushMode ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
         
-        {activeMode === 'restore' && (
-          <div className="flex items-center gap-1 bg-background/50 p-1 rounded-lg border border-border mr-1 shadow-inner">
-            <button
-              onClick={() => restoreType !== 'raw' && toggleRestoreType()} //[cite: 12]
-              className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${ //[cite: 12]
-                restoreType === 'raw' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main hover:bg-border' //[cite: 12]
-              }`} //[cite: 12]
-            >
-              Bản Gốc
-            </button>
-            <button
-              onClick={() => restoreType !== 'clean' && toggleRestoreType()} //[cite: 12]
-              className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${ //[cite: 12]
-                restoreType === 'clean' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main hover:bg-border' //[cite: 12]
-              }`} //[cite: 12]
-            >
-              Bản Sạch
-            </button>
+        {activeMode === 'screentone' && (
+          <div className="border-b border-border/40 pb-2.5 w-full flex items-end justify-between gap-4">
+            <ScreentoneSelector 
+              activePattern={screentoneType} 
+              onChange={setScreentoneType} 
+              color={screentoneColor}
+            />
+            <div className="flex flex-col gap-1 items-center">
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest block">Màu sắc</span>
+              <div className="relative w-8 h-8 rounded-lg border border-border overflow-hidden cursor-pointer bg-background hover:scale-105 transition-transform duration-200 shadow-inner">
+                <input 
+                  type="color" 
+                  value={screentoneColor} 
+                  onChange={(e) => setScreentoneColor(e.target.value)}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                />
+                <div 
+                  className="w-full h-full rounded transition-all duration-200" 
+                  style={{ backgroundColor: screentoneColor }}
+                />
+              </div>
+            </div>
           </div>
         )}
 
-        <div className="w-1.5 h-1.5 bg-text-muted rounded-full"></div>
-        <input 
-          type="range" min="5" max="150" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} //[cite: 12]
-          className="w-32 h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-primary border border-border" //[cite: 12]
-        />
-        <div className="w-3 h-3 bg-text-muted rounded-full"></div>
-        <span className="text-xs text-text-main w-8 text-right font-bold tabular-nums">{brushSize} px</span>
+        <div className="flex items-center gap-3">
+          {activeMode === 'restore' && (
+            <div className="flex items-center gap-1 bg-background/50 p-1 rounded-lg border border-border mr-1 shadow-inner">
+              <button
+                onClick={() => restoreType !== 'raw' && toggleRestoreType()}
+                className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  restoreType === 'raw' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main hover:bg-border'
+                }`}
+              >
+                Bản Gốc
+              </button>
+              <button
+                onClick={() => restoreType !== 'clean' && toggleRestoreType()}
+                className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  restoreType === 'clean' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main hover:bg-border'
+                }`}
+              >
+                Bản Sạch
+              </button>
+            </div>
+          )}
+
+          <div className="w-1.5 h-1.5 bg-text-muted rounded-full"></div>
+          <input 
+            type="range" min="5" max="150" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))}
+            className="w-32 h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-primary border border-border"
+          />
+          <div className="w-3 h-3 bg-text-muted rounded-full"></div>
+          <span className="text-xs text-text-main w-8 text-right font-bold tabular-nums">{brushSize} px</span>
+        </div>
       </div>
 
       {/* TẦNG 2: THANH CÔNG CỤ CHÍNH */}
@@ -123,6 +167,7 @@ const { activeMode, setActiveMode, brushSize, setBrushSize, restoreType, toggleR
           <ToolButton mode="erase" icon={Eraser} label="Tẩy nền (E)" shortLabel="Tẩy nền (E)" />
           <ToolButton mode="redraw" icon={Sparkles} label="Vẽ lại AI (R)" shortLabel="Vẽ lại AI (R)" />
           <ToolButton mode="restore" icon={Paintbrush} label="Phục hồi (B)" shortLabel="Phục hồi (B)" />
+          <ToolButton mode="screentone" icon={Grid} label="Họa tiết Manga (H)" shortLabel="Họa tiết Manga (H)" />
           <ToolButton mode="scan" icon={ScanSearch} label="Dịch Lens (S)" shortLabel="Dịch Lens (S)" />
 
           <div className="w-px h-6 bg-border mx-1"></div>

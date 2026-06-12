@@ -209,8 +209,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
       }));
       
       const canvasStore = useCanvasStore.getState();
-      canvasStore.clearBubbles();
-      updatedBubbles.forEach((b: any) => canvasStore.addBubble(b));
+      canvasStore.setBubbles(updatedBubbles);
       
       toast.success("Dịch lại nâng cao thành công!", { id: loadId });
     } catch (err: any) {

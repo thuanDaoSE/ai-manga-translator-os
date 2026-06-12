@@ -6,6 +6,9 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const API_URL = `${BASE_URL}/api`;
 const STATIC_URL = `${BASE_URL}/static`;
 
+// 🚀 BỘ NHỚ ĐỆM LƯU TRỮ BONG BÓNG THOẠI ĐỂ CHUYỂN TRANG TỨC THÌ
+const bubblesCache: Record<string, any[]> = {};
+
 // 🚀 HÀM HELPER: Kiểm tra phản hồi từ Server và chặn đứng lỗi 401
 const handleApiError = async (response: Response, defaultMessage: string) => {
   if (response.status === 401) {
@@ -72,6 +75,7 @@ export const mangaApi = {
   },
 
   savePageBubbles: async (pageId: string, bubbles: any[]) => {
+    bubblesCache[pageId] = bubbles;
     const response = await fetch(`${API_URL}/pages/${pageId}/bubbles`, {
       method: "POST",
       headers: await getAuthHeaders(), // Đã thêm await
@@ -81,11 +85,20 @@ export const mangaApi = {
   },
 
   getPageBubbles: async (pageId: string) => {
+    if (bubblesCache[pageId]) {
+      return { bubbles: bubblesCache[pageId] };
+    }
     const response = await fetch(`${API_URL}/pages/${pageId}/bubbles`, {
       headers: await getAuthHeaders() // Đã thêm await
     });
     if (!response.ok) return { bubbles: [] };
-    return await response.json();
+    const data = await response.json();
+    bubblesCache[pageId] = data.bubbles || [];
+    return data;
+  },
+
+  getCachedPageBubbles: (pageId: string) => {
+    return bubblesCache[pageId] || null;
   },
 
   uploadRaw: async (file: File) => {
@@ -163,11 +176,17 @@ export const mangaApi = {
     return (await response.json()).new_url;
   },
 
-  redrawMask: async (imageUrl: string, maskBase64: string, prompt: string, pageId?: string) => {
+  redrawMask: async (imageUrl: string, maskBase64: string, prompt: string, pageId?: string, negativePrompt?: string) => {
     const response = await fetch(`${API_URL}/redraw`, {
       method: "POST",
       headers: await getAuthHeaders(), // Đã thêm await
-      body: JSON.stringify({ image_url: imageUrl, mask_base64: maskBase64, prompt, page_id: pageId }),
+      body: JSON.stringify({ 
+        image_url: imageUrl, 
+        mask_base64: maskBase64, 
+        prompt, 
+        page_id: pageId,
+        negative_prompt: negativePrompt 
+      }),
     });
     await handleApiError(response, "Lỗi Server Redraw AI");
 
@@ -175,6 +194,16 @@ export const mangaApi = {
     if (data.status !== "success") throw new Error(data.message || "Vẽ lại thất bại");
     const cleanUrl = data.new_url.split('?')[0];
     return `${cleanUrl}?t=${Date.now()}`;
+  },
+
+  processRedrawPrompt: async (vietnameseText: string, selectedTags: string[], mode: 'manga' | 'webtoon') => {
+    const response = await fetch(`${API_URL}/redraw-prompt`, {
+      method: "POST",
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({ vietnameseText, selectedTags, mode }),
+    });
+    await handleApiError(response, "Lỗi xử lý Prompt vẽ lại");
+    return await response.json();
   },
 
   quickScan: async (payload: any) => {
@@ -334,6 +363,7 @@ export const mangaApi = {
   },
 
   savePageResults: async (pageId: string, cleanUrl: string, bubbles: any[]) => {
+    bubblesCache[pageId] = bubbles;
     const response = await fetch(`${API_URL}/pages/${pageId}/save-results?clean_url=${encodeURIComponent(cleanUrl)}`, {
       method: "POST",
       headers: await getAuthHeaders(),

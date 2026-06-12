@@ -319,137 +319,145 @@ export default function Sidebar() {
     projectStore.setPageStatus(pageIndex, "unprocessed");
   };
 
-  const processSinglePage = async (pageIndex: number) => {
-    const pageId = projectStore.pageIds[pageIndex];
-    if (!pageId) return;
+  const processSinglePage = (pageIndex: number) => {
+    return new Promise<void>(async (resolve) => {
+      const pageId = projectStore.pageIds[pageIndex];
+      if (!pageId) {
+        resolve();
+        return;
+      }
 
-    projectStore.setPageStatus(pageIndex, "processing");
+      projectStore.setPageStatus(pageIndex, "processing");
 
-    try {
-      const configStore = useConfigStore.getState();
+      try {
+        const configStore = useConfigStore.getState();
 
-      const data = await mangaApi.translatePageById(pageId, {
-        genre: configStore.genre,
-        tone: configStore.tone,
-        pronouns: configStore.pronoun,
-        glossary: configStore.glossary
-      });
+        const data = await mangaApi.translatePageById(pageId, {
+          genre: configStore.genre,
+          tone: configStore.tone,
+          pronouns: configStore.pronoun,
+          glossary: configStore.glossary
+        });
 
-      if (data.task_id) {
-        const taskId = data.task_id;
+        if (data.task_id) {
+          const taskId = data.task_id;
 
-        // ❌ ĐÃ XÓA DÒNG: projectStore.startListeningProgress(...) để tránh mở 2 kết nối đá nhau
+          // 🚀 Chỉ mở 1 đường truyền SSE duy nhất
+          const eventSource = new EventSource(`${API_URL}/stream/${taskId}`);
+          activeTasksRef.current[pageIndex] = { taskId, eventSource };
 
-        // 🚀 Chỉ mở 1 đường truyền SSE duy nhất
-        const eventSource = new EventSource(`${API_URL}/stream/${taskId}`);
-        activeTasksRef.current[pageIndex] = { taskId, eventSource };
+          eventSource.onmessage = async (event) => {
+            const sseData = JSON.parse(event.data);
 
-        eventSource.onmessage = async (event) => {
-          const sseData = JSON.parse(event.data);
-
-          // 🚀 Liên tục cập nhật tiến độ (Ví dụ: Runpod đang tải 10%... 30%...)
-          useProjectStore.setState((state: any) => ({
-            progresses: { ...state.progresses, [pageIndex]: { percent: sseData.progress, message: sseData.message } }
-          }));
-
-          if (sseData.state === "SUCCESS") {
-            eventSource.close();
-            delete activeTasksRef.current[pageIndex];
-
-            // 🚀 BẢN VÁ UX: RUNPOD XONG RỒI NHƯNG KHÔNG ĐƯỢC BÁO HOÀN TẤT VỘI!
-            // Ép thanh tiến trình đứng ở 90% và báo đang gọi DeepSeek
-            projectStore.setPageStatus(pageIndex, "processing");
+            // 🚀 Liên tục cập nhật tiến độ (Ví dụ: Runpod đang tải 10%... 30%...)
             useProjectStore.setState((state: any) => ({
-              progresses: { ...state.progresses, [pageIndex]: { percent: 90, message: "Đang nhờ DeepSeek dịch..." } }
+              progresses: { ...state.progresses, [pageIndex]: { percent: sseData.progress, message: sseData.message } }
             }));
 
-            let taskData = null;
-            // Vòng lặp chờ VPS và DeepSeek làm việc (Cái này tốn 2-3 giây)
-            for (let i = 0; i < 15; i++) {
-              const taskRes = await fetch(`${API_URL}/task/${taskId}`);
-              const data = await taskRes.json();
-              if (data.status === "SUCCESS" && data.result) {
-                taskData = data;
-                break;
+            if (sseData.state === "SUCCESS") {
+              eventSource.close();
+              delete activeTasksRef.current[pageIndex];
+
+              // 🚀 BẢN VÁ UX: RUNPOD XONG RỒI NHƯNG KHÔNG ĐƯỢC BÁO HOÀN TẤT VỘI!
+              // Ép thanh tiến trình đứng ở 90% và báo đang gọi DeepSeek
+              projectStore.setPageStatus(pageIndex, "processing");
+              useProjectStore.setState((state: any) => ({
+                progresses: { ...state.progresses, [pageIndex]: { percent: 90, message: "Đang nhờ DeepSeek dịch..." } }
+              }));
+
+              let taskData = null;
+              // Vòng lặp chờ VPS và DeepSeek làm việc (Cái này tốn 2-3 giây)
+              for (let i = 0; i < 15; i++) {
+                const taskRes = await fetch(`${API_URL}/task/${taskId}`);
+                const data = await taskRes.json();
+                if (data.status === "SUCCESS" && data.result) {
+                  taskData = data;
+                  break;
+                }
+                await new Promise(res => setTimeout(res, 1000));
               }
-              await new Promise(resolve => setTimeout(resolve, 1000));
+
+              if (taskData && taskData.result) {
+                const result = taskData.result;
+                const fullCleanUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${result.clean_url}?t=${Date.now()}`;
+                projectStore.setProcessedUrl(pageIndex, fullCleanUrl);
+
+                const toolState = useToolStore.getState();
+
+                const newBubbles = result.data.map((item: any) => {
+                  const origW = item.box_coordinates.x2 - item.box_coordinates.x1;
+                  const origH = item.box_coordinates.y2 - item.box_coordinates.y1;
+
+                  return {
+                    id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+                    x: item.box_coordinates.x1,
+                    y: item.box_coordinates.y1,
+                    w: origW,
+                    h: origH,
+                    text: item.vietnamese,
+                    japanese: item.japanese,
+                    fontSize: toolState.fontSize,
+                    fontColor: toolState.fontColor,
+                    fontFamily: toolState.fontFamily,
+                    rotation: 0,
+                    sfxClass: "",
+                    rawBox: item.box_coordinates,
+                    boxX: item.box_coordinates.x1,
+                    boxY: item.box_coordinates.y1,
+                    boxW: origW,
+                    boxH: origH,
+                  };
+                });
+
+                if (pageIndex === useProjectStore.getState().currentIndex) {
+                  const canvasStore = useCanvasStore.getState();
+                  canvasStore.setBubbles(newBubbles);
+                } else {
+                  mangaApi.savePageBubbles(pageId, newBubbles).catch(console.error);
+                }
+
+                // 🚀 LƯU Ý MŨI TIÊM THÔNG MINH TRƯỚC ĐÓ CỦA SẾP (Kiểm tra chữ Lỗi)
+                const hasTranslationError = newBubbles.some((b: any) => (b.text || "").toLowerCase().includes("lỗi"));
+
+                if (hasTranslationError) {
+                  projectStore.setPageStatus(pageIndex, "error"); // Đánh thẻ Đỏ
+                  toast.error(`Trang ${pageIndex + 1} bị nghẽn mạng DeepSeek!`);
+                } else {
+                  projectStore.setPageStatus(pageIndex, "completed"); // Xanh tuyệt đối!
+                }
+
+                await mangaApi.savePageResults(pageId, result.clean_url, newBubbles)
+                  .catch(err => console.error("Lỗi lưu kết quả vào DB:", err));
+
+                // 🚀 CHỈ KHI CHỮ ĐÃ ĐƯỢC VẼ LÊN HÌNH THÌ MỚI XÓA THANH TIẾN TRÌNH
+                setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
+              }
+              resolve();
+            } else if (sseData.state === "FAILURE") {
+              eventSource.close();
+              delete activeTasksRef.current[pageIndex];
+              projectStore.clearProgress(pageIndex);
+              projectStore.setPageStatus(pageIndex, "error");
+              resolve();
             }
+          };
 
-            if (taskData && taskData.result) {
-              const result = taskData.result;
-              const fullCleanUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${result.clean_url}?t=${Date.now()}`;
-              projectStore.setProcessedUrl(pageIndex, fullCleanUrl);
-
-              const toolState = useToolStore.getState();
-
-              const newBubbles = result.data.map((item: any) => {
-                const origW = item.box_coordinates.x2 - item.box_coordinates.x1;
-                const origH = item.box_coordinates.y2 - item.box_coordinates.y1;
-
-                return {
-                  id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-                  x: item.box_coordinates.x1,
-                  y: item.box_coordinates.y1,
-                  w: origW,
-                  h: origH,
-                  text: item.vietnamese,
-                  japanese: item.japanese,
-                  fontSize: toolState.fontSize,
-                  fontColor: toolState.fontColor,
-                  fontFamily: toolState.fontFamily,
-                  rotation: 0,
-                  sfxClass: "",
-                  rawBox: item.box_coordinates,
-                  boxX: item.box_coordinates.x1,
-                  boxY: item.box_coordinates.y1,
-                  boxW: origW,
-                  boxH: origH,
-                };
-              });
-
-              if (pageIndex === useProjectStore.getState().currentIndex) {
-                const canvasStore = useCanvasStore.getState();
-                canvasStore.clearBubbles();
-                newBubbles.forEach((b: any) => canvasStore.addBubble(b));
-              } else {
-                mangaApi.savePageBubbles(pageId, newBubbles).catch(console.error);
-              }
-
-              // 🚀 LƯU Ý MŨI TIÊM THÔNG MINH TRƯỚC ĐÓ CỦA SẾP (Kiểm tra chữ Lỗi)
-              const hasTranslationError = newBubbles.some((b: any) => (b.text || "").toLowerCase().includes("lỗi"));
-
-              if (hasTranslationError) {
-                projectStore.setPageStatus(pageIndex, "error"); // Đánh thẻ Đỏ
-                toast.error(`Trang ${pageIndex + 1} bị nghẽn mạng DeepSeek!`);
-              } else {
-                projectStore.setPageStatus(pageIndex, "completed"); // Xanh tuyệt đối!
-              }
-
-              await mangaApi.savePageResults(pageId, result.clean_url, newBubbles)
-                .catch(err => console.error("Lỗi lưu kết quả vào DB:", err));
-
-              // 🚀 CHỈ KHI CHỮ ĐÃ ĐƯỢC VẼ LÊN HÌNH THÌ MỚI XÓA THANH TIẾN TRÌNH
-              setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
-            }
-          } else if (sseData.state === "FAILURE") {
+          eventSource.onerror = () => {
             eventSource.close();
             delete activeTasksRef.current[pageIndex];
             projectStore.clearProgress(pageIndex);
             projectStore.setPageStatus(pageIndex, "error");
-          }
-        };
-
-        eventSource.onerror = () => {
-          eventSource.close();
-          delete activeTasksRef.current[pageIndex];
-          projectStore.clearProgress(pageIndex);
-          projectStore.setPageStatus(pageIndex, "error");
-        };
+            resolve();
+          };
+        } else {
+          resolve();
+        }
+      } catch (error) {
+        projectStore.clearProgress(pageIndex);
+        projectStore.setPageStatus(pageIndex, "error");
+        resolve();
       }
-    } catch (error) {
-      projectStore.clearProgress(pageIndex);
-      projectStore.setPageStatus(pageIndex, "error");
-    }
+    });
   };
 
   // 🚀 BẢN VÁ TỐI THƯỢNG: Phân luồng Dịch lại cực kỳ thông minh
@@ -477,10 +485,9 @@ export default function Sidebar() {
         const realTimeIndex = useProjectStore.getState().currentIndex;
 
         if (realTimeIndex === pageIndex) {
-          // 🚀 FIX 2: Dùng clearBubbles và addBubble để vẽ lại chữ an toàn tuyệt đối (Không bị crash trắng trang)
+          // 🚀 FIX 2: Dùng setBubbles để vẽ lại chữ an toàn tuyệt đối (Không bị crash trắng trang)
           const canvasStore = useCanvasStore.getState();
-          canvasStore.clearBubbles();
-          updatedBubbles.forEach((b: any) => canvasStore.addBubble(b));
+          canvasStore.setBubbles(updatedBubbles);
         } else {
           // 🚀 FIX 3 (RACE CONDITION): Nếu sếp đã chuyển sang trang khác, ÉP HỆ THỐNG LƯU KẾT QUẢ MỚI VÀO DB!
           // Đề phòng trường hợp Auto-save của trang cũ vừa ghi đè nhầm.
@@ -650,12 +657,35 @@ export default function Sidebar() {
   const progressPercent = totalPages === 0 ? 0 : ((completedPages + errorPages) / totalPages) * 100;
   const hasUnprocessed = visibleFiles.some(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'error');
 
-  const handleTranslateAll = () => {
+  const handleTranslateAll = async () => {
     if (visibleFiles.length === 0) return;
-    for (const { index } of visibleFiles) {
-      if (projectStore.pageStatuses[index] === 'unprocessed' || projectStore.pageStatuses[index] === 'error') {
-        processSinglePage(index);
+
+    // Lọc ra các trang cần dịch
+    const pendingIndexes = visibleFiles
+      .map(f => f.index)
+      .filter(index => projectStore.pageStatuses[index] === 'unprocessed' || projectStore.pageStatuses[index] === 'error');
+
+    if (pendingIndexes.length === 0) return;
+
+    // Chạy với giới hạn đồng thời tối đa là 3 trang để tránh nghẽn browser connection pool (limit 6)
+    const limit = 3;
+    let nextIdx = 0;
+
+    const runNext = async () => {
+      if (nextIdx >= pendingIndexes.length) return;
+      const index = pendingIndexes[nextIdx++];
+      try {
+        await processSinglePage(index);
+      } catch (err) {
+        console.error("Lỗi khi chạy dịch hàng loạt trang:", index, err);
+      } finally {
+        runNext();
       }
+    };
+
+    // Khởi chạy đồng thời tối đa bằng giới hạn limit
+    for (let i = 0; i < Math.min(limit, pendingIndexes.length); i++) {
+      runNext();
     }
   };
 

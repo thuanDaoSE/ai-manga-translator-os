@@ -1151,6 +1151,7 @@ class RedrawRequest(BaseModel):
     mask_url: Optional[str] = None
     mask_base64: Optional[str] = None
     prompt: str
+    negative_prompt: Optional[str] = None
     page_id: Optional[str] = None
 
 
@@ -1235,9 +1236,13 @@ async def redraw_image(
 
         public_mask_url = f"{get_base_url()}/{mask_temp_path}"
 
-        # 3. Setup Prompt Tiếng Anh chuẩn Manga
-        positive_prompt = f"{req.prompt}, masterpiece, best quality, manga page, monochrome, grayscale, sharp lineart, seamless background, flat shading, high contrast lighting"
-        negative_prompt = "text, speech bubble, watermark, color, photorealistic, 3d render, blurry, artifacts, smooth gradient, western comic"
+        # 3. Setup Prompt Tiếng Anh chuẩn Manga / Webtoon (Hỗ trợ luồng vẽ mới)
+        if req.negative_prompt:
+            positive_prompt = req.prompt
+            negative_prompt = req.negative_prompt
+        else:
+            positive_prompt = f"{req.prompt}, masterpiece, best quality, manga page, monochrome, grayscale, sharp lineart, seamless background, flat shading, high contrast lighting"
+            negative_prompt = "text, speech bubble, watermark, color, photorealistic, 3d render, blurry, artifacts, smooth gradient, western comic"
 
         # 4. Gửi Job lên RunPod Serverless
         runpod_payload = {
@@ -2434,3 +2439,125 @@ async def deduct_credits(amount: int = 1, user_id: str = Depends(get_current_use
     await db.commit()
     
     return {"status": "success", "credits": user.credits, "is_pro": False}
+
+# ==========================================
+# SYSTEM CỦA ZERO-FRICTION PROMPTING (AI REDRAW)
+# ==========================================
+class RedrawPromptPayload(BaseModel):
+    vietnameseText: str
+    selectedTags: List[str]
+    mode: str  # 'manga' or 'webtoon'
+
+UNIVERSAL_APPEND_MANGA = ", (masterpiece, best quality, highres:1.2), monochrome, greyscale, screentones, precise lineart, heavy hatching, high contrast, manga style, traditional media, ink"
+UNIVERSAL_APPEND_WEBTOON = ", (masterpiece, best quality, highres:1.2), webtoon style, manhwa style, cel shading, flat colors, vibrant palette, dynamic lighting, clean crisp lines, highly detailed"
+UNIVERSAL_NEGATIVE = "(text, signature, watermark, logo, speech bubble:1.4), (worst quality, low quality, bad quality, draft:1.4), (bad anatomy, deformed, disfigured, mutated hands, missing fingers, extra digits, fused fingers:1.3), blurry, out of focus, jpeg artifacts, realistic, photorealistic, 3d, cg, 2.5d, depth of field, noisy lines, messy sketch, simple background"
+
+async def translate_vietnamese_to_danbooru(vietnamese_text: str) -> str:
+    """
+    Dịch các từ mô tả hành động, bối cảnh tiếng Việt sang các tag vẽ tranh tiếng Anh (Danbooru format).
+    Ưu tiên gọi DeepSeek Chat LLM nếu cấu hình DEEPSEEK_API_KEY, nếu không thì dùng từ điển nội bộ.
+    """
+    val = vietnamese_text.strip()
+    if not val:
+        return ""
+        
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    if api_key:
+        try:
+            # Chạy đồng bộ trong threadpool để tránh chặn event loop
+            def call_llm():
+                response = deepseek_client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[
+                        {"role": "system", "content": "You are a specialized translation assistant. Translate natural Vietnamese descriptions of image elements, character actions, backgrounds, or special effects into a clean, comma-separated list of English anime/danbooru illustration tags (e.g. 'crying, tears, night sky'). Return ONLY the English tags, no explanations or markdown blocks."},
+                        {"role": "user", "content": f"Translate to English illustration tags: {val}"}
+                    ],
+                    max_tokens=60,
+                    temperature=0.3
+                )
+                return response.choices[0].message.content.strip()
+            
+            translated_tags = await run_in_threadpool(call_llm)
+            # Dọn dẹp ký tự thừa nếu LLM trả về markdown
+            translated_tags = re.sub(r'^```json\s*|```\s*$', '', translated_tags).strip()
+            translated_tags = translated_tags.replace('"', '').replace('`', '').strip()
+            return translated_tags
+        except Exception as e:
+            print(f"🚨 Lỗi dịch Prompt bằng DeepSeek, chuyển sang chế độ dự phòng: {e}")
+            
+    # Bộ từ điển dự phòng (offline/mock)
+    text_lower = val.lower().strip()
+    mapping = {
+        "khóc": "crying, tears",
+        "đang khóc": "crying, tears",
+        "cười": "smiling, grin",
+        "tức giận": "angry, annoyed",
+        "lớp học": "classroom, school desk, blackboard",
+        "phòng học": "classroom",
+        "vệt sáng": "light streak, light particles, glowing",
+        "khói": "smoke, dust",
+        "lửa": "fire, flames",
+        "nước": "water, splashing",
+        "bóng tối": "darkness, shadow",
+        "sấm sét": "lightning, electrical sparks",
+        "tường gạch": "brick wall",
+        "bầu trời sao": "starry sky, night sky",
+        "đang chạy": "running, motion blur",
+        "bay": "flying, floating",
+        "tóc bay": "floating hair, wind blowing",
+        "đổ nát": "impact debris, rubble",
+        "nền đơn giản": "simple background",
+        "nền chi tiết": "detailed background"
+    }
+    
+    # Tìm kiếm cụm từ trong mapping
+    matched_tags = []
+    for key, val_tags in mapping.items():
+        if key in text_lower:
+            matched_tags.append(val_tags)
+            
+    if matched_tags:
+        return ", ".join(matched_tags)
+        
+    # Fallback cuối cùng: dịch thô tự động bằng tiếng Anh không dấu
+    import unicodedata
+    def remove_vietnamese_accents(s):
+        s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('utf-8')
+        return s.replace(' ', ', ')
+        
+    return remove_vietnamese_accents(text_lower)
+
+@app.post("/api/redraw-prompt")
+async def process_redraw_prompt(
+    payload: RedrawPromptPayload,
+    user_id: str = Depends(get_current_user_id) # Require login
+):
+    """
+    API tiếp nhận Prompt tiếng Việt và Tag từ người dùng, dịch thuật
+    và đóng gói thành Prompt tối ưu gửi cho GPU Backend.
+    """
+    try:
+        translated_text = await translate_vietnamese_to_danbooru(payload.vietnameseText)
+        
+        # Tạo danh sách các tag thô
+        positive_components = []
+        if translated_text:
+            positive_components.append(translated_text)
+        if payload.selectedTags:
+            positive_components.append(", ".join(payload.selectedTags))
+            
+        # Nối thêm universal style suffix tùy theo mode vẽ
+        style_suffix = UNIVERSAL_APPEND_MANGA if payload.mode == 'manga' else UNIVERSAL_APPEND_WEBTOON
+        
+        final_positive = ", ".join(positive_components) + style_suffix if positive_components else style_suffix.lstrip(", ")
+        
+        # Loại bỏ các dấu phẩy thừa do nối chuỗi rỗng
+        final_positive = re.sub(r',\s*,', ',', final_positive).strip(" ,")
+        
+        return {
+            "finalPositivePrompt": final_positive,
+            "finalNegativePrompt": UNIVERSAL_NEGATIVE
+        }
+    except Exception as e:
+        print(f"🛑 [LỖI REDRAW PROMPT]: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi xử lý prompt vẽ lại: {str(e)}")

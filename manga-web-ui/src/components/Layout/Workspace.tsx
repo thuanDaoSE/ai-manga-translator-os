@@ -9,6 +9,7 @@ import MangaCanvas from '../Editor/MangaCanvas';
 import WelcomeScreen from '../Editor/WelcomeScreen';
 import { Search, Eraser, Paintbrush, Sparkles, Type as TypeIcon, PanelLeft, PanelRight, ChevronRight, ChevronLeft, Check, Wand2 } from 'lucide-react';
 import { FloatingCanvasToolbar } from '../Editor/FloatingCanvasToolbar';
+import { RedrawPromptInput } from '../Editor/RedrawPromptInput';
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import { useGlobalErrorHandler } from '../../hooks/useGlobalErrorHandler';
 import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
@@ -94,29 +95,38 @@ export default function Workspace() {
     let isMounted = true;
     const pageId = projectStore.pageIds[projectStore.currentIndex];
 
+    if (!pageId) {
+      ignoreSaveRef.current = false;
+      return;
+    }
+
     ignoreSaveRef.current = true;
 
-    // ✅ SỬA Ở ĐÂY: Dùng .getState() để gọi hàm mà không re-render Workspace
+    // 🚀 BÍ QUYẾT TỐI ƯU: Nếu đã có cache thì dán thẳng đồng bộ, tránh nhấp nháy màn hình và gọi mạng!
+    const cachedBubbles = mangaApi.getCachedPageBubbles(pageId);
+    if (cachedBubbles) {
+      useCanvasStore.getState().setBubbles(cachedBubbles);
+      ignoreSaveRef.current = false;
+      return;
+    }
+
+    // Nếu chưa có cache thì mới xóa trắng và tải từ Server
     useCanvasStore.getState().clearBubbles();
 
-    if (pageId) {
-      mangaApi.getPageBubbles(pageId)
-        .then(data => {
-          if (!isMounted) return;
+    mangaApi.getPageBubbles(pageId)
+      .then(data => {
+        if (!isMounted) return;
 
-          // ✅ SỬA Ở ĐÂY TƯƠNG TỰ:
-          useCanvasStore.getState().setBubbles(data.bubbles || []);
+        // ✅ SỬA Ở ĐÂY TƯƠNG TỰ:
+        useCanvasStore.getState().setBubbles(data.bubbles || []);
 
-          setTimeout(() => {
-            if (isMounted) ignoreSaveRef.current = false;
-          }, 100);
-        })
-        .catch(err => {
+        setTimeout(() => {
           if (isMounted) ignoreSaveRef.current = false;
-        });
-    } else {
-      ignoreSaveRef.current = false;
-    }
+        }, 100);
+      })
+      .catch(err => {
+        if (isMounted) ignoreSaveRef.current = false;
+      });
 
     return () => { isMounted = false; };
   }, [projectStore.currentIndex, projectStore.pageIds]);
@@ -391,8 +401,8 @@ export default function Workspace() {
   };
 
   // 4.5. AI Redraw Integration (Waifu SDXL Model)
-  const handleRedraw = async () => {
-    if (!redrawPrompt.trim()) return toast.error("Vui lòng nhập prompt!");
+  const handleRedraw = async (positivePrompt: string, negativePrompt: string) => {
+    if (!positivePrompt.trim()) return toast.error("Vui lòng nhập prompt!");
     if (!projectStore.pageIds[currentIndex]) return toast.error("Ảnh đang tải lên!");
     const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
     const ctx = drawCanvas?.getContext("2d");
@@ -410,7 +420,7 @@ export default function Workspace() {
       const targetUrl = processedUrls[currentIndex] || serverRawUrl;
 
       // Call API
-      const newUrl = await mangaApi.redrawMask(targetUrl, maskBase64, redrawPrompt, pageId);
+      const newUrl = await mangaApi.redrawMask(targetUrl, maskBase64, positivePrompt, pageId, negativePrompt);
 
       // Save history and set image in editor store
       useMangaEditorStore.getState().saveHistory();
@@ -582,41 +592,20 @@ export default function Workspace() {
           )}
 
           {actionPosition && activeMode === 'redraw' && (
-            <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-2.5 p-2 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto">
-              <input
-                type="text"
-                value={redrawPrompt}
-                onChange={(e) => setRedrawPrompt(e.target.value)}
-                placeholder="Nhập Prompt tiếng Anh (ví dụ: speedlines, wall detail)..."
-                className="w-64 px-3 py-2 text-xs bg-background border border-border rounded-xl text-white focus:outline-none focus:border-primary placeholder-text-muted"
-                disabled={isProcessing}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleRedraw();
-                  }
-                }}
-              />
-              <button
-                onClick={handleRedraw}
-                disabled={isProcessing || !redrawPrompt.trim()}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-primary text-white hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer shadow-sm"
-              >
-                {isProcessing ? <span className="animate-spin">⏳</span> : <Sparkles size={16} />}
-                {isProcessing ? dynamicLoadingText : "✨ Vẽ lại AI"}
-              </button>
-              <button
-                onClick={() => {
+            <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] pointer-events-auto">
+              <RedrawPromptInput
+                isProcessing={isProcessing}
+                onCancel={() => {
                   const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
                   const ctx = drawCanvas?.getContext("2d");
                   if (ctx) ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
                   setActionPosition(null);
                   setRedrawPrompt("");
                 }}
-                disabled={isProcessing}
-                className="px-3 py-2.5 rounded-xl font-bold text-xs bg-panel border border-border text-text-muted hover:text-text-main transition-colors cursor-pointer"
-              >
-                Hủy
-              </button>
+                onSubmit={({ positive, negative }) => {
+                  handleRedraw(positive, negative);
+                }}
+              />
             </div>
           )}
         </>

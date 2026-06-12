@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 
-type AppMode = 'none' | 'erase' | 'scan' | 'restore' | 'redraw';
+type AppMode = 'none' | 'erase' | 'scan' | 'restore' | 'redraw' | 'screentone';
 type RestoreType = 'raw' | 'clean';
+
+export type ScreentoneType = 'solid' | 'dots' | 'lines_diagonal' | 'crosshatch';
 
 interface ToolState {
   activeMode: AppMode;
@@ -14,6 +16,12 @@ interface ToolState {
 
   currentZoom: number;
   setZoom: (zoom: number) => void;
+
+  // Screentone settings
+  screentoneType: ScreentoneType;
+  setScreentoneType: (type: ScreentoneType) => void;
+  screentoneColor: string;
+  setScreentoneColor: (color: string) => void;
 
   // 🚀 BỔ SUNG CÁC BIẾN GLOBAL THIẾU
   fontSize: number;
@@ -72,6 +80,12 @@ export const useToolStore = create<ToolState>((set) => ({
 
   currentZoom: 1.0,
   setZoom: (zoom) => set({ currentZoom: Math.max(0.1, Math.min(zoom, 5.0)) }),
+
+  // Screentone settings
+  screentoneType: 'solid',
+  setScreentoneType: (type) => set({ screentoneType: type }),
+  screentoneColor: '#000000',
+  setScreentoneColor: (color) => set({ screentoneColor: color }),
 
   // 🚀 KHỞI TẠO GIÁ TRỊ MẶC ĐỊNH CHUẨN
   fontSize: 40,
