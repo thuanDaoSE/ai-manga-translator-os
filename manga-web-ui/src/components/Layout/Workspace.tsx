@@ -345,7 +345,11 @@ export default function Workspace() {
       setActionPosition(null);
       toast.success(`Đã phủ ${color === 'white' ? 'Trắng' : 'Đen'} siêu tốc!`);
     };
-    img.src = `${targetUrl.split('?')[0]}?nocache=${Date.now()}`;
+    if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+      img.src = `${targetUrl.split('?')[0]}?nocache=${Date.now()}`;
+    } else {
+      img.src = targetUrl;
+    }
   };
 
   // 4. AI Backend Integration (Actual Erase Mask)

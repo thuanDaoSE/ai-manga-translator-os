@@ -66,6 +66,7 @@ export default function App() {
   useHotkeys('b', () => setActiveMode('restore'), { enableOnFormTags: false });
   useHotkeys('e', () => setActiveMode('erase'), { enableOnFormTags: false });
   useHotkeys('s', () => setActiveMode('scan'), { enableOnFormTags: false });
+  useHotkeys('r', () => setActiveMode('redraw'), { enableOnFormTags: false });
   useHotkeys('tab', (e) => { e.preventDefault(); toggleZenMode(); }, { enableOnFormTags: false });
 
   // 🚀 Phím tắt Undo/Redo an toàn

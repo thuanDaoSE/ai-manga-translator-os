@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { toJpeg } from "html-to-image";
 import {
   CloudCheck, Download, Diamond, User, Settings, LogOut, ChevronDown,
-  Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages
+  Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages,
+  FileText
 } from "lucide-react";
 import toast from 'react-hot-toast';
 import { useConfigStore } from "../../store/useConfigStore";
@@ -14,8 +15,11 @@ import { saveAs } from 'file-saver';
 import { useToolStore } from "../../store/useToolStore";
 import { useProjectStore } from "../../store/useProjectStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useCanvasStore } from "../../store/useCanvasStore";
+import { exportTranslationToText } from "../Editor/ExportTextButton";
 import { mangaApi } from "../../services/api";
 import { PaywallDrawer } from "../Modals/PaywallDrawer";
+import SupportModal from "../Modals/SupportModal";
 import DeepKomaLogo from "../ui/DeepKomaLogo";
 
 export default function Topbar() {
@@ -34,6 +38,7 @@ export default function Topbar() {
 
   const [isPaywallOpen, setIsPaywallOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
 
@@ -53,6 +58,29 @@ export default function Topbar() {
     const pageId = projectStore.pageIds[projectStore.currentIndex];
     if (!pageId) return toast.error("Chưa có trang truyện nào được chọn!");
     mangaApi.exportManga(pageId);
+    setIsExportMenuOpen(false);
+  };
+
+  const handleExportText = () => {
+    const activePageNumber = projectStore.currentIndex + 1;
+    const currentBubbles = useCanvasStore.getState().bubbles;
+    
+    if (!currentBubbles || currentBubbles.length === 0) {
+      return toast.error("Trang hiện tại không có văn bản nào để xuất!");
+    }
+
+    const textBlocks = currentBubbles.map(b => ({
+      original: b.japanese || b.text,
+      translated: b.text || b.vietnamese || ""
+    }));
+
+    const pagesData = [{ pageNumber: activePageNumber, textBlocks }];
+    
+    try {
+      exportTranslationToText(pagesData);
+    } catch (e) {
+      toast.error("Lỗi khi xuất file Text!");
+    }
     setIsExportMenuOpen(false);
   };
 
@@ -87,6 +115,8 @@ export default function Topbar() {
     } catch (error: any) { toast.error(error.message, { id: loadId }); }
     setIsExportMenuOpen(false);
   };
+
+
 
   return (
     <header className="h-14 border-b border-border bg-panel px-4 flex items-center justify-between select-none shrink-0 relative" style={{ zIndex: 99 }}>
@@ -156,6 +186,7 @@ export default function Topbar() {
             <div className="absolute top-[calc(100%+8px)] right-0 w-52 bg-panel border border-border rounded-xl shadow-2xl overflow-hidden py-1 animate-in fade-in slide-in-from-top-2" style={{ zIndex: 99999 }}>
               <button onClick={handleExportImage} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors cursor-pointer"><ImageDown size={14} className="text-emerald-500" /> Xuất ảnh JPG</button>
               <button onClick={handleExportPSD} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors border-y border-border/50 cursor-pointer"><Palette size={14} className="text-indigo-500" /> Xuất file PSD</button>
+              <button onClick={handleExportText} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors border-b border-border/50 cursor-pointer"><FileText size={14} className="text-amber-500" /> Xuất file Text (.txt)</button>
               <button onClick={handleExportManga} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-muted hover:text-text-main hover:bg-background transition-colors cursor-pointer"><Save size={14} /> Lưu Backup (.manga)</button>
             </div>
           )}
@@ -178,11 +209,17 @@ export default function Topbar() {
                   <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><Diamond size={14} className="text-amber-500" /><span>{user?.isPro ? "GÓI PRO" : `${(user?.credits || 0).toLocaleString()} Credits`}</span></div>
                   <button onClick={() => { setIsAccountMenuOpen(false); setIsPaywallOpen(true); }} className="text-[10px] font-black uppercase text-primary hover:text-primary-hover transition-colors cursor-pointer">Nạp thêm</button>
                 </div>
-                <button 
-                  onClick={() => { setIsAccountMenuOpen(false); setIsHistoryOpen(true); }} 
+                <button
+                  onClick={() => { setIsAccountMenuOpen(false); setIsHistoryOpen(true); }}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer"
                 >
                   <CreditCard size={14} /> Lịch sử giao dịch
+                </button>
+                <button
+                  onClick={() => { setIsSupportOpen(true); setIsAccountMenuOpen(false); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer mt-0.5"
+                >
+                  <HelpCircle size={14} /> Gửi yêu cầu hỗ trợ (Báo lỗi)
                 </button>
               </div>
               <div className="px-2 py-2 bg-background/30">
@@ -196,6 +233,7 @@ export default function Topbar() {
 
       <PaywallDrawer isOpen={isPaywallOpen} onClose={() => setIsPaywallOpen(false)} />
       <PaymentHistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
+      <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
 
       {/* 🚀 Bảng cấu hình dịch thuật sẽ hiện lên khi isModalOpen = true */}
       {isModalOpen && <TranslationConfigModal />}

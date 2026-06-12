@@ -29,11 +29,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Define ARG HF_TOKEN to authenticate with Hugging Face during the build phase
 ARG HF_TOKEN
 COPY runpod-serverless/builder.py ./
-RUN HF_TOKEN=$HF_TOKEN python builder.py
+RUN HF_TOKEN=$HF_TOKEN python builder.py && rm -rf /root/.cache/huggingface
 
-# Copy source code and ONNX models into the image
-COPY handler.py redraw_utils.py lama-manga.onnx detector.onnx ./
-COPY comic_text_detector/ ./comic_text_detector/
+# Copy source code into the image (excluding MangaOCR, TextDetector, and LaMa)
+COPY runpod-serverless/handler_redraw.py ./
+COPY runpod-serverless/redraw_utils.py ./
 
 # Entrypoint for RunPod Serverless worker
-CMD ["python", "-u", "handler.py"]
+CMD ["python", "-u", "handler_redraw.py"]

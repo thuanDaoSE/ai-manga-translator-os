@@ -173,7 +173,8 @@ export const mangaApi = {
 
     const data = await response.json();
     if (data.status !== "success") throw new Error(data.message || "Vẽ lại thất bại");
-    return `${data.new_url}?t=${Date.now()}`;
+    const cleanUrl = data.new_url.split('?')[0];
+    return `${cleanUrl}?t=${Date.now()}`;
   },
 
   quickScan: async (payload: any) => {

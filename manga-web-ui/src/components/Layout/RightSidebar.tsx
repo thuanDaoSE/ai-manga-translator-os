@@ -15,6 +15,7 @@ import { useProjectStore } from '../../store/useProjectStore'; // 🚀 Bổ sung
 import { mangaApi } from '../../services/api';
 import { useAuthStore } from '../../store/useAuthStore';
 import LensModal from '../Modals/LensModal';
+import { AdvancedTranslateModal } from '../Modals/AdvancedTranslateModal';
 
 // ==========================================
 // MICRO-COMPONENTS CHO DESIGN INSPECTOR
@@ -182,6 +183,40 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
 
   // 🚀 STATE MỚI: Quản lý chế độ sắp xếp
   const [sortMode, setSortMode] = useState<'reading_order' | 'length'>('reading_order');
+  
+  const [isAdvancedModalOpen, setIsAdvancedModalOpen] = useState(false);
+
+  const handleAdvancedRetry = async (localPrompt: string) => {
+    const pageId = useProjectStore.getState().pageIds[useProjectStore.getState().currentIndex];
+    if (!pageId) return toast.error("Không tìm thấy trang để dịch lại!");
+    
+    const loadId = toast.loading("Đang nhờ AI dịch lại nâng cao...");
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/retry-text-translation`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({ local_prompt: localPrompt })
+      });
+      if (!response.ok) throw new Error("Lỗi API dịch lại");
+      const result = await response.json();
+      
+      const updatedBubbles = result.bubbles.map((b: any) => ({
+        ...b,
+        text: b.vietnamese || b.text
+      }));
+      
+      const canvasStore = useCanvasStore.getState();
+      canvasStore.clearBubbles();
+      updatedBubbles.forEach((b: any) => canvasStore.addBubble(b));
+      
+      toast.success("Dịch lại nâng cao thành công!", { id: loadId });
+    } catch (err: any) {
+      toast.error(err.message || "Lỗi khi dịch lại nâng cao", { id: loadId });
+    }
+  };
 
   useEffect(() => {
     if (activeId) {
@@ -216,26 +251,28 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
   // ==========================================================
   const sortedBubbles = [...bubbles].sort((a, b) => {
     if (sortMode === 'length') {
-      // Sắp xếp theo độ dài (ngắn lên trước) để sếp dễ dọn rác OCR
       const lenA = (a.japanese || a.text || '').length;
       const lenB = (b.japanese || b.text || '').length;
       return lenA - lenB;
     } else {
-      // Sắp xếp theo thứ tự đọc Manga (Trên -> Dưới, Phải -> Trái)
       const yTolerance = 50; // Khung sai số 50px để xác định "cùng 1 dòng"
       const yDiff = a.y - b.y;
 
-      // Nếu 2 ô thoại chênh lệch Y quá 50px -> Khác dòng -> Ô nào ở trên (Y nhỏ hơn) lên trước
       if (Math.abs(yDiff) > yTolerance) {
         return yDiff;
       }
-      // Nếu 2 ô thoại nằm ngang nhau (cùng dòng) -> Ô bên PHẢI (X lớn hơn) lên trước
       return b.x - a.x;
     }
   });
 
   return (
     <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 duration-500 ease-out pb-20">
+      
+      <AdvancedTranslateModal
+        isOpen={isAdvancedModalOpen}
+        onClose={() => setIsAdvancedModalOpen(false)}
+        onConfirm={handleAdvancedRetry}
+      />
 
       {/* 🚀 HEADER STICKY (Giữ nguyên bối cảnh) */}
       <div className="p-4 bg-panel/90 backdrop-blur-md sticky top-0 z-30 border-b border-border shadow-sm flex flex-col gap-3">
@@ -244,11 +281,12 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
             <ListIcon size={14} className="text-text-muted" />
             <h2 className="text-[10px] font-bold text-text-muted tracking-[0.2em] uppercase">Kịch bản thoại</h2>
           </div>
+          
           <button
-            onClick={() => setConfigModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary hover:text-white rounded-lg transition-all duration-300 text-[10px] font-bold uppercase tracking-wider cursor-pointer"
+            onClick={() => setIsAdvancedModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-lg transition-all duration-300 text-[10px] font-bold uppercase tracking-wider cursor-pointer"
           >
-            <Settings2 size={12} /> Cấu hình AI
+            <Sparkles size={12} /> Dịch nâng cao
           </button>
         </div>
 

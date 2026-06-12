@@ -4,15 +4,10 @@ runpod
 opencv-python-headless
 accelerate
 scikit-image
-onnxruntime-gpu
-manga-ocr
-torchsummary
 
-# Supporting libraries required by handler.py
+# Supporting libraries required by handler_redraw.py
 Pillow
 requests
 numpy==1.26.4
-shapely
-pyclipper
 PyYAML
 loguru

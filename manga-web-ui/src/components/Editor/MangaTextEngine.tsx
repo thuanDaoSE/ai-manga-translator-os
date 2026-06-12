@@ -22,6 +22,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
   // 🚀 BẢN VÁ 1: Theo dõi xem thẻ thoại nào đang được chọn ở kho tổng
   const activeBubbleId = useCanvasStore((state) => state.activeBubbleId);
   const activeMode = useToolStore((state) => state.activeMode);
+  const showText = useToolStore((state) => state.showText);
 
   useEffect(() => {
     if (!containerRef.current || !wrapperRef.current) return;
@@ -356,14 +357,14 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
   useEffect(() => {
     const canvas = fabricCanvas.current;
     if (!canvas) return;
-    const isInteractive = activeMode === 'none';
+    const isInteractive = activeMode === 'none' && showText;
     canvas.getObjects().forEach((obj) => {
       obj.selectable = isInteractive;
       obj.evented = isInteractive;
     });
     if (!isInteractive) canvas.discardActiveObject();
     canvas.renderAll();
-  }, [activeMode]);
+  }, [activeMode, showText, bubbles]);
 
   // 🚀 BẢN VÁ 2: ĐỒNG BỘ NGƯỢC (TỪ SIDEBAR XUỐNG CANVAS)
   useEffect(() => {
@@ -391,7 +392,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
 
   return (
     <div ref={containerRef} className="absolute inset-0 z-40 pointer-events-none">
-      <div ref={wrapperRef} className={`w-full h-full ${activeMode === 'none' ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+      <div ref={wrapperRef} className={`w-full h-full ${(activeMode === 'none' && showText) ? 'pointer-events-auto' : 'pointer-events-none'}`}>
       </div>
     </div>
   );

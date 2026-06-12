@@ -663,9 +663,24 @@ async def runpod_translation_task(task_id: str, raw_path: str, clean_path: str, 
         # Cập nhật tiến trình cho Frontend biết
         broadcast_progress(task_id, 10, "Đang khởi động AI Serverless (Cold Start)...")
         
-        # 1. Đọc ảnh và hóa thành Base64
-        with open(raw_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode('utf-8')
+        # 1. Đọc ảnh và nén thành JPEG chất lượng 90 để giảm dung lượng dưới 10MiB
+        import cv2
+        img = cv2.imread(raw_path)
+        if img is None:
+            print(f"⚠️ [WARNING] OpenCV could not read raw image: {raw_path}. Falling back to raw file bytes.")
+            with open(raw_path, "rb") as f:
+                img_bytes = f.read()
+        else:
+            success, encoded_img = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+            if success:
+                img_bytes = encoded_img.tobytes()
+                print(f"⚡ [COMPRESSION] Compressed {raw_path} to JPEG. Original: {os.path.getsize(raw_path)} bytes, Compressed: {len(img_bytes)} bytes.")
+            else:
+                print(f"⚠️ [WARNING] JPEG compression failed for {raw_path}. Falling back to raw file bytes.")
+                with open(raw_path, "rb") as f:
+                    img_bytes = f.read()
+
+        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
 
         runpod_payload = {
             "input": {
@@ -926,6 +941,7 @@ class MaskPayload(BaseModel):
 @app.post("/api/erase-mask")
 async def erase_mask(
     payload: MaskPayload, 
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
@@ -934,11 +950,39 @@ async def erase_mask(
             # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
             await check_page_ownership(payload.page_id, user_id, db)
         
-        # Fetch raw image directly to RAM
-        image = await fetch_image_from_url(payload.image_url, cv2.IMREAD_COLOR)
+        # Fetch raw image directly to RAM (local disk read if local, otherwise HTTP fetch)
+        img_raw = payload.image_url
+        base_url = get_base_url()
+        is_local_img = False
+        img_path_local = ""
+        
+        if not img_raw.startswith("http"):
+            is_local_img = True
+            img_path_local = img_raw
+        elif "localhost:8000" in img_raw or "127.0.0.1:8000" in img_raw:
+            is_local_img = True
+            img_path_local = img_raw.split("8000/")[-1]
+        elif base_url in img_raw:
+            is_local_img = True
+            img_path_local = img_raw.split(base_url)[-1]
+        elif "/workspace/" in img_raw:
+            is_local_img = True
+            img_path_local = "workspace/" + img_raw.split("/workspace/")[-1]
+
+        if is_local_img:
+            img_path_local = img_path_local.split('?')[0]
+            if img_path_local.startswith("/"):
+                img_path_local = img_path_local[1:]
+            print(f"[erase_mask] Loading image locally from: {img_path_local}")
+            image = cv2.imread(img_path_local, cv2.IMREAD_COLOR)
+        else:
+            print(f"[erase_mask] Fetching image from remote URL: {img_raw}")
+            image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
+
+        if image is None:
+            raise HTTPException(status_code=400, detail="Không thể đọc ảnh gốc. File không tồn tại hoặc định dạng không hợp lệ.")
         
         # Determine clean path on local disk (VPS)
-        img_raw = payload.image_url
         img_path = get_local_path_from_url(img_raw)
         clean_path = img_path.replace("/raw/", "/clean/") if "/raw/" in img_path else f"workspace/clean_{uuid.uuid4().hex}.png"
 
@@ -951,9 +995,37 @@ async def erase_mask(
             nparr = np.frombuffer(mask_bytes, np.uint8)
             mask_rgba = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
         elif payload.mask_url:
-            mask_rgba = await fetch_image_from_url(payload.mask_url, cv2.IMREAD_UNCHANGED)
+            mask_raw = payload.mask_url
+            mask_is_local = False
+            mask_path_local = ""
+            
+            if not mask_raw.startswith("http"):
+                mask_is_local = True
+                mask_path_local = mask_raw
+            elif "localhost:8000" in mask_raw or "127.0.0.1:8000" in mask_raw:
+                mask_is_local = True
+                mask_path_local = mask_raw.split("8000/")[-1]
+            elif base_url in mask_raw:
+                mask_is_local = True
+                mask_path_local = mask_raw.split(base_url)[-1]
+            elif "/workspace/" in mask_raw:
+                mask_is_local = True
+                mask_path_local = "workspace/" + mask_raw.split("/workspace/")[-1]
+
+            if mask_is_local:
+                mask_path_local = mask_path_local.split('?')[0]
+                if mask_path_local.startswith("/"):
+                    mask_path_local = mask_path_local[1:]
+                print(f"[erase_mask] Loading mask locally from: {mask_path_local}")
+                mask_rgba = cv2.imread(mask_path_local, cv2.IMREAD_UNCHANGED)
+            else:
+                print(f"[erase_mask] Fetching mask from remote URL: {mask_raw}")
+                mask_rgba = await fetch_image_from_url(mask_raw, cv2.IMREAD_UNCHANGED)
         else:
             raise HTTPException(status_code=400, detail="Vui lòng cung cấp mask_base64 hoặc mask_url")
+
+        if mask_rgba is None:
+            raise HTTPException(status_code=400, detail="Không thể đọc ảnh mặt nạ (mask).")
 
         mask = mask_rgba[:, :, 3] if len(mask_rgba.shape) == 3 and mask_rgba.shape[2] == 4 else cv2.cvtColor(mask_rgba, cv2.COLOR_BGR2GRAY) if len(mask_rgba.shape) == 3 else mask_rgba
 
@@ -974,16 +1046,52 @@ async def erase_mask(
             runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/runsync"
             headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
             
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 res = await client.post(runpod_url, json={
                     "input": {
                         "action": "erase", 
                         "image_base64": base64.b64encode(buf_img).decode('utf-8'),
                         "mask_base64": base64.b64encode(buf_mask).decode('utf-8')
                     }
-                }, headers=headers, timeout=20.0)
+                }, headers=headers)
+                
+                if res.status_code != 200:
+                    raise Exception(f"RunPod runsync failed with status {res.status_code}: {res.text}")
+                
+                res_data = res.json()
+                job_status = res_data.get("status")
+                job_id = res_data.get("id")
+                
+                # Nếu chưa COMPLETED (ví dụ: đang cold start), chuyển sang chế độ polling
+                if job_status != "COMPLETED":
+                    if not job_id:
+                        raise Exception(f"RunPod runsync failed without job ID: {res_data}")
+                    print(f"[erase_mask] Worker is booting or busy (status: {job_status}). Polling job {job_id}...")
+                    
+                    import time
+                    start_time = time.time()
+                    success = False
+                    while time.time() - start_time < 300: # Timeout 5 phút
+                        status_res = await client.get(
+                            f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{job_id}",
+                            headers=headers
+                        )
+                        status_data = status_res.json()
+                        status = status_data.get("status")
+
+                        if status == "COMPLETED":
+                            res_data = status_data
+                            success = True
+                            break
+                        elif status in ["FAILED", "CANCELLED"]:
+                            raise Exception(f"RunPod Serverless báo lỗi trong lúc xóa: {status_data.get('error', 'Lỗi không xác định')}")
+                        
+                        await asyncio.sleep(3)
+                    
+                    if not success:
+                        raise Exception("Thời gian chờ xử lý xóa ảnh trên RunPod Serverless đã quá hạn (Timeout 5 phút)")
             
-            clean_crop_b64 = res.json().get('output', {}).get('clean_crop_base64')
+            clean_crop_b64 = res_data.get('output', {}).get('clean_crop_base64')
             if clean_crop_b64:
                 clean_crop = cv2.imdecode(np.frombuffer(base64.b64decode(clean_crop_b64), np.uint8), cv2.IMREAD_COLOR)
                 mask_bool = crop_mask > 0
@@ -1000,10 +1108,12 @@ async def erase_mask(
                 page.status = "cleaned" 
                 await db.commit()
 
-        new_url = f"{get_base_url()}/{clean_path}" 
+        new_url = f"{str(request.base_url).rstrip('/')}/{clean_path}" 
         return {"status": "success", "new_url": new_url}
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))    
 # ==========================================
 # API UPLOAD NGẦM CHO TÍNH NĂNG CŨ
@@ -1074,6 +1184,7 @@ class TranslateConfig(BaseModel):
 @app.post("/api/redraw")
 async def redraw_image(
     req: RedrawRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
@@ -1115,6 +1226,12 @@ async def redraw_image(
         public_image_url = req.image_url
         if not public_image_url.startswith("http"):
             public_image_url = f"{get_base_url()}/{img_path}"
+        else:
+            # Nếu chứa localhost hoặc 127.0.0.1, chuyển đổi thành base_url công khai để RunPod có thể tải
+            for local_host in ["localhost:8000", "127.0.0.1:8000"]:
+                if local_host in public_image_url:
+                    public_image_url = public_image_url.replace(f"http://{local_host}", get_base_url())
+                    public_image_url = public_image_url.replace(f"https://{local_host}", get_base_url())
 
         public_mask_url = f"{get_base_url()}/{mask_temp_path}"
 
@@ -1179,7 +1296,7 @@ async def redraw_image(
         if os.path.exists(mask_temp_path):
             os.remove(mask_temp_path)
 
-        new_url = f"{get_base_url()}/{clean_path}?t={int(time.time())}"
+        new_url = f"{str(request.base_url).rstrip('/')}/{clean_path}?t={int(time.time())}"
         return {"status": "success", "new_url": new_url}
 
     except Exception as e:
@@ -1631,12 +1748,32 @@ async def translate_page(
     # 1. Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
     page = await check_page_ownership(page_id, user_id, db)
 
-    # 2. Lấy URL ảnh gốc từ CSDL (tự động biến thành URL tuyệt đối nếu là đường dẫn tương đối)
-    img_url = page.raw_url
-    if not img_url:
+    # 2. Lấy đường dẫn ảnh gốc cục bộ trên VPS và mã hóa sang Base64
+    if not page.raw_url:
         raise HTTPException(status_code=400, detail="Không tìm thấy URL ảnh gốc")
-    if img_url.startswith("/"):
-        img_url = f"{get_base_url()}{img_url}"
+    
+    raw_path = page.raw_url.lstrip('/')
+    if not os.path.exists(raw_path):
+        raise HTTPException(status_code=404, detail="Không tìm thấy file ảnh gốc trên VPS")
+
+    # Đọc ảnh và nén thành JPEG chất lượng 90 để giảm dung lượng dưới 10MiB
+    import cv2
+    img = cv2.imread(raw_path)
+    if img is None:
+        print(f"⚠️ [WARNING] OpenCV could not read raw image: {raw_path}. Falling back to raw file bytes.")
+        with open(raw_path, "rb") as f:
+            img_bytes = f.read()
+    else:
+        success, encoded_img = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        if success:
+            img_bytes = encoded_img.tobytes()
+            print(f"⚡ [COMPRESSION] Compressed {raw_path} to JPEG. Original: {os.path.getsize(raw_path)} bytes, Compressed: {len(img_bytes)} bytes.")
+        else:
+            print(f"⚠️ [WARNING] JPEG compression failed for {raw_path}. Falling back to raw file bytes.")
+            with open(raw_path, "rb") as f:
+                img_bytes = f.read()
+
+    img_b64 = base64.b64encode(img_bytes).decode('utf-8')
 
     config = await request.json()
 
@@ -1648,7 +1785,7 @@ async def translate_page(
     }
     payload = {
         "input": {
-            "image_url": img_url,
+            "image_base64": img_b64,
             "genre": config.get("genre", ""),
             "tone": config.get("tone", ""),
             "pronouns": config.get("pronouns", ""),
@@ -1659,7 +1796,29 @@ async def translate_page(
     async with httpx.AsyncClient() as client:
         # Bắn lệnh đi (timeout 60s phòng đứt cáp)
         response = await client.post(runpod_url, json=payload, headers=headers, timeout=60.0)
-        data = response.json()
+        
+        if response.status_code != 200:
+            print(f"🛑 [RUNPOD ERROR] Status: {response.status_code} | Response: {response.text}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"RunPod Serverless trả về lỗi (Status {response.status_code}): {response.text}"
+            )
+            
+        try:
+            data = response.json()
+        except Exception as je:
+            print(f"🛑 [RUNPOD ERROR] JSON Decode Failed: {response.text}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"RunPod không trả về JSON hợp lệ: {response.text}"
+            )
+
+    if not isinstance(data, dict) or "id" not in data:
+        print(f"🛑 [RUNPOD ERROR] Response missing 'id': {data}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"RunPod Serverless không trả về Job ID: {data}"
+        )
 
     # Trả về Job ID của Runpod cho Frontend
     return {"task_id": data["id"]}
@@ -1688,7 +1847,7 @@ async def get_task_result(task_id: str):
         if isinstance(output, dict) and output.get("status") == "error":
             return {"status": "FAILURE", "message": str(output)}
             
-        clean_url = output.get("clean_image_url") or output.get("clean_url") or ""
+        clean_b64 = output.get("clean_image_base64")
         extracted_data = output.get("data", [])
         context = output.get("context", {}) # Lấy lại ngữ cảnh Runpod dội về
         
@@ -1719,7 +1878,15 @@ async def get_task_result(task_id: str):
                 for item in extracted_data:
                     item["vietnamese"] = "Lỗi dịch thuật (VPS)"
         
-        # S3 Migration: The clean image is already hosted on S3 (clean_url)
+        # LƯU ẢNH SẠCH LÊN Ổ CỨNG VPS
+        clean_url = ""
+        if clean_b64:
+            clean_img_data = base64.b64decode(clean_b64)
+            os.makedirs("workspace", exist_ok=True)
+            file_path = f"workspace/clean_{task_id}.jpg"
+            with open(file_path, "wb") as f:
+                f.write(clean_img_data)
+            clean_url = f"/{file_path}"
             
         # Trả cục dữ liệu ĐÃ ĐƯỢC DỊCH HOÀN CHỈNH về cho React vẽ
         return {
@@ -1806,10 +1973,14 @@ async def import_manga_file(
         raise HTTPException(status_code=500, detail=f"Không thể đọc file .manga này: {str(e)}")
     
 
+class RetryTranslationRequest(BaseModel):
+    local_prompt: Optional[str] = None
+
 # 🚀 API BỔ SUNG: CHỈ DỊCH LẠI CHỮ (BẢN VÁ LỖI CHỐNG ĐẠN)
 @app.post("/api/pages/{page_id}/retry-text-translation")
 async def retry_text_translation(
     page_id: str, 
+    payload: Optional[RetryTranslationRequest] = None,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
@@ -1834,6 +2005,8 @@ async def retry_text_translation(
 
         # 2. GOM LÊN DEEPSEEK TRÊN VPS VỚI PROMPT MẠNH HƠN
         prompt = f"Bạn là biên dịch viên Manga chuyên nghiệp. Dịch mảng JSON sau sang tiếng Việt. BẮT BUỘC TRẢ VỀ ĐÚNG FORMAT {{\\\"translations\\\": [<kết quả>]}}: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+        if payload and payload.local_prompt:
+            prompt += f"\n\nChỉ thị bổ sung từ người dùng (Hãy làm theo chỉ thị này một cách nghiêm ngặt): {payload.local_prompt}"
         
         response = deepseek_client.chat.completions.create(
             model="deepseek-chat",
