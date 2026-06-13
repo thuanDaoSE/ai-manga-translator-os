@@ -308,7 +308,7 @@ export default function Sidebar() {
     if (task) {
       task.eventSource.close();
       try {
-        await fetch(`${API_URL}/tasks/${task.taskId}/cancel`, { method: "POST" });
+        await mangaApi.cancelTask(task.taskId);
         toast.success(`Đã hủy dịch trang ${fileQueue[pageIndex]?.name}`);
       } catch (err) {
         console.error("Lỗi hủy task:", err);
@@ -476,11 +476,52 @@ export default function Sidebar() {
       try {
         const result = await mangaApi.retryTextTranslation(pageId);
 
-        // 🚀 FIX 1: Map lại dữ liệu để đảm bảo chữ Việt được dán đúng vào trường 'text' của Fabric.js
-        const updatedBubbles = result.bubbles.map((b: any) => ({
-          ...b,
-          text: b.vietnamese || b.text
-        }));
+        // 🚀 FIX 1: Map lại dữ liệu để đảm bảo chữ Việt được dán đúng vào trường 'text' của Fabric.js và chuẩn hóa layout
+        const updatedBubbles = result.bubbles.map((b: any) => {
+          let x = b.x;
+          let y = b.y;
+          let w = b.w;
+          let h = b.h;
+          
+          if ((x === undefined || y === undefined || w === undefined || h === undefined) && b.box_coordinates) {
+            x = b.box_coordinates.x1;
+            y = b.box_coordinates.y1;
+            w = b.box_coordinates.x2 - b.box_coordinates.x1;
+            h = b.box_coordinates.y2 - b.box_coordinates.y1;
+          } else if ((x === undefined || y === undefined || w === undefined || h === undefined) && b.rawBox) {
+            x = b.rawBox.x1;
+            y = b.rawBox.y1;
+            w = b.rawBox.x2 - b.rawBox.x1;
+            h = b.rawBox.y2 - b.rawBox.y1;
+          }
+
+          x = x !== undefined ? x : 0;
+          y = y !== undefined ? y : 0;
+          w = w !== undefined ? w : 100;
+          h = h !== undefined ? h : 50;
+
+          const toolState = useToolStore.getState();
+
+          return {
+            ...b,
+            x,
+            y,
+            w,
+            h,
+            text: b.text !== undefined && b.text !== "" ? b.text : (b.vietnamese || ""),
+            japanese: b.japanese || "",
+            vietnamese: b.vietnamese || b.text || "",
+            fontSize: b.fontSize || toolState.fontSize || 40,
+            fontColor: b.fontColor || toolState.fontColor || "#000000",
+            fontFamily: b.fontFamily || toolState.fontFamily || "'Comic Neue', cursive",
+            rotation: b.rotation !== undefined ? b.rotation : 0,
+            sfxClass: b.sfxClass || "",
+            boxX: b.boxX !== undefined ? b.boxX : x,
+            boxY: b.boxY !== undefined ? b.boxY : y,
+            boxW: b.boxW !== undefined ? b.boxW : w,
+            boxH: b.boxH !== undefined ? b.boxH : h,
+          };
+        });
 
         const realTimeIndex = useProjectStore.getState().currentIndex;
 

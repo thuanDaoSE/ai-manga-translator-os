@@ -1,11 +1,10 @@
 import React from 'react';
 import { useToolStore } from '../../store/useToolStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
-import { ScreentoneSelector } from './ScreentoneSelector';
-// 🚀 Thêm icon ScanLine và Grid vào đây
-import { MousePointer2, Eraser, Paintbrush, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff, Sparkles, Grid } from 'lucide-react';
+// 🚀 Thêm icon ScanLine vào đây
+import { MousePointer2, Eraser, Paintbrush, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff, Sparkles } from 'lucide-react';
 export const FloatingCanvasToolbar: React.FC = () => {
-  // 🚀 Lấy thêm showAiGuides, toggleAiGuides và các biến Screentone từ store
+  // 🚀 Lấy thêm showAiGuides, toggleAiGuides từ store
   const { 
     activeMode, 
     setActiveMode, 
@@ -16,14 +15,10 @@ export const FloatingCanvasToolbar: React.FC = () => {
     showAiGuides, 
     toggleAiGuides, 
     showText, 
-    setShowText,
-    screentoneType,
-    setScreentoneType,
-    screentoneColor,
-    setScreentoneColor
+    setShowText
   } = useToolStore();
   
-  const isBrushMode = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw' || activeMode === 'screentone';
+  const isBrushMode = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw';
 
 
   const handleUndo = () => useCanvasStore.getState().undo();
@@ -71,36 +66,10 @@ export const FloatingCanvasToolbar: React.FC = () => {
   return (
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3 z-[100] pointer-events-none">
       
-      {/* TẦNG 1: THANH SIZE CỌ VÀ CHẾ ĐỘ PHỤC HỒI / CHỌN SCREENTONE */}
-      <div className={`transition-all duration-300 transform pointer-events-auto flex flex-col gap-2.5 px-4 py-3 bg-panel/95 backdrop-blur-xl border border-border shadow-lg
-          ${activeMode === 'screentone' ? 'rounded-2xl' : 'rounded-full'}
+      {/* TẦNG 1: THANH SIZE CỌ VÀ CHẾ ĐỘ PHỤC HỒI */}
+      <div className={`transition-all duration-300 transform pointer-events-auto flex flex-col gap-2.5 px-4 py-3 bg-panel/95 backdrop-blur-xl border border-border shadow-lg rounded-full
           ${isBrushMode ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
         
-        {activeMode === 'screentone' && (
-          <div className="border-b border-border/40 pb-2.5 w-full flex items-end justify-between gap-4">
-            <ScreentoneSelector 
-              activePattern={screentoneType} 
-              onChange={setScreentoneType} 
-              color={screentoneColor}
-            />
-            <div className="flex flex-col gap-1 items-center">
-              <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest block">Màu sắc</span>
-              <div className="relative w-8 h-8 rounded-lg border border-border overflow-hidden cursor-pointer bg-background hover:scale-105 transition-transform duration-200 shadow-inner">
-                <input 
-                  type="color" 
-                  value={screentoneColor} 
-                  onChange={(e) => setScreentoneColor(e.target.value)}
-                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
-                />
-                <div 
-                  className="w-full h-full rounded transition-all duration-200" 
-                  style={{ backgroundColor: screentoneColor }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="flex items-center gap-3">
           {activeMode === 'restore' && (
             <div className="flex items-center gap-1 bg-background/50 p-1 rounded-lg border border-border mr-1 shadow-inner">
@@ -125,7 +94,7 @@ export const FloatingCanvasToolbar: React.FC = () => {
 
           <div className="w-1.5 h-1.5 bg-text-muted rounded-full"></div>
           <input 
-            type="range" min="5" max="150" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))}
+            type="range" min="1" max="150" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))}
             className="w-32 h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-primary border border-border"
           />
           <div className="w-3 h-3 bg-text-muted rounded-full"></div>
@@ -167,7 +136,6 @@ export const FloatingCanvasToolbar: React.FC = () => {
           <ToolButton mode="erase" icon={Eraser} label="Tẩy nền (E)" shortLabel="Tẩy nền (E)" />
           <ToolButton mode="redraw" icon={Sparkles} label="Vẽ lại AI (R)" shortLabel="Vẽ lại AI (R)" />
           <ToolButton mode="restore" icon={Paintbrush} label="Phục hồi (B)" shortLabel="Phục hồi (B)" />
-          <ToolButton mode="screentone" icon={Grid} label="Họa tiết Manga (H)" shortLabel="Họa tiết Manga (H)" />
           <ToolButton mode="scan" icon={ScanSearch} label="Dịch Lens (S)" shortLabel="Dịch Lens (S)" />
 
           <div className="w-px h-6 bg-border mx-1"></div>

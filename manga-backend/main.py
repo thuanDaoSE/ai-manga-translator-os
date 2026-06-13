@@ -150,6 +150,31 @@ def robust_json_parse(llm_response: str) -> dict:
         # Fallback: Tự dọn dẹp chuỗi thủ công
         extracted_str = llm_response.strip(" \n\r\t`").replace("```json", "").replace("```", "")
 
+    # Try raw decoding to handle extra data at the end (ignores trailing trash)
+    try:
+        cleaned_str = extracted_str.strip()
+        first_brace = cleaned_str.find('{')
+        first_bracket = cleaned_str.find('[')
+        start_idx = -1
+        if first_brace != -1 and first_bracket != -1:
+            start_idx = min(first_brace, first_bracket)
+        elif first_brace != -1:
+            start_idx = first_brace
+        elif first_bracket != -1:
+            start_idx = first_bracket
+            
+        if start_idx != -1:
+            cleaned_str = cleaned_str[start_idx:]
+            
+        decoder = json.JSONDecoder()
+        obj, _ = decoder.raw_decode(cleaned_str)
+        if isinstance(obj, dict):
+            return obj
+        elif isinstance(obj, list):
+            return {"translations": obj}
+    except Exception:
+        pass
+
     try:
         return json.loads(extracted_str)
     except json.JSONDecodeError:
@@ -162,6 +187,45 @@ def robust_json_parse(llm_response: str) -> dict:
         logger.error(f"❌ CRITICAL JSON PARSE FAILURE: {e}")
         logger.error(f"Original LLM Response: {llm_response}")
         return {} # Hạ cánh an toàn, không sập Server
+
+def extract_translations(ai_response: any) -> dict:
+    """
+    Extract translations mapping (str(id) -> vietnamese_text) from any JSON shape DeepSeek returns.
+    """
+    translations = {}
+    if not ai_response:
+        return translations
+        
+    # Standardize to raw translations container
+    raw_trans = ai_response
+    if isinstance(ai_response, dict):
+        if "translations" in ai_response:
+            raw_trans = ai_response["translations"]
+        elif "data" in ai_response:
+            raw_trans = ai_response["data"]
+            
+    if isinstance(raw_trans, list):
+        for item in raw_trans:
+            if isinstance(item, dict):
+                t_id = item.get("id") or item.get("box_id")
+                t_val = item.get("vietnamese") or item.get("translation") or item.get("text")
+                if t_id is not None and t_val is not None:
+                    translations[str(t_id)] = str(t_val)
+            elif isinstance(item, list) and len(item) >= 2:
+                t_id = item[0]
+                t_val = item[1]
+                if t_id is not None and t_val is not None:
+                    translations[str(t_id)] = str(t_val)
+    elif isinstance(raw_trans, dict):
+        for k, v in raw_trans.items():
+            if isinstance(v, dict):
+                t_val = v.get("vietnamese") or v.get("translation") or v.get("text")
+                if t_val is not None:
+                    translations[str(k)] = str(t_val)
+            else:
+                translations[str(k)] = str(v)
+                
+    return translations
 # ==========================================
 
 
@@ -648,9 +712,11 @@ RUNPOD_ENDPOINT_ID = RUNPOD_TRANSLATE_ENDPOINT_ID
 
 # 🚀 THÊM DÒNG NÀY VÀO ĐẦU FILE (Dưới các dòng import)
 import redis
+import redis.asyncio as aioredis
 redis_host = os.getenv("REDIS_HOST", "localhost")
 redis_port = int(os.getenv("REDIS_PORT", 6379))
 redis_client = redis.Redis(host=redis_host, port=redis_port, db=0, decode_responses=True)
+async_redis_client = aioredis.Redis(host=redis_host, port=redis_port, db=0, decode_responses=True)
 
 def broadcast_progress(task_id, progress, message, state="PROCESSING"):
     """Hàm bắn SSE Realtime cho Frontend"""
@@ -753,46 +819,52 @@ async def runpod_translation_task(task_id: str, raw_path: str, clean_path: str, 
 @app.get("/api/stream/{task_id}")
 async def stream_progress(task_id: str):
     async def event_generator():
-        runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{task_id}"
-        headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
+        from worker import celery_app
+        from celery.result import AsyncResult
         
-        async with httpx.AsyncClient() as client:
+        # 1. Kiểm tra nhanh xem kết quả có trong cache giả lập hay Celery đã xong trước khi sub
+        cached_meta = await async_redis_client.get(f"celery-task-meta-{task_id}")
+        if cached_meta:
+            yield f"data: {json.dumps({'state': 'SUCCESS', 'progress': 100, 'message': 'Hoàn tất!'})}\n\n"
+            return
+            
+        res = AsyncResult(task_id, app=celery_app)
+        if res.ready():
+            if res.successful():
+                yield f"data: {json.dumps({'state': 'SUCCESS', 'progress': 100, 'message': 'Hoàn tất!'})}\n\n"
+            else:
+                yield f"data: {json.dumps({'state': 'FAILURE', 'progress': 0, 'message': str(res.result)})}\n\n"
+            return
+
+        # 2. Đăng ký kênh Pub/Sub lắng nghe tiến độ từ Celery Worker
+        pubsub = async_redis_client.pubsub()
+        await pubsub.subscribe(f"task_progress:{task_id}")
+        
+        try:
             while True:
-                try:
-                    res = await client.get(runpod_url, headers=headers, timeout=10.0)
-                    data = res.json()
-                    status = data.get("status")
-                    
-                    if status == "COMPLETED":
-                        output = data.get("output", {})
-                        
-                        # 🚨 CÒI BÁO ĐỘNG SẼ KÊU Ở ĐÂY NẾU AI CRASH
-                        if isinstance(output, dict) and output.get("status") == "error":
-                            print(f"\n❌❌❌ AI TRÊN MÂY BỊ CRASH! LỖI LÀ:\n{output}\n❌❌❌\n")
-                            yield f"data: {json.dumps({'state': 'FAILURE', 'progress': 0, 'message': 'AI lỗi: ' + str(output.get('message', ''))})}\n\n"
+                # Nhận tin nhắn không blocking
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if message:
+                    msg_data = json.loads(message['data'])
+                    yield f"data: {json.dumps(msg_data)}\n\n"
+                    if msg_data.get("state") in ["SUCCESS", "FAILURE"]:
+                        break
+                else:
+                    # Fallback check đề phòng mất kết nối Pub/Sub
+                    fallback_res = AsyncResult(task_id, app=celery_app)
+                    if fallback_res.ready():
+                        if fallback_res.successful():
+                            yield f"data: {json.dumps({'state': 'SUCCESS', 'progress': 100, 'message': 'Hoàn tất!'})}\n\n"
                         else:
-                            print("\n✅✅✅ AI DỊCH XONG! TRẢ KẾT QUẢ VỀ FRONTEND...\n")
-                            yield f"data: {json.dumps({'state': 'SUCCESS', 'progress': 100, 'message': 'Runpod hoàn tất!'})}\n\n"
-                        
-                        await asyncio.sleep(2.0) # Tăng lên 2s cho Frontend kịp đóng kết nối
+                            yield f"data: {json.dumps({'state': 'FAILURE', 'progress': 0, 'message': str(fallback_res.result)})}\n\n"
                         break
-                        
-                    elif status in ["FAILED", "CANCELLED"]:
-                        print(f"\n❌❌❌ RUNPOD SẬP NGUỒN: {data}\n❌❌❌\n")
-                        yield f"data: {json.dumps({'state': 'FAILURE', 'progress': 0, 'message': 'AI trên mây báo lỗi!'})}\n\n"
-                        await asyncio.sleep(2.0)
-                        break
-                        
-                    elif status == "IN_PROGRESS":
-                        yield f"data: {json.dumps({'state': 'PROCESSING', 'progress': 60, 'message': 'Runpod đang dịch...'})}\n\n"
-                    elif status == "IN_QUEUE":
-                        yield f"data: {json.dumps({'state': 'PROCESSING', 'progress': 10, 'message': 'Đang chờ máy trống...'})}\n\n"
-                        
-                except Exception as e:
-                    yield f"data: {json.dumps({'state': 'PROCESSING', 'progress': 50, 'message': 'Đang đồng bộ mạng...'})}\n\n"
-                    
-                await asyncio.sleep(2)
-                
+                await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            print(f"🔌 [SSE] Client đóng kết nối SSE cho task: {task_id}")
+        finally:
+            await pubsub.unsubscribe(f"task_progress:{task_id}")
+            await pubsub.close()
+            
     return StreamingResponse(
         event_generator(), 
         media_type="text/event-stream",
@@ -1615,17 +1687,28 @@ async def delete_page_from_server(
         
         project_id = page.project_id
 
-        # 2. XÓA FILE RAW VẬT LÝ
+        # 2. XÓA CACHE REDIS & FILE RAW VẬT LÝ
         if page.raw_url:
             raw_filename = page.raw_url.split("/")[-1].split("?")[0] # Bỏ query string timestamp nếu có
             raw_path = f"workspace/{project_id}/raw/{raw_filename}"
             if os.path.exists(raw_path):
+                # 🚀 XÓA CACHE TRONG REDIS ĐỂ TRÁNH TRÙNG LẶP KHI UPLOAD LẠI ẢNH CŨ
+                try:
+                    img_hash = get_image_ahash(raw_path)
+                    if img_hash:
+                        cache_key = f"ocr_translate_cache:{img_hash}"
+                        await async_redis_client.delete(cache_key)
+                        print(f"🔥 [DELETE] Đã xóa cache Redis cho ảnh: {img_hash}")
+                except Exception as ce:
+                    print(f"⚠️ [DELETE] Lỗi xóa cache Redis: {ce}")
+                    
                 os.remove(raw_path)
 
         # 3. XÓA FILE CLEAN VẬT LÝ (Nếu có)
         if hasattr(page, 'clean_url') and page.clean_url:
             clean_filename = page.clean_url.split("/")[-1].split("?")[0]
-            clean_path = f"workspace/{project_id}/clean/{clean_filename}"
+            # 🚀 SỬA ĐƯỜNG DẪN XÓA ẢNH CLEAN CHO ĐÚNG THƯ MỤC THỰC TẾ
+            clean_path = f"workspace/{clean_filename}"
             if os.path.exists(clean_path):
                 os.remove(clean_path)
 
@@ -1810,16 +1893,100 @@ async def import_manga(
 # ==========================================
 # 🛑 API HỦY TIẾN TRÌNH DỊCH (SERVERLESS HACK)
 # ==========================================
-@app.post("/api/tasks/{task_id}/cancel")
-async def cancel_task(task_id: str):
+class CancelPayload(BaseModel):
+    task_id: str
+
+@app.post("/api/pages/{page_id}/cancel")
+async def cancel_page_translation(
+    page_id: str,
+    payload: CancelPayload,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
     try:
-        # Với Serverless, ta không chọc vào tắt Runpod giữa chừng được.
-        # Nhưng ta sẽ đánh dấu LỖI vào Redis để Frontend dừng xoay vòng vòng!
-        error_payload = {"status": "FAILURE", "result": "Đã hủy bởi người dùng"}
-        redis_client.set(f"celery-task-meta-{task_id}", json.dumps(error_payload), ex=3600)
-        broadcast_progress(task_id, 0, "Tiến trình đã bị hủy!", state="FAILURE")
+        # 1. Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+        page = await check_page_ownership(page_id, user_id, db)
         
-        return {"status": "success", "message": "Đã hủy tiến trình thành công!"}
+        task_id = payload.task_id
+        from worker import celery_app
+        from celery.result import AsyncResult
+        
+        res = AsyncResult(task_id, app=celery_app)
+        task_state = res.state
+        
+        # Kiểm tra trạng thái hàng đợi để hoàn trả tín dụng (credits)
+        should_refund = task_state in ["PENDING", "RECEIVED", "IN_QUEUE"]
+        
+        # Đăng ký cờ hủy vào Redis cho Worker phát hiện
+        await async_redis_client.set(f"cancelled_task:{task_id}", "true", ex=3600)
+        
+        # Đặt trạng thái thất bại giả lập để ngắt quãng polling client
+        error_payload = {"status": "FAILURE", "result": "Đã hủy bởi người dùng"}
+        await async_redis_client.set(f"celery-task-meta-{task_id}", json.dumps(error_payload), ex=3600)
+        
+        # Gửi tín hiệu thu hồi (revoke) của Celery để tắt Worker
+        celery_app.control.revoke(task_id, terminate=True)
+        
+        page.status = "failed"
+        
+        refunded = False
+        if should_refund:
+            stmt = select(User).where(User.id == user_id)
+            user = (await db.execute(stmt)).scalar_one_or_none()
+            if user and not user.is_pro:
+                user.credits += 1
+                refunded = True
+                print(f"💰 [REFUND] Đã hoàn trả 1 credit cho user {user_id} do hủy task {task_id} thành công!")
+                
+        await db.commit()
+        
+        # Gửi thông báo thất bại qua Pub/Sub
+        await async_redis_client.publish(
+            f"task_progress:{task_id}", 
+            json.dumps({"state": "FAILURE", "progress": 0, "message": "Tiến trình đã bị hủy bởi người dùng!"})
+        )
+        
+        return {
+            "status": "success", 
+            "message": "Đã hủy dịch trang thành công và hoàn lại credit!" if refunded else "Đã hủy dịch trang thành công!",
+            "refunded": refunded
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ [CANCEL ERROR] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/tasks/{task_id}/cancel")
+async def cancel_task(
+    task_id: str,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    try:
+        # Điều tuyến thông minh: Lấy page_id từ Redis để gọi API chuẩn hóa
+        page_id = await async_redis_client.get(f"task_page_id:{task_id}")
+        if not page_id:
+            # Fallback nếu không tìm thấy page_id
+            from worker import celery_app
+            celery_app.control.revoke(task_id, terminate=True)
+            await async_redis_client.set(f"cancelled_task:{task_id}", "true", ex=3600)
+            
+            error_payload = {"status": "FAILURE", "result": "Đã hủy bởi người dùng"}
+            await async_redis_client.set(f"celery-task-meta-{task_id}", json.dumps(error_payload), ex=3600)
+            
+            await async_redis_client.publish(
+                f"task_progress:{task_id}", 
+                json.dumps({"state": "FAILURE", "progress": 0, "message": "Tiến trình đã bị hủy!"})
+            )
+            return {"status": "success", "message": "Đã hủy tiến trình (không hoàn tiền)!"}
+            
+        return await cancel_page_translation(
+            page_id=page_id, 
+            payload=CancelPayload(task_id=task_id), 
+            db=db, 
+            user_id=user_id
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
@@ -1839,7 +2006,7 @@ async def translate_page(
     # 1. Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
     page = await check_page_ownership(page_id, user_id, db)
 
-    # 2. Lấy đường dẫn ảnh gốc cục bộ trên VPS và mã hóa sang Base64
+    # 2. Lấy đường dẫn ảnh gốc cục bộ trên VPS
     if not page.raw_url:
         raise HTTPException(status_code=400, detail="Không tìm thấy URL ảnh gốc")
     
@@ -1852,7 +2019,7 @@ async def translate_page(
     if img_hash:
         try:
             cache_key = f"ocr_translate_cache:{img_hash}"
-            cached_data = redis_client.get(cache_key)
+            cached_data = await async_redis_client.get(cache_key)
             if cached_data:
                 print(f"🚀 [CACHE HIT] Lấy dữ liệu dịch của hình ảnh cũ từ Redis Cache! Hash: {img_hash}")
                 cached_result_dict = json.loads(cached_data)
@@ -1863,77 +2030,27 @@ async def translate_page(
                     "status": "SUCCESS",
                     "result": cached_result_dict
                 }
-                redis_client.set(f"celery-task-meta-{task_id}", json.dumps(result_payload), ex=3600)
+                await async_redis_client.set(f"celery-task-meta-{task_id}", json.dumps(result_payload), ex=3600)
                 return {"task_id": task_id}
         except Exception as e:
             print(f"⚠️ [CACHE ERROR] Lỗi kiểm tra cache Redis: {e}")
 
-    # Đọc ảnh và nén thành JPEG chất lượng 90 để giảm dung lượng dưới 10MiB
-    import cv2
-    img = cv2.imread(raw_path)
-    if img is None:
-        print(f"⚠️ [WARNING] OpenCV could not read raw image: {raw_path}. Falling back to raw file bytes.")
-        with open(raw_path, "rb") as f:
-            img_bytes = f.read()
-    else:
-        success, encoded_img = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-        if success:
-            img_bytes = encoded_img.tobytes()
-            print(f"⚡ [COMPRESSION] Compressed {raw_path} to JPEG. Original: {os.path.getsize(raw_path)} bytes, Compressed: {len(img_bytes)} bytes.")
-        else:
-            print(f"⚠️ [WARNING] JPEG compression failed for {raw_path}. Falling back to raw file bytes.")
-            with open(raw_path, "rb") as f:
-                img_bytes = f.read()
-
-    img_b64 = base64.b64encode(img_bytes).decode('utf-8')
-
     config = await request.json()
 
-    # 3. Gửi sang Runpod Serverless
-    runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/run"
-    headers = {
-        "Authorization": f"Bearer {RUNPOD_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "input": {
-            "image_base64": img_b64,
-            "genre": config.get("genre", ""),
-            "tone": config.get("tone", ""),
-            "pronouns": config.get("pronouns", ""),
-            "glossary": config.get("glossary", "")
-        }
-    }
-
-    async with httpx.AsyncClient() as client:
-        # Bắn lệnh đi (timeout 60s phòng đứt cáp)
-        response = await client.post(runpod_url, json=payload, headers=headers, timeout=60.0)
+    # 🚀 THẢ TÁC VỤ VÀO CELERY QUEUE CHẠY NGẦM HOÀN TOÀN
+    from worker import process_manga_page
+    task = process_manga_page.delay(page_id, config)
+    
+    # Ghi nhận ánh xạ task_id -> page_id cho API hủy / cancel định tuyến
+    try:
+        await async_redis_client.set(f"task_page_id:{task.id}", page_id, ex=86400)
+    except Exception as e:
+        print(f"⚠️ [TRANSLATE] Lỗi lưu mapping task_page_id: {e}")
         
-        if response.status_code != 200:
-            print(f"🛑 [RUNPOD ERROR] Status: {response.status_code} | Response: {response.text}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"RunPod Serverless trả về lỗi (Status {response.status_code}): {response.text}"
-            )
-            
-        try:
-            data = response.json()
-        except Exception as je:
-            print(f"🛑 [RUNPOD ERROR] JSON Decode Failed: {response.text}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"RunPod không trả về JSON hợp lệ: {response.text}"
-            )
+    page.status = "processing"
+    await db.commit()
 
-    runpod_job_id = data["id"]
-    if img_hash:
-        try:
-            redis_client.set(f"task_image_hash:{runpod_job_id}", img_hash, ex=86400)
-        except Exception as e:
-            print(f"⚠️ [CACHE ERROR] Không thể lưu task image hash mapping vào Redis: {e}")
-
-    # Trả về Job ID của Runpod cho Frontend
-    return {"task_id": runpod_job_id}
+    return {"task_id": task.id}
 
 
 
@@ -1949,7 +2066,7 @@ async def translate_page(
 async def get_task_result(task_id: str):
     # 🚀 KIỂM TRA XEM KẾT QUẢ CỦA TASK NÀY ĐÃ ĐƯỢC CACHE SẴN TRONG REDIS CHƯA
     try:
-        redis_cache = redis_client.get(f"celery-task-meta-{task_id}")
+        redis_cache = await async_redis_client.get(f"celery-task-meta-{task_id}")
         if redis_cache:
             data = json.loads(redis_cache)
             if data.get("status") == "SUCCESS":
@@ -1959,84 +2076,24 @@ async def get_task_result(task_id: str):
     except Exception as e:
         print(f"⚠️ [CACHE ERROR] Lỗi đọc kết quả cached từ Redis: {e}")
 
-    runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{task_id}"
-    headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
+    # Truy vấn trạng thái thực tế từ Celery
+    from worker import celery_app
+    from celery.result import AsyncResult
     
-    async with httpx.AsyncClient() as client:
-        res = await client.get(runpod_url, headers=headers, timeout=30.0)
-        data = res.json()
-        
-    if data.get("status") == "COMPLETED":
-        output = data.get("output", {})
-        if isinstance(output, dict) and output.get("status") == "error":
-            return {"status": "FAILURE", "message": str(output)}
+    res = AsyncResult(task_id, app=celery_app)
+    if res.ready():
+        if res.successful():
+            return {
+                "status": "SUCCESS",
+                "result": res.result
+            }
+        else:
+            return {
+                "status": "FAILURE",
+                "message": str(res.result)
+            }
             
-        clean_b64 = output.get("clean_image_base64")
-        extracted_data = output.get("data", [])
-        context = output.get("context", {}) # Lấy lại ngữ cảnh Runpod dội về
-        
-        # 🚀 BỘ NÃO DEEPSEEK HOẠT ĐỘNG MIỄN PHÍ TRÊN VPS TẠI ĐÂY
-        if extracted_data:
-            try:
-                ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
-                prompt = f"Thể loại: {context.get('genre', '')}. Xưng hô: {context.get('pronouns', '')}. Văn phong: {context.get('tone', '')}. Dịch JSON sau và TRẢ VỀ ĐÚNG FORMAT {{\\\"translations\\\": [<kết quả>]}}: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
-                
-                if context.get("glossary"):
-                    prompt = f"5. TỪ ĐIỂN: {context.get('glossary')}\n" + prompt
-
-                response = deepseek_client.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=[{"role": "system", "content": "You output strict JSON containing a 'translations' array."}, {"role": "user", "content": prompt}],
-                    response_format={'type': 'json_object'}
-                )
-                
-                # 🚀 BẢN VÁ: Dùng hàm Parse chống đạn
-                ai_response = robust_json_parse(response.choices[0].message.content)
-                translated_array = ai_response if isinstance(ai_response, list) else ai_response.get("translations", ai_response.get("data", []))
-                for item in extracted_data:
-                    for trans in translated_array:
-                        if isinstance(trans, dict) and str(trans.get("id")) == str(item["id"]):
-                            item["vietnamese"] = trans.get("vietnamese", "Lỗi dịch")
-            except Exception as e:
-                print(f"❌ Lỗi DeepSeek trên VPS: {e}")
-                for item in extracted_data:
-                    item["vietnamese"] = "Lỗi dịch thuật (VPS)"
-        
-        # LƯU ẢNH SẠCH LÊN Ổ CỨNG VPS
-        clean_url = ""
-        if clean_b64:
-            clean_img_data = base64.b64decode(clean_b64)
-            os.makedirs("workspace", exist_ok=True)
-            file_path = f"workspace/clean_{task_id}.jpg"
-            with open(file_path, "wb") as f:
-                f.write(clean_img_data)
-            clean_url = f"/{file_path}"
-            
-        result_payload = {
-            "clean_url": clean_url,
-            "data": extracted_data 
-        }
-
-        # Lưu kết quả dịch hoàn chỉnh này vào Redis Cache keyed bằng img_hash của ảnh gốc
-        try:
-            img_hash = redis_client.get(f"task_image_hash:{task_id}")
-            if img_hash:
-                if isinstance(img_hash, bytes):
-                    img_hash = img_hash.decode('utf-8')
-                cache_key = f"ocr_translate_cache:{img_hash}"
-                redis_client.set(cache_key, json.dumps(result_payload), ex=2592000) # Lưu cache trong 30 ngày
-                redis_client.delete(f"task_image_hash:{task_id}")
-                print(f"🚀 [CACHE WRITE] Đã lưu kết quả dịch của ảnh có hash {img_hash} vào Redis Cache!")
-        except Exception as e:
-            print(f"⚠️ [CACHE ERROR] Không thể lưu kết quả dịch vào Redis Cache: {e}")
-
-        # Trả cục dữ liệu ĐÃ ĐƯỢC DỊCH HOÀN CHỈNH về cho React vẽ
-        return {
-            "status": "SUCCESS", 
-            "result": result_payload
-        }
-    
-    return {"status": data.get("status")}
+    return {"status": res.state}
 
 import zipfile
 import io
@@ -2143,34 +2200,49 @@ async def retry_text_translation(
             raise HTTPException(status_code=400, detail="Trang này trống trơn tiếng Nhật! Sếp hãy bấm nút [Quét lại ảnh] hình cây đũa phép ở góc phải nhé.")
 
         # 2. GOM LÊN DEEPSEEK TRÊN VPS VỚI PROMPT MẠNH HƠN
-        prompt = f"Bạn là biên dịch viên Manga chuyên nghiệp. Dịch mảng JSON sau sang tiếng Việt. BẮT BUỘC TRẢ VỀ ĐÚNG FORMAT {{\\\"translations\\\": [<kết quả>]}}: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+        prompt = f"Bạn là biên dịch viên Manga chuyên nghiệp. Dịch mảng JSON sau sang tiếng Việt. Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"vietnamese\\\": \\\"bản dịch\\\"}}]}}. Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
         if payload and payload.local_prompt:
             prompt += f"\n\nChỉ thị bổ sung từ người dùng (Hãy làm theo chỉ thị này một cách nghiêm ngặt): {payload.local_prompt}"
         
-        response = deepseek_client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": "You output strict JSON containing a 'translations' array with 'id' and 'vietnamese'."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={'type': 'json_object'}
-        )
-        
-        # 3. DÙNG HÀM PARSE CHỐNG ĐẠN 
-        ai_response = robust_json_parse(response.choices[0].message.content)
-        
-        # 🚀 BẢN VÁ 2: Xử lý an toàn mọi cấu trúc JSON LLM trả về (Tránh lỗi Crash List)
-        translated_array = ai_response if isinstance(ai_response, list) else ai_response.get("translations", ai_response.get("data", []))
+        response = None
+        translations = {}
+        for attempt in range(3):
+            try:
+                response = deepseek_client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=[
+                        {"role": "system", "content": "You output strict JSON containing a 'translations' array of dicts with 'id' and 'vietnamese'."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    response_format={'type': 'json_object'}
+                )
+                ai_response = robust_json_parse(response.choices[0].message.content)
+                translations = extract_translations(ai_response)
+                if translations:
+                    print(f"✅ [DEEPSEEK RETRY] Dịch thành công ở lần thử thứ {attempt+1}!")
+                    break
+                else:
+                    print(f"⚠️ [DEEPSEEK RETRY] Lần thử thứ {attempt+1} trả về bản dịch rỗng, đang thử lại...")
+            except Exception as e:
+                print(f"⚠️ [DEEPSEEK RETRY] Lần thử thứ {attempt+1} gặp lỗi: {e}")
+                if attempt == 2:
+                    raise e
+            await asyncio.sleep(1)
 
         # 4. CẬP NHẬT LẠI CHỮ TIẾNG VIỆT MỚI
         for item in extracted_data:
-            # Tìm bản dịch có ID khớp
-            trans = next((t for t in translated_array if str(t.get("id")) == str(item["id"])), None)
-            if trans:
-                new_text = trans.get("vietnamese", "Lỗi dịch")
+            item_id = str(item["id"])
+            if item_id in translations:
+                new_text = translations[item_id]
                 item["vietnamese"] = new_text
                 if "text" in item: 
                     item["text"] = new_text # Đồng bộ font chữ Frontend
+            else:
+                # If we don't have a new translation, keep the existing one if it's not empty, or fallback to Lỗi dịch
+                if not item.get("vietnamese"):
+                    item["vietnamese"] = "Lỗi dịch"
+                    if "text" in item:
+                        item["text"] = "Lỗi dịch"
 
         # 5. CHỐT SỔ LƯU DATABASE
         page.bubbles_data = json.dumps(extracted_data)

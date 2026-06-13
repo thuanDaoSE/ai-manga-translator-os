@@ -52,7 +52,7 @@ export const useGlobalShortcuts = () => {
       }
 
       const keyToToolMap: Record<string, any> = {
-        'v': 'none', 'e': 'erase', 'b': 'restore', 's': 'scan', 'r': 'redraw', 'h': 'screentone', ' ': 'pan',
+        'v': 'none', 'e': 'erase', 'b': 'restore', 's': 'scan', 'r': 'redraw', ' ': 'pan',
       };
 
       if (keyToToolMap[key] && currentTool !== keyToToolMap[key]) {

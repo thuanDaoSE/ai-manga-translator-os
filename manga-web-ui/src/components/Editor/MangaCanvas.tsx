@@ -4,7 +4,6 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useConfigStore } from '../../store/useConfigStore';
 import { useMangaEditorStore } from '../../store/useMangaEditorStore';
 import { mangaApi } from '../../services/api';
-import { createScreentonePattern } from './ScreentoneSelector';
 import toast from 'react-hot-toast';
 
 interface Props {
@@ -174,14 +173,9 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           ctx.strokeRect(scanStart.current.x, scanStart.current.y, currentPos.current.x - scanStart.current.x, currentPos.current.y - scanStart.current.y);
           ctx.setLineDash([]);
         }
-        else if (mode === 'erase' || mode === 'restore' || mode === 'redraw' || mode === 'screentone') {
+        else if (mode === 'erase' || mode === 'restore' || mode === 'redraw') {
           if (mode === 'erase' || mode === 'redraw') {
             drawStroke(ctx, currentPoints.current, currentBrushSize, "rgba(255, 0, 0, 0.5)");
-          } else if (mode === 'screentone') {
-            const screentoneType = useToolStore.getState().screentoneType;
-            const screentoneColor = useToolStore.getState().screentoneColor;
-            const pattern = createScreentonePattern(ctx, screentoneType, screentoneColor);
-            drawStroke(ctx, currentPoints.current, currentBrushSize, pattern);
           } else if (mode === 'restore') {
             // 🚀 LẤY NGUỒN CỌ CHUẨN XÁC DỰA VÀO NÚT BẤM
             const restoreType = useToolStore.getState().restoreType;
@@ -233,83 +227,47 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
       const mode = useToolStore.getState().activeMode;
       const currentBrushSize = useToolStore.getState().brushSize;
 
-      if (mode === 'erase' || mode === 'restore' || mode === 'redraw' || mode === 'screentone') {
-        if (mode === 'screentone') {
-          const targetCanvas = cleanRef.current;
-          if (targetCanvas) {
-            try {
-              const tempCanvas = document.createElement('canvas');
-              tempCanvas.width = targetCanvas.width;
-              tempCanvas.height = targetCanvas.height;
-              const tCtx = tempCanvas.getContext('2d')!;
+      if (mode === 'erase' || mode === 'restore' || mode === 'redraw') {
+        const committedCtx = committedRef.current?.getContext('2d');
+        if (committedCtx) {
+          if (mode === 'erase' || mode === 'redraw') {
+            drawStroke(committedCtx, currentPoints.current, currentBrushSize, "rgba(255, 0, 0, 0.5)");
+            useToolStore.getState().setActionPosition({ x: e.clientX, y: e.clientY });
+          } else if (mode === 'restore') {
+            // 🚀 LƯU NÉT VẼ TỪ NGUỒN CỌ CHUẨN XÁC
+            const restoreType = useToolStore.getState().restoreType;
+            const sourceCanvas = restoreType === 'clean' ? originalCleanRef.current : rawRef.current;
+            const targetCanvas = cleanRef.current;
 
-              const screentoneType = useToolStore.getState().screentoneType;
-              const screentoneColor = useToolStore.getState().screentoneColor;
-              const pattern = createScreentonePattern(tCtx, screentoneType, screentoneColor);
+            if (sourceCanvas && targetCanvas && sourceCanvas.width > 0) {
+              try {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = targetCanvas.width;
+                tempCanvas.height = targetCanvas.height;
+                const tCtx = tempCanvas.getContext('2d')!;
 
-              drawStroke(tCtx, currentPoints.current, currentBrushSize, pattern);
+                drawStroke(tCtx, currentPoints.current, currentBrushSize, "rgba(0,0,0,1)");
+                tCtx.globalCompositeOperation = 'source-in';
+                tCtx.drawImage(sourceCanvas, 0, 0);
 
-              const finalCanvas = document.createElement('canvas');
-              finalCanvas.width = targetCanvas.width;
-              finalCanvas.height = targetCanvas.height;
-              const fCtx = finalCanvas.getContext('2d')!;
+                const finalCanvas = document.createElement('canvas');
+                finalCanvas.width = targetCanvas.width;
+                finalCanvas.height = targetCanvas.height;
+                const fCtx = finalCanvas.getContext('2d')!;
 
-              fCtx.drawImage(targetCanvas, 0, 0);
-              fCtx.drawImage(tempCanvas, 0, 0);
+                fCtx.drawImage(targetCanvas, 0, 0);
+                fCtx.drawImage(tempCanvas, 0, 0);
 
-              await useMangaEditorStore.getState().saveCanvasImageState(finalCanvas);
-              const newUrl = useMangaEditorStore.getState().imageUrl;
-              if (newUrl) {
+                const newUrl = finalCanvas.toDataURL("image/png");
                 useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
+              } catch (err) {
+                console.error("Canvas Crash:", err);
+                toast.error("Lỗi trình duyệt: Không thể lưu (Chặn CORS ảnh).");
               }
-            } catch (err) {
-              console.error("Screentone Crash:", err);
-              toast.error("Lỗi trình duyệt: Không thể vẽ họa tiết.");
+            } else {
+              toast.error("Vui lòng đợi ảnh tải xong trước khi cọ!");
             }
-          }
-          useToolStore.getState().setActionPosition(null);
-        } else {
-          const committedCtx = committedRef.current?.getContext('2d');
-          if (committedCtx) {
-            if (mode === 'erase' || mode === 'redraw') {
-              drawStroke(committedCtx, currentPoints.current, currentBrushSize, "rgba(255, 0, 0, 0.5)");
-              useToolStore.getState().setActionPosition({ x: e.clientX, y: e.clientY });
-            } else if (mode === 'restore') {
-              // 🚀 LƯU NÉT VẼ TỪ NGUỒN CỌ CHUẨN XÁC
-              const restoreType = useToolStore.getState().restoreType;
-              const sourceCanvas = restoreType === 'clean' ? originalCleanRef.current : rawRef.current;
-              const targetCanvas = cleanRef.current;
-
-              if (sourceCanvas && targetCanvas && sourceCanvas.width > 0) {
-                try {
-                  const tempCanvas = document.createElement('canvas');
-                  tempCanvas.width = targetCanvas.width;
-                  tempCanvas.height = targetCanvas.height;
-                  const tCtx = tempCanvas.getContext('2d')!;
-
-                  drawStroke(tCtx, currentPoints.current, currentBrushSize, "rgba(0,0,0,1)");
-                  tCtx.globalCompositeOperation = 'source-in';
-                  tCtx.drawImage(sourceCanvas, 0, 0);
-
-                  const finalCanvas = document.createElement('canvas');
-                  finalCanvas.width = targetCanvas.width;
-                  finalCanvas.height = targetCanvas.height;
-                  const fCtx = finalCanvas.getContext('2d')!;
-
-                  fCtx.drawImage(targetCanvas, 0, 0);
-                  fCtx.drawImage(tempCanvas, 0, 0);
-
-                  const newUrl = finalCanvas.toDataURL("image/png");
-                  useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
-                } catch (err) {
-                  console.error("Canvas Crash:", err);
-                  toast.error("Lỗi trình duyệt: Không thể lưu (Chặn CORS ảnh).");
-                }
-              } else {
-                toast.error("Vui lòng đợi ảnh tải xong trước khi cọ!");
-              }
-              useToolStore.getState().setActionPosition(null);
-            }
+            useToolStore.getState().setActionPosition(null);
           }
         }
         currentPoints.current = [];
@@ -369,8 +327,11 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
     };
   }, []);
 
-  const cursorStyle = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw' || activeMode === 'screentone'
-    ? `url(data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="${brushSize * currentZoom}" height="${brushSize * currentZoom}" viewBox="0 0 ${brushSize * currentZoom} ${brushSize * currentZoom}"><circle cx="${(brushSize * currentZoom) / 2}" cy="${(brushSize * currentZoom) / 2}" r="${(brushSize * currentZoom) / 2 - 1}" fill="none" stroke="black" stroke-width="1.5"/><circle cx="${(brushSize * currentZoom) / 2}" cy="${(brushSize * currentZoom) / 2}" r="${(brushSize * currentZoom) / 2 - 2}" fill="none" stroke="white" stroke-width="1.5"/></svg>`)}) ${(brushSize * currentZoom) / 2} ${(brushSize * currentZoom) / 2}, crosshair`
+  const cursorSizeVal = brushSize * currentZoom;
+  const cursorStyle = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw'
+    ? (cursorSizeVal >= 4 
+        ? `url(data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="${cursorSizeVal}" height="${cursorSizeVal}" viewBox="0 0 ${cursorSizeVal} ${cursorSizeVal}"><circle cx="${cursorSizeVal / 2}" cy="${cursorSizeVal / 2}" r="${Math.max(0.5, cursorSizeVal / 2 - 1)}" fill="none" stroke="black" stroke-width="1"/><circle cx="${cursorSizeVal / 2}" cy="${cursorSizeVal / 2}" r="${Math.max(0.1, cursorSizeVal / 2 - 2)}" fill="none" stroke="white" stroke-width="1"/></svg>`)}) ${cursorSizeVal / 2} ${cursorSizeVal / 2}, crosshair`
+        : 'crosshair')
     : activeMode === 'scan' ? 'crosshair' : 'default';
 
   return (

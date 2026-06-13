@@ -79,6 +79,23 @@ canvas {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Chống dịch chuyển layout khi focus vào textarea ẩn của Fabric.js */
+.copy-paste-one,
+textarea.copy-paste-one,
+textarea[class*="copy-paste"],
+textarea[data-fabric-hiddentextarea],
+.fabric-textbox-hidden-textarea {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: -9999 !important;
+}
+
 
 /* 🚀 Hiệu ứng chuyển cảnh mượt mà khi AI trả ảnh về */
 .image-transition {

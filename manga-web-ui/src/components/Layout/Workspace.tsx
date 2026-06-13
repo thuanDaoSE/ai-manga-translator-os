@@ -19,9 +19,13 @@ import { useConfigStore } from '../../store/useConfigStore';
 import { PaywallDrawer } from '../Modals/PaywallDrawer';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useMangaEditorStore } from '../../store/useMangaEditorStore';
+import { NovitaInpaintingModal } from '../Modals/NovitaInpaintingModal';
 
 export default function Workspace() {
   const [showPaywall, setShowPaywall] = useState(false);
+  const [isNovitaModalOpen, setIsNovitaModalOpen] = useState(false);
+  const [novitaMask, setNovitaMask] = useState("");
+  const [novitaRawUrl, setNovitaRawUrl] = useState("");
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
 
@@ -37,6 +41,17 @@ export default function Workspace() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       useMangaEditorStore.getState().clearHistory();
     };
+  }, []);
+
+  // 🚀 TỐI ƯU HÓA LAYOUT: Chống giật cuộn màn hình khi focus textarea ẩn của Fabric.js
+  useEffect(() => {
+    const preventScroll = () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
+        window.scrollTo(0, 0);
+      }
+    };
+    window.addEventListener('scroll', preventScroll, { passive: true });
+    return () => window.removeEventListener('scroll', preventScroll);
   }, []);
 
   // 2. Undo/Redo Hotkeys
@@ -117,8 +132,53 @@ export default function Workspace() {
       .then(data => {
         if (!isMounted) return;
 
-        // ✅ SỬA Ở ĐÂY TƯƠNG TỰ:
-        useCanvasStore.getState().setBubbles(data.bubbles || []);
+        // ✅ BẢN VÁ: Chuẩn hóa bong bóng từ database để hiển thị bản dịch chuẩn xác
+        const loadedBubbles = (data.bubbles || []).map((b: any) => {
+          let x = b.x;
+          let y = b.y;
+          let w = b.w;
+          let h = b.h;
+          
+          if ((x === undefined || y === undefined || w === undefined || h === undefined) && b.box_coordinates) {
+            x = b.box_coordinates.x1;
+            y = b.box_coordinates.y1;
+            w = b.box_coordinates.x2 - b.box_coordinates.x1;
+            h = b.box_coordinates.y2 - b.box_coordinates.y1;
+          } else if ((x === undefined || y === undefined || w === undefined || h === undefined) && b.rawBox) {
+            x = b.rawBox.x1;
+            y = b.rawBox.y1;
+            w = b.rawBox.x2 - b.rawBox.x1;
+            h = b.rawBox.y2 - b.rawBox.y1;
+          }
+          
+          x = x !== undefined ? x : 0;
+          y = y !== undefined ? y : 0;
+          w = w !== undefined ? w : 100;
+          h = h !== undefined ? h : 50;
+
+          const toolState = useToolStore.getState();
+
+          return {
+            ...b,
+            x,
+            y,
+            w,
+            h,
+            text: b.text !== undefined && b.text !== "" ? b.text : (b.vietnamese || ""),
+            japanese: b.japanese || "",
+            vietnamese: b.vietnamese || b.text || "",
+            fontSize: b.fontSize || toolState.fontSize || 40,
+            fontColor: b.fontColor || toolState.fontColor || "#000000",
+            fontFamily: b.fontFamily || toolState.fontFamily || "'Comic Neue', cursive",
+            rotation: b.rotation !== undefined ? b.rotation : 0,
+            sfxClass: b.sfxClass || "",
+            boxX: b.boxX !== undefined ? b.boxX : x,
+            boxY: b.boxY !== undefined ? b.boxY : y,
+            boxW: b.boxW !== undefined ? b.boxW : w,
+            boxH: b.boxH !== undefined ? b.boxH : h,
+          };
+        });
+        useCanvasStore.getState().setBubbles(loadedBubbles);
 
         setTimeout(() => {
           if (isMounted) ignoreSaveRef.current = false;
@@ -216,7 +276,10 @@ export default function Workspace() {
 
     return () => {
       isMounted = false;
-      if (objectUrlToRevoke) URL.revokeObjectURL(objectUrlToRevoke);
+      if (objectUrlToRevoke) {
+        // 🚀 BẢN VÁ: Trì hoãn việc hủy Blob URL 10 giây để tránh lỗi ERR_FILE_NOT_FOUND khi chuyển trang hoặc re-render nhanh
+        setTimeout(() => URL.revokeObjectURL(objectUrlToRevoke), 10000);
+      }
     };
   }, [currentIndex, fileQueue, projectStore.pageIds, projectStore.projectId, setZoom]);
 
@@ -440,6 +503,40 @@ export default function Workspace() {
     }
   };
 
+  const handleOpenNovitaTest = () => {
+    if (!projectStore.pageIds[currentIndex]) return toast.error("Ảnh đang tải lên!");
+    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
+    const ctx = drawCanvas?.getContext("2d");
+    if (!ctx?.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data.some((p, i) => i % 4 === 3 && p > 0)) {
+      return toast.error("Hãy vẽ/khoanh vùng đỏ cần vẽ lại/inpainting trước!");
+    }
+
+    const maskBase64 = drawCanvas.toDataURL("image/png");
+    const pageId = projectStore.pageIds[currentIndex];
+
+    const fileName = fileQueue[currentIndex]?.name || "";
+    const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
+    const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
+    const targetUrl = processedUrls[currentIndex] || serverRawUrl;
+
+    setNovitaMask(maskBase64);
+    setNovitaRawUrl(targetUrl);
+    setIsNovitaModalOpen(true);
+  };
+
+  const handleApplyNovitaResult = (newUrl: string) => {
+    useMangaEditorStore.getState().saveHistory();
+    useMangaEditorStore.getState().setImageUrl(newUrl);
+    projectStore.setProcessedUrl(currentIndex, newUrl);
+
+    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
+    const ctx = drawCanvas?.getContext("2d");
+    if (ctx) ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    
+    setActiveMode("none");
+    setActionPosition(null);
+  };
+
   // Tải Custom Fonts
   useEffect(() => {
     const loadCustomFonts = async () => {
@@ -588,11 +685,15 @@ export default function Workspace() {
                 {isProcessing ? <span className="animate-spin">⏳</span> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
                 {isProcessing ? dynamicLoadingText : "✨ Xóa AI"}
               </button>
+              <div className="w-px h-8 bg-border mx-1"></div>
+              <button onClick={handleOpenNovitaTest} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-sm">
+                🧪 Test Novita
+              </button>
             </div>
           )}
 
           {actionPosition && activeMode === 'redraw' && (
-            <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] pointer-events-auto">
+            <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] pointer-events-auto flex flex-col gap-2">
               <RedrawPromptInput
                 isProcessing={isProcessing}
                 onCancel={() => {
@@ -606,6 +707,13 @@ export default function Workspace() {
                   handleRedraw(positive, negative);
                 }}
               />
+              <button
+                onClick={handleOpenNovitaTest}
+                disabled={isProcessing}
+                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs shadow-md transition-colors cursor-pointer text-center"
+              >
+                🧪 Test Novita Inpainting
+              </button>
             </div>
           )}
         </>
@@ -628,6 +736,14 @@ export default function Workspace() {
       <PaywallDrawer
         isOpen={showPaywall}
         onClose={() => setShowPaywall(false)}
+      />
+
+      <NovitaInpaintingModal
+        isOpen={isNovitaModalOpen}
+        onClose={() => setIsNovitaModalOpen(false)}
+        rawImageUrl={novitaRawUrl}
+        maskBase64={novitaMask}
+        onApplyResult={handleApplyNovitaResult}
       />
     </div>
   );

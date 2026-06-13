@@ -1,0 +1,1876 @@
+diff --git a/manga-backend/.env.example b/manga-backend/.env.example
+new file mode 100644
+index 0000000..8e8503c
+--- /dev/null
++++ b/manga-backend/.env.example
+@@ -0,0 +1,16 @@
++# --- AI KEYS ---
++DEEPSEEK_API_KEY=your_deepseek_api_key_here
++HF_TOKEN=your_huggingface_token_here
++
++# --- AUTH & DB ---
++SUPABASE_JWT_SECRET=your_supabase_jwt_secret_here
++
++# --- RUNPOD CONFIGURATION ---
++RUNPOD_API_KEY=your_runpod_api_key_here
++RUNPOD_TRANSLATE_ENDPOINT_ID=your_runpod_translate_endpoint_id_here
++RUNPOD_REDRAW_ENDPOINT_ID=your_runpod_redraw_endpoint_id_here
++
++# --- PAYMENT INTEGRATION ---
++PAYOS_CLIENT_ID=your_payos_client_id_here
++PAYOS_API_KEY=your_payos_api_key_here
++PAYOS_CHECKSUM_KEY=your_payos_checksum_key_here
+diff --git a/manga-backend/db_models.py b/manga-backend/db_models.py
+index 72d303a..6670b8b 100644
+--- a/manga-backend/db_models.py
++++ b/manga-backend/db_models.py
+@@ -1,13 +1,9 @@
+-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean
++from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, BigInteger, UniqueConstraint
+ from sqlalchemy.orm import relationship
+ from sqlalchemy.sql import func
+ import uuid
+ from database import Base
+ 
+-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, BigInteger
+-from sqlalchemy.sql import func
+-from database import Base
+-
+ # BẢNG 1: QUẢN LÝ VÍ TIỀN VÀ GÓI SUBSCRIPTION CỦA USER
+ class User(Base):
+     __tablename__ = "users"
+@@ -24,22 +20,21 @@ class User(Base):
+ 
+ # BẢNG 2: LỊCH SỬ GIAO DỊCH (CHỐNG HACK & GHI NHẬN THANH TOÁN PAYOS)
+ class Transaction(Base):
+-    # 🚀 MẸO: Đổi tên bảng thành "payos_transactions" để hệ thống tự tạo bảng mới sạch sẽ
+     __tablename__ = "payos_transactions" 
+     
+-    # 🚀 VÁ LỖI: Dùng BigInteger (int64) thay vì Integer, chứa được số lên tới 9 tỷ tỷ!
+     order_code = Column(BigInteger, primary_key=True) 
+-    user_id = Column(String, ForeignKey("users.id"))
++    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+     
+     package_name = Column(String) 
+     amount = Column(Integer) 
+     credits_added = Column(Integer, default=0) 
+     
+     status = Column(String, default="PENDING") 
++    checkout_url = Column(String, nullable=True) 
+     created_at = Column(DateTime(timezone=True), server_default=func.now())
+ 
+ # ==========================================
+-# CÁC BẢNG CŨ (Sếp giữ nguyên)
++# CÁC BẢNG CŨ (Sếp giữ nguyên + Thêm Index & CASCADE)
+ # ==========================================
+ class Project(Base):
+     __tablename__ = "projects"
+@@ -57,7 +52,7 @@ class Project(Base):
+ class Page(Base):
+     __tablename__ = "pages"
+     id = Column(String, primary_key=True, index=True) 
+-    project_id = Column(String, ForeignKey("projects.id"))
++    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+     filename = Column(String) 
+     status = Column(String, default="pending") 
+     raw_url = Column(String) 
+@@ -66,7 +61,7 @@ class Page(Base):
+     project = relationship("Project", back_populates="pages")
+ 
+ # ==========================================
+-# 🚀 CÁC BẢNG MỚI: KIẾN TRÚC TRANSLATION MEMORY & GLOSSARY
++# 🚀 CÁC BẢNG MỚI: KIẾN TRÚC TRANSLATION MEMORY & GLOSSARY (Thêm Index & Composite Unique)
+ # ==========================================
+ 
+ class TranslationMemory(Base):
+@@ -74,20 +69,24 @@ class TranslationMemory(Base):
+     __tablename__ = "translation_memory"
+ 
+     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+-    project_id = Column(String, ForeignKey("projects.id"), index=True)
++    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+     
+-    hash_key = Column(String, index=True, unique=True) # Mã băm SHA-256 của câu tiếng Nhật
++    hash_key = Column(String, index=True) # Mã băm SHA-256 của câu tiếng Nhật
+     japanese_text = Column(Text, nullable=False)
+     vietnamese_text = Column(Text, nullable=False)
+     
+     created_at = Column(DateTime(timezone=True), server_default=func.now())
+ 
++    __table_args__ = (
++        UniqueConstraint('project_id', 'hash_key', name='uq_project_hash_key'),
++    )
++
+ class Character(Base):
+     """Bảng quản lý nhân vật để phân tích xưng hô"""
+     __tablename__ = "characters"
+ 
+     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+-    project_id = Column(String, ForeignKey("projects.id"))
++    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+     
+     original_name = Column(String, nullable=False) # Tên tiếng Nhật (vd: ナルト)
+     translated_name = Column(String, nullable=False) # Tên tiếng Việt (vd: Naruto)
+@@ -101,7 +100,7 @@ class Terminology(Base):
+     __tablename__ = "terminology"
+ 
+     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+-    project_id = Column(String, ForeignKey("projects.id"))
++    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+     
+     source_text = Column(String, nullable=False) # Ví dụ: 螺旋丸
+     target_text = Column(String, nullable=False) # Ví dụ: Rasengan
+@@ -114,12 +113,26 @@ class RelationalMatrix(Base):
+     __tablename__ = "relational_matrix"
+ 
+     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+-    project_id = Column(String, ForeignKey("projects.id"))
++    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+     
+-    speaker_id = Column(String, ForeignKey("characters.id"))
+-    listener_id = Column(String, ForeignKey("characters.id"))
++    speaker_id = Column(String, ForeignKey("characters.id", ondelete="CASCADE"), index=True)
++    listener_id = Column(String, ForeignKey("characters.id", ondelete="CASCADE"), index=True)
+     
+     self_reference = Column(String, nullable=False) # Tự xưng (vd: Tớ, Anh, Cháu)
+     target_reference = Column(String, nullable=False) # Gọi đối phương (vd: Cậu, Em, Bác)
+     
+-    context_rule = Column(String, nullable=True) # Điều kiện (vd: Khi nói chuyện bình thường)
+\ No newline at end of file
++    context_rule = Column(String, nullable=True) # Điều kiện (vd: Khi nói chuyện bình thường)
++
++class TranslationCorrection(Base):
++    """Bảng lưu trữ dữ liệu hiệu chỉnh bản dịch của người dùng (Tập dữ liệu độc quyền để Fine-tune Model)"""
++    __tablename__ = "translation_corrections"
++
++    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
++    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), index=True)
++    page_id = Column(String, ForeignKey("pages.id", ondelete="CASCADE"), index=True)
++    
++    japanese_raw = Column(Text, nullable=False)
++    ai_translation = Column(Text, nullable=False)
++    user_corrected = Column(Text, nullable=False)
++    
++    created_at = Column(DateTime(timezone=True), server_default=func.now())
+\ No newline at end of file
+diff --git a/manga-backend/handler.py b/manga-backend/handler.py
+index 3497c31..93b7549 100644
+--- a/manga-backend/handler.py
++++ b/manga-backend/handler.py
+@@ -6,20 +6,201 @@ import os
+ import torch
+ import onnxruntime as ort
+ import sys
++import requests
+ from PIL import Image
++from diffusers import StableDiffusionXLInpaintPipeline, AutoencoderKL
++from redraw_utils import apply_laplacian_pyramid_blend
+ 
+-print("Khởi động AI Engine...")
++ENDPOINT_TYPE = os.getenv("RUNPOD_ENDPOINT_TYPE", "translate")
++print(f"Khởi động AI Engine với ENDPOINT_TYPE: {ENDPOINT_TYPE}")
+ 
+-sys.path.append(os.path.join(os.path.dirname(__file__), "comic_text_detector"))
+-from manga_ocr import MangaOcr
+-from comic_text_detector.inference import TextDetector
++# Khai báo rỗng ban đầu cho tất cả các mô hình
++mocr = None
++text_detector = None
++lama_session = None
++sdxl_inpaint_pipeline = None
++
++def get_sdxl_inpaint_pipeline():
++    global sdxl_inpaint_pipeline
++    if sdxl_inpaint_pipeline is None:
++        model_dir = os.path.join(os.path.dirname(__file__), "models")
++        pipeline_path = os.path.join(model_dir, "waifu-inpaint-xl")
++        vae_path = os.path.join(model_dir, "sdxl-vae-fp16-fix")
++        
++        vae = None
++        if os.path.exists(vae_path):
++            print(f"Loading custom VAE from local directory: {vae_path}")
++            vae = AutoencoderKL.from_pretrained(vae_path, torch_dtype=torch.float16)
++        else:
++            print("No custom VAE directory found, utilizing default VAE from the pipeline.")
++            
++        print(f"Loading Stable Diffusion XL Inpaint Pipeline from local directory: {pipeline_path}")
++        if os.path.exists(pipeline_path):
++            pipeline_kwargs = {
++                "torch_dtype": torch.float16,
++                "use_safetensors": True,
++            }
++            if vae is not None:
++                pipeline_kwargs["vae"] = vae
++                
++            sdxl_inpaint_pipeline = StableDiffusionXLInpaintPipeline.from_pretrained(
++                pipeline_path,
++                **pipeline_kwargs
++            )
++            
++            # VRAM safety optimization (Model CPU Offload + VAE Slicing)
++            if torch.cuda.is_available():
++                sdxl_inpaint_pipeline.enable_model_cpu_offload()
++                sdxl_inpaint_pipeline.enable_vae_slicing()
++            else:
++                sdxl_inpaint_pipeline.to("cpu")
++            print("Stable Diffusion XL Inpaint Pipeline initialized successfully.")
++        else:
++            print(f"⚠️ Warning: SDXL Inpaint directory {pipeline_path} not found.")
++            
++    return sdxl_inpaint_pipeline
++
++# ----------------- NẠP MODEL THEO PHÂN LOẠI ENDPOINT -----------------
++if ENDPOINT_TYPE == "translate":
++    print("Initializing Translate/Erase/Scan Models (MangaOCR, CTD, LaMa ONNX)...")
++    
++    sys.path.append(os.path.join(os.path.dirname(__file__), "comic_text_detector"))
++    from manga_ocr import MangaOcr
++    from comic_text_detector.inference import TextDetector
++
++    mocr = MangaOcr() 
++    device = "cuda" if torch.cuda.is_available() else "cpu"
++    text_detector = TextDetector(model_path=os.path.join(os.path.dirname(__file__), "comic_text_detector", "data", "comictextdetector.pt"), device=device)
++
++    # 1. Persistent TensorRT Engine Cache Path next to ONNX model weights
++    trt_cache_path = os.path.join(os.path.dirname(__file__), 'trt_cache')
++    os.makedirs(trt_cache_path, exist_ok=True)
++
++    device_providers = [
++        ('TensorrtExecutionProvider', {
++            'trt_engine_cache_enable': True,
++            'trt_engine_cache_path': trt_cache_path
++        }),
++        'CUDAExecutionProvider',
++        'CPUExecutionProvider'
++    ]
++    lama_session = ort.InferenceSession(os.path.join(os.path.dirname(__file__), "lama-manga.onnx"), providers=device_providers)
++
++    # 2. Dynamic Axis Validation: Ensure the model input supports dynamic batch sizes
++    try:
++        input_shape = lama_session.get_inputs()[0].shape
++        if len(input_shape) > 0 and input_shape[0] == 1:
++            print("🚨 WARNING: LaMa ONNX model input dimension 0 is fixed to 1. Dynamic batched inference may fail.")
++        else:
++            print("✅ Dynamic axis validated. LaMa ONNX model supports dynamic batch sizes. Input shape: {}".format(input_shape))
++    except Exception as e:
++        print("⚠️ Dynamic axis validation check skipped: {}".format(e))
++
++elif ENDPOINT_TYPE == "redraw":
++    print("Initializing Redraw Models (SDXL Inpaint)...")
++    # Pre-load the SDXL Inpaint pipeline at startup to warm up serverless container
++    try:
++        get_sdxl_inpaint_pipeline()
++    except Exception as e:
++        print(f"Failed to pre-load SDXL Inpaint pipeline at startup: {e}")
+ 
+-mocr = MangaOcr() 
+-device = "cuda" if torch.cuda.is_available() else "cpu"
+-text_detector = TextDetector(model_path=os.path.join(os.path.dirname(__file__), "comic_text_detector", "data", "comictextdetector.pt"), device=device)
+ 
+-device_providers = ['CUDAExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
+-lama_session = ort.InferenceSession(os.path.join(os.path.dirname(__file__), "lama-manga.onnx"), providers=device_providers)
++import math
++
++def lama_inpaint_batched(img, mask, session, stride=256):
++    """
++    Runs LaMa ONNX model on any high-resolution image by slicing it into 512x512 tiles
++    using numpy.lib.stride_tricks.sliding_window_view (zero-copy), performing
++    batched GPU inference ONLY on active tiles containing mask/text pixels,
++    and reconstructing the image with smooth blending.
++    """
++    H, W = img.shape[:2]
++    win_h, win_w = 512, 512
++    
++    # Calculate padding and padded dimensions to fit exactly with window and stride
++    num_tiles_h = math.ceil((H - win_h) / stride) + 1 if H > win_h else 1
++    num_tiles_w = math.ceil((W - win_w) / stride) + 1 if W > win_w else 1
++    
++    H_pad = (num_tiles_h - 1) * stride + win_h
++    W_pad = (num_tiles_w - 1) * stride + win_w
++    
++    pad_y = H_pad - H
++    pad_x = W_pad - W
++    
++    # Pad image (reflect padding) and mask (constant padding)
++    img_padded = cv2.copyMakeBorder(img, 0, pad_y, 0, pad_x, cv2.BORDER_REFLECT)
++    mask_padded = cv2.copyMakeBorder(mask, 0, pad_y, 0, pad_x, cv2.BORDER_CONSTANT, value=0)
++    
++    # Prepare normalized float32 images and masks
++    img_rgb = cv2.cvtColor(img_padded, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
++    mask_bin = (mask_padded > 0).astype(np.float32)
++    
++    # Zero-copy tiling using sliding_window_view
++    from numpy.lib.stride_tricks import sliding_window_view
++    
++    # v_img shape: (num_tiles_h, num_tiles_w, 3, 512, 512)
++    v_img = sliding_window_view(img_rgb, (512, 512), axis=(0, 1))[::stride, ::stride]
++    # v_mask shape: (num_tiles_h, num_tiles_w, 512, 512)
++    v_mask = sliding_window_view(mask_bin, (512, 512), axis=(0, 1))[::stride, ::stride]
++    
++    active_tiles_img = []
++    active_tiles_mask = []
++    active_tile_coords = []
++    
++    for i in range(num_tiles_h):
++        for j in range(num_tiles_w):
++            mask_tile = v_mask[i, j]
++            # MLOps Fix 1: Compute Waste Avoidance (Skip blank tiles)
++            if np.max(mask_tile) > 0:
++                active_tiles_img.append(v_img[i, j])
++                active_tiles_mask.append(mask_tile[np.newaxis, ...])
++                active_tile_coords.append((i, j))
++                
++    # If no tiles contain mask pixels, return original image (saves GPU execution)
++    if len(active_tiles_img) == 0:
++        return img
++        
++    # Compile active tiles into contiguous NumPy batches
++    batched_images = np.array(active_tiles_img, dtype=np.float32) # Shape: (B, 3, 512, 512)
++    batched_masks = np.array(active_tiles_mask, dtype=np.float32)  # Shape: (B, 1, 512, 512)
++    
++    # Parallel Batched Inference on GPU
++    # Call session.run EXACTLY ONCE
++    ort_outs = session.run(None, {
++        session.get_inputs()[0].name: batched_images,
++        session.get_inputs()[1].name: batched_masks
++    })
++    
++    # Transpose back from (B, 3, 512, 512) to (B, 512, 512, 3) (RGB)
++    out_tiles = np.transpose(ort_outs[0], (0, 2, 3, 1))
++    
++    # Reconstruction with smooth blending to resolve overlapping areas
++    accumulated_img = np.zeros(img_padded.shape, dtype=np.float32)
++    accumulated_weight = np.zeros((img_padded.shape[0], img_padded.shape[1], 1), dtype=np.float32)
++    
++    # Create 2D blending weight mask
++    ramp = np.minimum(np.arange(512) + 0.5, 512 - 0.5 - np.arange(512)) / 256.0
++    ramp = np.clip(ramp, 0.0, 1.0)
++    tile_weight = np.outer(ramp, ramp)[:, :, np.newaxis] # Shape: (512, 512, 1)
++    
++    # Only blend the active inpainted tiles back to their coordinates
++    for b, (i, j) in enumerate(active_tile_coords):
++        y_start = i * stride
++        x_start = j * stride
++        
++        accumulated_img[y_start:y_start+512, x_start:x_start+512] += out_tiles[b] * tile_weight
++        accumulated_weight[y_start:y_start+512, x_start:x_start+512] += tile_weight
++        
++    P_norm = accumulated_img / np.maximum(accumulated_weight, 1e-8)
++    W_clipped = np.clip(accumulated_weight, 0.0, 1.0)
++    
++    # Blend inpainted regions with original image regions smoothly
++    reconstructed_img = P_norm * W_clipped + img_rgb * (1.0 - W_clipped)
++    
++    # Crop back to original dimensions and restore to BGR uint8 format
++    final_img = reconstructed_img[0:H, 0:W]
++    final_img_bgr = cv2.cvtColor(np.clip(final_img * 255.0, 0, 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
++    return final_img_bgr
+ 
+ def extract_text_manga_ocr(crop_bgr):
+     return mocr(Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB))).strip()
+@@ -28,61 +209,117 @@ def handler(job):
+     job_input = job['input']
+     action = job_input.get('action', 'translate') # Mặc định là dịch nguyên trang
+ 
++    # Kiểm tra tính hợp lệ của action dựa trên ENDPOINT_TYPE
++    if ENDPOINT_TYPE == "redraw" and action != "redraw" and action != "ping":
++        return {"status": "error", "message": f"Action '{action}' is not supported on Redraw endpoint."}
++    if ENDPOINT_TYPE == "translate" and action == "redraw":
++        return {"status": "error", "message": "Action 'redraw' is not supported on Translate endpoint."}
++
+     # 🟢 1. LỆNH PING: Giữ máy luôn thức
+     if action == 'ping':
+         return {"status": "success", "message": "pong"}
+ 
+     # 🟢 2. LỆNH SCAN: Chỉ quét chữ MangaOCR
+     elif action == 'scan':
+-        img_b64 = job_input['image_base64']
+-        nparr = np.frombuffer(base64.b64decode(img_b64), np.uint8)
+-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
++        image_url = job_input['image_url']
++        response = requests.get(image_url, timeout=10)
++        response.raise_for_status()
++        image_array = np.frombuffer(response.content, np.uint8)
++        image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+         return {"status": "success", "text": extract_text_manga_ocr(image)}
+ 
+     # 🟢 3. LỆNH ERASE: Chỉ xóa mảng nhỏ (LaMa)
+     elif action == 'erase':
+-        img_b64 = job_input['image_base64']
+-        mask_b64 = job_input['mask_base64']
+-        crop_img = cv2.imdecode(np.frombuffer(base64.b64decode(img_b64), np.uint8), cv2.IMREAD_COLOR)
+-        crop_mask = cv2.imdecode(np.frombuffer(base64.b64decode(mask_b64), np.uint8), cv2.IMREAD_GRAYSCALE)
+-
+-        h_crop, w_crop = crop_img.shape[:2]
+-        
+-        # Xử lý tự scale và padding cho LaMa
+-        scale = 1.0
+-        if h_crop > 512 or w_crop > 512:
+-            scale = 512.0 / max(h_crop, w_crop)
+-            new_w, new_h = int(w_crop * scale), int(h_crop * scale)
+-            crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+-            crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+-        else:
+-            new_w, new_h = w_crop, h_crop
+-
+-        pad_bottom, pad_right = 512 - new_h, 512 - new_w
+-        if pad_bottom > 0 or pad_right > 0:
+-            crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+-            crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+-
+-        img_t = np.transpose(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
+-        mask_t = np.transpose((crop_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
+-
+-        ort_outs = lama_session.run(None, {lama_session.get_inputs()[0].name: img_t, lama_session.get_inputs()[1].name: mask_t})
+-        out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
+-        clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
++        image_url = job_input['image_url']
++        mask_url = job_input['mask_url']
++        
++        response_img = requests.get(image_url, timeout=10)
++        response_img.raise_for_status()
++        crop_img = cv2.imdecode(np.frombuffer(response_img.content, np.uint8), cv2.IMREAD_COLOR)
++        
++        response_mask = requests.get(mask_url, timeout=10)
++        response_mask.raise_for_status()
++        crop_mask = cv2.imdecode(np.frombuffer(response_mask.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+ 
+-        if scale != 1.0:
+-            clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
++        clean_crop = lama_inpaint_batched(crop_img, crop_mask, lama_session)
+ 
+         _, buffer = cv2.imencode('.png', clean_crop)
+         return {"status": "success", "clean_crop_base64": base64.b64encode(buffer).decode('utf-8')}
+ 
++    # 🟢 3.5. LỆNH REDRAW: Vẽ lại vùng lớn bằng SDXL + Laplacian Pyramid Blending
++    elif action == 'redraw':
++        image_url = job_input['image_url']
++        mask_url = job_input['mask_url']
++        prompt = job_input['prompt']
++        negative_prompt = job_input.get('negative_prompt', '')
++        output_url = job_input['output_url']
++        
++        # Tải local SDXL inpaint pipeline
++        pipeline = get_sdxl_inpaint_pipeline()
++        if pipeline is None:
++            raise Exception("Không thể load SDXL inpaint pipeline từ local directory.")
++            
++        # Fetch ảnh gốc và mask từ URL
++        response_img = requests.get(image_url, timeout=15)
++        response_img.raise_for_status()
++        orig_img_bgr = cv2.imdecode(np.frombuffer(response_img.content, np.uint8), cv2.IMREAD_COLOR)
++        
++        response_mask = requests.get(mask_url, timeout=15)
++        response_mask.raise_for_status()
++        mask_gray = cv2.imdecode(np.frombuffer(response_mask.content, np.uint8), cv2.IMREAD_GRAYSCALE)
++        
++        # Chuyển BGR thành RGB PIL Image để truyền vào SDXL pipeline
++        orig_img_rgb = cv2.cvtColor(orig_img_bgr, cv2.COLOR_BGR2RGB)
++        pil_image = Image.fromarray(orig_img_rgb)
++        pil_mask = Image.fromarray(mask_gray)
++        
++        # Các tham số chạy inpaint
++        num_inference_steps = job_input.get('num_inference_steps', 30)
++        guidance_scale = job_input.get('guidance_scale', 6.0)
++        
++        generator = None
++        seed = job_input.get('seed')
++        if seed is not None:
++            generator = torch.Generator(device=pipeline.device).manual_seed(seed)
++            
++        print(f"Running SDXL Inpaint: prompt='{prompt}', steps={num_inference_steps}, guidance={guidance_scale}...")
++        
++        # Thực hiện Inpainting sử dụng padding_mask_crop=64
++        with torch.inference_mode():
++            pipe_out = pipeline(
++                prompt=prompt,
++                negative_prompt=negative_prompt,
++                image=pil_image,
++                mask_image=pil_mask,
++                num_inference_steps=num_inference_steps,
++                guidance_scale=guidance_scale,
++                padding_mask_crop=64,
++                generator=generator
++            )
++            
++        gen_img_pil = pipe_out.images[0]
++        gen_img_bgr = cv2.cvtColor(np.array(gen_img_pil), cv2.COLOR_RGB2BGR)
++        
++        # Hòa trộn Laplacian Pyramid Blending với Histogram Matching khử VAE color drift
++        blended_img = apply_laplacian_pyramid_blend(orig_img_bgr, gen_img_bgr, mask_gray, num_levels=6)
++        
++        # ZERO BASE64: Encode thành bytes PNG và upload qua S3 PUT URL trực tiếp
++        image_bytes = cv2.imencode('.png', blended_img)[1].tobytes()
++        
++        print(f"Uploading blended image bytes ({len(image_bytes)} bytes) to S3 output_url...")
++        put_response = requests.put(output_url, data=image_bytes, headers={"Content-Type": "image/png"}, timeout=30)
++        put_response.raise_for_status()
++        
++        return {"status": "success", "image_url": output_url}
++
+     # 🟢 4. LỆNH TRANSLATE: Dịch toàn bộ trang truyện
+-    img_b64 = job_input['image_base64']
+-    img_data = base64.b64decode(img_b64)
+-    nparr = np.frombuffer(img_data, np.uint8)
++    image_url = job_input['image_url']
++    response = requests.get(image_url, timeout=10)
++    response.raise_for_status()
++    image_array = np.frombuffer(response.content, np.uint8)
+     
+     # 🚀 LƯU TRỮ KÍCH THƯỚC GỐC CỦA ẢNH ĐỂ ĐỐI CHIẾU
+-    original_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
++    original_image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+     orig_h, orig_w = original_image.shape[:2]
+     clean_image = original_image.copy()
+ 
+@@ -134,45 +371,9 @@ def handler(job):
+             })
+             count += 1
+             
+-            # LaMa Inpainting
+-            pad_x, pad_y = max(40, min(int(w * 0.5), 150)), max(40, min(int(h * 0.5), 150))
+-            x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
+-            x2_pad, y2_pad = min(orig_w, x + w + pad_x), min(orig_h, y + h + pad_y)
+-            
+-            crop_img = clean_image[y1_pad:y2_pad, x1_pad:x2_pad]
+-            crop_mask = final_mask[y1_pad:y2_pad, x1_pad:x2_pad]
+-            
+-            if cv2.countNonZero(crop_mask) == 0: continue
+-            
+-            h_crop, w_crop = crop_img.shape[:2]
+-            original_crop_mask = crop_mask.copy()
+-            
+-            scale = 1.0
+-            if h_crop > 512 or w_crop > 512:
+-                scale = 512.0 / max(h_crop, w_crop)
+-                new_w, new_h = int(w_crop * scale), int(h_crop * scale)
+-                crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+-                crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+-            else:
+-                new_w, new_h = w_crop, h_crop
+-
+-            pad_bottom, pad_right = 512 - new_h, 512 - new_w
+-            if pad_bottom > 0 or pad_right > 0:
+-                crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+-                crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+-
+-            img_t = np.transpose(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
+-            mask_t = np.transpose((crop_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
+-
+-            ort_outs = lama_session.run(None, {lama_session.get_inputs()[0].name: img_t, lama_session.get_inputs()[1].name: mask_t})
+-            out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
+-            clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+-            
+-            if scale != 1.0: 
+-                clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+-            
+-            mask_bool = original_crop_mask > 0
+-            clean_image[y1_pad:y2_pad, x1_pad:x2_pad][mask_bool] = clean_crop[mask_bool]
++        # Run batched LaMa inpainting on the entire image at once
++        if cv2.countNonZero(final_mask) > 0:
++            clean_image = lama_inpaint_batched(clean_image, final_mask, lama_session)
+             
+         _, buffer = cv2.imencode('.jpg', clean_image)
+         clean_b64 = base64.b64encode(buffer).decode('utf-8')
+diff --git a/manga-backend/main.py b/manga-backend/main.py
+index 67b27f2..43cab2b 100644
+--- a/manga-backend/main.py
++++ b/manga-backend/main.py
+@@ -30,12 +30,13 @@ from fastapi.responses import StreamingResponse
+ import redis.asyncio as aioredis
+ import json
+ import asyncio
++from s3_utils import fetch_image_from_url
+ # Sửa dòng import này (khoảng dòng 17)
+ # from worker import process_manga_page, lama_session, mocr, client, text_detector
+ # from celery.result import AsyncResult
+ 
+ from pydantic import BaseModel
+-from typing import List, Dict, Any
++from typing import List, Dict, Any, Optional
+ 
+ # 1. KHỞI TẠO APP TRƯỚC
+ app = FastAPI(title="Manga AI Backend API", version="2.0.0")
+@@ -199,8 +200,8 @@ COMFYUI_URL = "http://127.0.0.1:8188"
+ PROJECTS_DIR = "/app/workspace/projects" # Thay đổi cho đúng đường dẫn lưu ảnh của bạn
+ 
+ class RedrawRequest(BaseModel):
+-    filename: str
+-    mask_base64: str
++    image_url: str
++    mask_url: str
+     prompt: str
+ 
+ def get_base_url():
+@@ -376,16 +377,23 @@ import base64
+ import json
+ from fastapi import Request, HTTPException
+ 
+-# 🚀 CỬA KHẨU BẢO MẬT: Bóc tách JWT thuần túy (Chống crash 100%)
++# 🚀 CỬA KHẨU BẢO MẬT: Bóc tách JWT thuần túy (Chống crash 100% + Hỗ trợ Query Param cho tải file)
+ async def get_current_user_id(request: Request):
+     auth_header = request.headers.get("Authorization")
+-    if not auth_header or not auth_header.startswith("Bearer "):
++    print(f"🔑 [AUTH DEBUG] Request path: {request.url.path} | Authorization Header: {auth_header}")
++    token = None
++    if auth_header and auth_header.startswith("Bearer "):
++        token = auth_header.split(" ")[1]
++    else:
++        token = request.query_params.get("token")
++        
++    if not token:
++        print("🔑 [AUTH DEBUG] No token found in header or query params!")
+         raise HTTPException(status_code=401, detail="Bạn chưa đăng nhập!")
+     
+-    token = auth_header.split(" ")[1]
+-    
+     try:
+         # JWT có 3 phần (Header, Payload, Signature) cách nhau bởi dấu chấm. Ta lấy phần giữa (Payload).
++        print(f"🔑 [AUTH DEBUG] Extracting token: {token[:15]}...{token[-15:] if len(token) > 30 else ''}")
+         payload_b64 = token.split(".")[1]
+         
+         # Thêm các dấu "=" vào cuối để chuẩn hóa định dạng Base64 nếu bị thiếu padding
+@@ -397,24 +405,62 @@ async def get_current_user_id(request: Request):
+         
+         # Moi ID của User ra
+         user_id = payload.get("sub")
++        print(f"🔑 [AUTH DEBUG] Decoded payload sub: {user_id} | email: {payload.get('email')}")
+         
+         if not user_id:
++            print("🔑 [AUTH DEBUG] Token is missing 'sub' (User ID)!")
+             raise HTTPException(status_code=401, detail="Token thiếu thông tin User ID!")
+             
++        # Lưu email thật vào request.state để các API tạo User có thể lấy
++        request.state.user_email = payload.get("email")
++        
+         return user_id
+ 
+     except Exception as e:
+-        # Bổ sung in lỗi ra Terminal để nếu có vấn đề sếp sẽ thấy ngay!
+         print(f"🛑 [LỖI GIẢI MÃ TOKEN]: {e}")
+         raise HTTPException(status_code=401, detail="Cấu trúc Token không hợp lệ hoặc bị hỏng!")
+ 
++# 🚀 HELPER: Đảm bảo User tồn tại trong DB trước khi tạo các ràng buộc khóa ngoại
++async def ensure_user_exists(db: AsyncSession, user_id: str, email: str = None):
++    from sqlalchemy import select
++    stmt = select(models.User).where(models.User.id == user_id)
++    user = (await db.execute(stmt)).scalar_one_or_none()
++    if not user:
++        if not email:
++            email = f"user_{user_id}@deepkoma.local"
++        user = models.User(id=user_id, email=email, credits=20)
++        db.add(user)
++        await db.flush()
++    return user
++
++# 🚀 HELPER: Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng bảo mật IDOR)
++async def check_page_ownership(page_id: str, user_id: str, db: AsyncSession) -> models.Page:
++    from sqlalchemy import select
++    stmt = select(models.Page).join(models.Project, models.Page.project_id == models.Project.id).where(
++        models.Page.id == page_id,
++        models.Project.user_id == user_id
++    )
++    result = await db.execute(stmt)
++    page = result.scalars().first()
++    if not page:
++        raise HTTPException(
++            status_code=403, 
++            detail="Bạn không có quyền truy cập trang này hoặc trang không tồn tại!"
++        )
++    return page
++
+ # 🚀 TẠO DỰ ÁN MỚI
+ @app.post("/api/projects")
+ async def create_project(
+     payload: dict, # Nhận JSON {"name": "..."}
++    request: Request,
+     db: AsyncSession = Depends(get_db),
+     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+ ):
++    # Đảm bảo User tồn tại trong DB
++    email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
++    await ensure_user_exists(db, user_id, email)
++
+     project_id = str(uuid.uuid4())
+     db_project = models.Project(id=project_id, name=payload.get("name", "New Project"), user_id=user_id)
+     db.add(db_project)
+@@ -431,34 +477,73 @@ async def list_projects(db: AsyncSession = Depends(get_db), user_id: str = Depen
+ import json # 🚀 Nhớ đảm bảo có import json ở đầu file nhé sếp
+ 
+ @app.post("/api/pages/{page_id}/bubbles")
+-async def save_page_bubbles(page_id: str, payload: BubbleListPayload, db: AsyncSession = Depends(get_db)):
++async def save_page_bubbles(
++    page_id: str, 
++    payload: BubbleListPayload, 
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
++):
+     try:
+-        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+-        page = result.scalars().first()
+-        if page:
+-            page.bubbles_data = json.dumps(payload.dict()["bubbles"])
++        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++        page = await check_page_ownership(page_id, user_id, db)
++        
++        # 🚀 TÍCH LŨY TÀI SẢN DỮ LIỆU: Ghi nhận sửa đổi của người dùng để Fine-tune model dịch sau này
++        bubbles = payload.dict()["bubbles"]
++        for b in bubbles:
++            raw_jp = (b.get("japanese") or "").strip()
++            ai_vi = (b.get("vietnamese") or "").strip()
++            user_vi = (b.get("text") or "").strip()
+             
+-            # 🚀 BẢN VÁ UX: Chỉ đổi sang "translating" (Đang dịch) chứ KHÔNG PHẢI là Hoàn tất!
+-            # Nếu user đã chủ động bấm Completed trước đó thì giữ nguyên, không hạ cấp
+-            if page.status != "completed":
+-                page.status = "translating" 
+-                
+-            await db.commit()
++            # Chỉ ghi nhận nếu câu gốc tiếng Nhật có nội dung và người dùng thực sự đã thay đổi bản dịch gợi ý của AI
++            if raw_jp and user_vi and (user_vi != ai_vi):
++                # Tránh lưu trùng lặp bản ghi chỉnh sửa cùng nội dung trên cùng 1 trang
++                stmt_corr = select(models.TranslationCorrection).where(
++                    models.TranslationCorrection.page_id == page_id,
++                    models.TranslationCorrection.japanese_raw == raw_jp,
++                    models.TranslationCorrection.user_corrected == user_vi
++                )
++                existing_corr = (await db.execute(stmt_corr)).scalars().first()
++                if not existing_corr:
++                    corr = models.TranslationCorrection(
++                        project_id=page.project_id,
++                        page_id=page.id,
++                        japanese_raw=raw_jp,
++                        ai_translation=ai_vi,
++                        user_corrected=user_vi
++                    )
++                    db.add(corr)
++
++        page.bubbles_data = json.dumps(bubbles)
++        
++        # 🚀 BẢN VÁ UX: Chỉ đổi sang "translating" (Đang dịch) chứ KHÔNG PHẢI là Hoàn tất!
++        # Nếu user đã chủ động bấm Completed trước đó thì giữ nguyên, không hạ cấp
++        if page.status != "completed":
++            page.status = "translating" 
++            
++        await db.commit()
+         return {"status": "success"}
++    except HTTPException:
++        raise
+     except Exception as e:
+         raise HTTPException(status_code=500, detail=str(e))
+ 
+ @app.get("/api/pages/{page_id}/bubbles")
+-async def get_page_bubbles(page_id: str, db: AsyncSession = Depends(get_db)):
++async def get_page_bubbles(
++    page_id: str, 
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
++):
+     try:
+-        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+-        page = result.scalars().first()
++        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++        page = await check_page_ownership(page_id, user_id, db)
+         
+         # 🚀 Lấy chuỗi JSON từ Database và dịch ngược lại thành Mảng trả về cho Frontend
+-        if page and page.bubbles_data:
++        if page.bubbles_data:
+             return {"bubbles": json.loads(page.bubbles_data)}
+             
+         return {"bubbles": []}
++    except HTTPException:
++        raise
+     except Exception as e:
+         raise HTTPException(status_code=500, detail=str(e))
+ 
+@@ -552,7 +637,14 @@ from fastapi import BackgroundTasks
+ # CẤU HÌNH RUNPOD LẤY TỪ FILE .ENV (CHUẨN BẢO MẬT)
+ # ==========================================
+ RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY")
+-RUNPOD_ENDPOINT_ID = os.getenv("RUNPOD_ENDPOINT_ID")
++RUNPOD_TRANSLATE_ENDPOINT_ID = os.getenv("RUNPOD_TRANSLATE_ENDPOINT_ID") or os.getenv("RUNPOD_ENDPOINT_ID")
++RUNPOD_REDRAW_ENDPOINT_ID = os.getenv("RUNPOD_REDRAW_ENDPOINT_ID")
++
++# Secure Fail-safe configuration check
++if not RUNPOD_API_KEY or not RUNPOD_REDRAW_ENDPOINT_ID:
++    raise ValueError("Missing RUNPOD_API_KEY or RUNPOD_REDRAW_ENDPOINT_ID in environment variables")
++
++RUNPOD_ENDPOINT_ID = RUNPOD_TRANSLATE_ENDPOINT_ID
+ 
+ # 🚀 THÊM DÒNG NÀY VÀO ĐẦU FILE (Dưới các dòng import)
+ import redis
+@@ -704,18 +796,20 @@ async def save_results(
+     page_id: str, 
+     data: List[Dict[str, Any]], # Chấp nhận mảng dữ liệu OCR
+     clean_url: str = Query(...), 
+-    db: AsyncSession = Depends(get_db)
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+ ):
+     try:
+-        # Code cập nhật Database của bạn ở đây...
+-        query = await db.execute(select(models.Page).where(models.Page.id == page_id))
+-        page = query.scalars().first()
+-        if page:
+-            page.clean_url = clean_url
+-            page.status = "completed"
+-            await db.commit()
++        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++        page = await check_page_ownership(page_id, user_id, db)
++        
++        page.clean_url = clean_url
++        page.status = "completed"
++        await db.commit()
+             
+         return {"status": "success"}
++    except HTTPException:
++        raise
+     except Exception as e:
+         print("Lỗi save-results:", str(e))
+         raise HTTPException(status_code=500, detail=str(e))
+@@ -759,7 +853,9 @@ from fastapi import HTTPException
+ async def quick_scan(request: Request, payload: QuickScanPayload): 
+     try:
+         img_raw = payload.filename
+-        if img_raw.startswith("data:image"):
++        if img_raw.startswith("http://") or img_raw.startswith("https://"):
++            image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
++        elif img_raw.startswith("data:image"):
+             nparr = np.frombuffer(base64.b64decode(img_raw.split(',')[1]), np.uint8)
+             image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+         else:
+@@ -823,30 +919,43 @@ async def quick_scan(request: Request, payload: QuickScanPayload):
+     
+ class MaskPayload(BaseModel):
+     image_url: str
+-    mask_base64: str
+-    page_id: str = None
++    mask_url: Optional[str] = None
++    mask_base64: Optional[str] = None
++    page_id: Optional[str] = None
+ 
+ @app.post("/api/erase-mask")
+-async def erase_mask(payload: MaskPayload, db: AsyncSession = Depends(get_db)):
++async def erase_mask(
++    payload: MaskPayload, 
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
++):
+     try:
++        if payload.page_id:
++            # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++            await check_page_ownership(payload.page_id, user_id, db)
++        
++        # Fetch raw image directly to RAM
++        image = await fetch_image_from_url(payload.image_url, cv2.IMREAD_COLOR)
++        
++        # Determine clean path on local disk (VPS)
+         img_raw = payload.image_url
+-        if img_raw.startswith("data:image"):
+-            nparr = np.frombuffer(base64.b64decode(img_raw.split(',')[1]), np.uint8)
+-            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+-            clean_path = f"workspace/clean_{uuid.uuid4().hex}.png"
++        img_path = get_local_path_from_url(img_raw)
++        clean_path = img_path.replace("/raw/", "/clean/") if "/raw/" in img_path else f"workspace/clean_{uuid.uuid4().hex}.png"
++
++        # Fetch mask directly to RAM (either from URL or from Base64)
++        if payload.mask_base64:
++            b64_data = payload.mask_base64
++            if "," in b64_data:
++                b64_data = b64_data.split(",")[1]
++            mask_bytes = base64.b64decode(b64_data)
++            nparr = np.frombuffer(mask_bytes, np.uint8)
++            mask_rgba = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
++        elif payload.mask_url:
++            mask_rgba = await fetch_image_from_url(payload.mask_url, cv2.IMREAD_UNCHANGED)
+         else:
+-            img_path = img_raw.split('8000/')[-1] if '8000/' in img_raw else img_raw
+-            img_path = img_path.split('?')[0]
+-            base_path, _ = os.path.splitext(img_path)
+-            matched_files = glob.glob(f"{base_path}.*")
+-            img_path = matched_files[0] if matched_files else img_path
+-            image = cv2.imread(img_path)
+-            clean_path = img_path.replace("/raw/", "/clean/") if "/raw/" in img_path else f"workspace/clean_{uuid.uuid4().hex}.png"
++            raise HTTPException(status_code=400, detail="Vui lòng cung cấp mask_base64 hoặc mask_url")
+ 
+-        encoded_data_mask = payload.mask_base64.split(',')[1]
+-        nparr_mask = np.frombuffer(base64.b64decode(encoded_data_mask), np.uint8)
+-        mask_rgba = cv2.imdecode(nparr_mask, cv2.IMREAD_UNCHANGED)
+-        mask = mask_rgba[:, :, 3] if len(mask_rgba.shape) == 3 and mask_rgba.shape[2] == 4 else cv2.imdecode(nparr_mask, cv2.IMREAD_GRAYSCALE)
++        mask = mask_rgba[:, :, 3] if len(mask_rgba.shape) == 3 and mask_rgba.shape[2] == 4 else cv2.cvtColor(mask_rgba, cv2.COLOR_BGR2GRAY) if len(mask_rgba.shape) == 3 else mask_rgba
+ 
+         x, y, w, h = cv2.boundingRect(mask)
+         if w > 0 and h > 0:
+@@ -906,14 +1015,34 @@ async def upload_raw(file: UploadFile = File(...)):
+     return {"status": "success", "filename": file.filename}
+ 
+ # ==========================================
+-# CÁC CLASS MODEL NHẬN DỮ LIỆU
++# API UPLOAD FILE DÀNH CHO RUNPOD WORKER (PUT)
+ # ==========================================
+-  # 🚀 THÊM DÒNG NÀY ĐỂ NHẬN ID TỪ FRONTEND
++@app.put("/api/upload-file")
++async def upload_file(path: str, request: Request):
++    try:
++        # Sanitize path to prevent directory traversal
++        clean_path = os.path.normpath(path).replace("\\", "/")
++        if not clean_path.startswith("workspace/"):
++            raise HTTPException(status_code=400, detail="Invalid path destination")
++        
++        body = await request.body()
++        os.makedirs(os.path.dirname(clean_path), exist_ok=True)
++        with open(clean_path, "wb") as f:
++            f.write(body)
++        return {"status": "success", "path": clean_path}
++    except Exception as e:
++        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
+ 
++# ==========================================
++# CÁC CLASS MODEL NHẬN DỮ LIỆU
++# ==========================================
+ class RedrawRequest(BaseModel):
+     image_url: str
+-    mask_base64: str
++    mask_url: Optional[str] = None
++    mask_base64: Optional[str] = None
+     prompt: str
++    page_id: Optional[str] = None
++
+ 
+ # Hàm helper bóc tách URL thành đường dẫn vật lý trên RunPod
+ def get_local_path_from_url(url: str) -> str:
+@@ -941,126 +1070,122 @@ class TranslateConfig(BaseModel):
+ 
+ 
+ 
+-# ==========================================
+-# API VẼ LẠI BẰNG COMFYUI (REDRAW)
+ # ==========================================
+ @app.post("/api/redraw")
+-async def redraw_image(req: RedrawRequest):
++async def redraw_image(
++    req: RedrawRequest,
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
++):
+     try:
++        if req.page_id:
++            # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++            await check_page_ownership(req.page_id, user_id, db)
++
+         # 1. Tìm đường dẫn file gốc
+         img_path = get_local_path_from_url(req.image_url)
+-        image_absolute_path = os.path.abspath(img_path) # ComfyUI cần đường dẫn tuyệt đối
+-        if not os.path.exists(image_absolute_path):
+-            raise HTTPException(status_code=404, detail="Không tìm thấy ảnh gốc cho ComfyUI")
++        if not os.path.exists(img_path):
++            raise HTTPException(status_code=404, detail="Không tìm thấy ảnh gốc để vẽ lại")
++
++        clean_path = img_path.replace("/raw/", "/clean/") if "/raw/" in img_path else f"workspace/clean_{uuid.uuid4().hex}.png"
++
++        # 2. Xử lý mặt nạ (Mask): Hỗ trợ Base64 hoặc URL
++        mask_bytes = None
++        if req.mask_base64:
++            b64_data = req.mask_base64
++            if "," in b64_data:
++                b64_data = b64_data.split(",")[1]
++            mask_bytes = base64.b64decode(b64_data)
++        elif req.mask_url:
++            async with httpx.AsyncClient() as client:
++                res = await client.get(req.mask_url, follow_redirects=True)
++                res.raise_for_status()
++                mask_bytes = res.content
++        else:
++            raise HTTPException(status_code=400, detail="Vui lòng cung cấp mask_base64 hoặc mask_url")
+ 
+-        # 2. Lưu tạm Mask ra ổ cứng cho ComfyUI đọc
+-        mask_data = req.mask_base64.split(",")[1]
++        # Lưu tạm mặt nạ ra đĩa làm URL tĩnh cho RunPod tải
+         mask_filename = f"mask_{uuid.uuid4().hex}.png"
+-        mask_absolute_path = os.path.abspath(os.path.join("workspace", mask_filename))
+-        
+-        with open(mask_absolute_path, "wb") as fh:
+-            fh.write(base64.b64decode(mask_data))
+-            
+-        # 3. Setup Prompt Tiếng Anh chuẩn Manga (Từ báo cáo Deep Research)
++        mask_temp_path = f"workspace/{mask_filename}"
++        os.makedirs("workspace", exist_ok=True)
++        with open(mask_temp_path, "wb") as f:
++            f.write(mask_bytes)
++
++        # Tạo URL tuyệt đối trỏ tới ảnh gốc và mặt nạ trên VPS này
++        public_image_url = req.image_url
++        if not public_image_url.startswith("http"):
++            public_image_url = f"{get_base_url()}/{img_path}"
++
++        public_mask_url = f"{get_base_url()}/{mask_temp_path}"
++
++        # 3. Setup Prompt Tiếng Anh chuẩn Manga
+         positive_prompt = f"{req.prompt}, masterpiece, best quality, manga page, monochrome, grayscale, sharp lineart, seamless background, flat shading, high contrast lighting"
+         negative_prompt = "text, speech bubble, watermark, color, photorealistic, 3d render, blurry, artifacts, smooth gradient, western comic"
+ 
+-        # 4. Kịch bản ComfyUI Chuẩn Production Manga
+-        workflow = {
+-            # --- TẢI ẢNH VÀ MODEL ---
+-            "LoadImage_Raw": {"class_type": "LoadImage", "inputs": {"image": image_absolute_path}},
+-            "LoadImage_Mask": {"class_type": "LoadImage", "inputs": {"image": mask_absolute_path}},
+-            "Checkpoint": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "NoobAI-XL-V1.0.safetensors"}},
+-            
+-            # --- CONTROLNET LINEART (Giữ khung nét vẽ) ---
+-            "AnyLine": {"class_type": "AnyLinePreprocessor", "inputs": {"image": ["LoadImage_Raw", 0]}},
+-            "ControlNetModel": {"class_type": "ControlNetLoader", "inputs": {"control_net_name": "controlnet-sdxl-lineart.safetensors"}},
+-            "ApplyControlNet": {
+-                "class_type": "ControlNetApplyAdvanced", 
+-                "inputs": {
+-                    "positive": ["Prompt_Pos", 0], "negative": ["Prompt_Neg", 0],
+-                    "control_net": ["ControlNetModel", 0], "image": ["AnyLine", 0],
+-                    "strength": 0.75, "start_percent": 0.0, "end_percent": 0.7 # Cho phép AI bịa chi tiết ở 30% cuối
+-                }
+-            },
++        # 4. Gửi Job lên RunPod Serverless
++        runpod_payload = {
++            "input": {
++                "action": "redraw",
++                "image_url": public_image_url,
++                "mask_url": public_mask_url,
++                "prompt": positive_prompt,
++                "negative_prompt": negative_prompt,
++                "output_url": f"{get_base_url()}/api/upload-file?path={clean_path}"
++            }
++        }
++
++        headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
++        runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_REDRAW_ENDPOINT_ID}/run"
+ 
+-            # --- PROMPT VÀ INPAINTING ---
+-            "Prompt_Pos": {"class_type": "CLIPTextEncode", "inputs": {"text": positive_prompt, "clip": ["Checkpoint", 1]}},
+-            "Prompt_Neg": {"class_type": "CLIPTextEncode", "inputs": {"text": negative_prompt, "clip": ["Checkpoint", 1]}},
+-            "VAE_Inpaint": {"class_type": "VAEEncodeForInpaint", "inputs": {"grow_mask_by": 6, "pixels": ["LoadImage_Raw", 0], "vae": ["Checkpoint", 2], "mask": ["LoadImage_Mask", 1]}},
++        async with httpx.AsyncClient(timeout=600.0) as client:
++            res = await client.post(runpod_url, json=runpod_payload, headers=headers)
++            if res.status_code != 200:
++                raise Exception(f"RunPod request failed with status {res.status_code}: {res.text}")
+             
+-            # --- SAMPLER (Sử dụng Restart Sampler theo báo cáo) ---
+-            "Sampler": {
+-                "class_type": "KSampler",
+-                "inputs": {
+-                    "seed": int(time.time()), "steps": 35, "cfg": 6.0,
+-                    "sampler_name": "dpmpp_2m", "scheduler": "normal", "denoise": 0.90,
+-                    "model": ["Checkpoint", 0], "positive": ["ApplyControlNet", 0], "negative": ["ApplyControlNet", 1], "latent_image": ["VAE_Inpaint", 0]
+-                }
+-            },
+-            "VAEDecode": {"class_type": "VAEDecode", "inputs": {"samples": ["Sampler", 0], "vae": ["Checkpoint", 2]}},
+-
+-            # --- HALFTONE POST-PROCESSING (Tạo chấm bi Screentone) ---
+-            "Halftone": {
+-                "class_type": "CR Halftone Filter",
+-                "inputs": {
+-                    "image": ["VAEDecode", 0], 
+-                    "resolution": "normal",
+-                    "dot_shape": "circle",
+-                    "dot_size": 2,
+-                    "border_blending": 0,
+-                    "antialias_scale": 1
+-                }
+-            },
+-
+-            # --- COMPOSITE (Chỉ đè vùng AI vẽ lên ảnh gốc, giữ nguyên các vùng khác) ---
+-            "Composite": {
+-                "class_type": "ImageCompositeMasked",
+-                "inputs": {
+-                    "destination": ["LoadImage_Raw", 0],
+-                    "source": ["Halftone", 0],
+-                    "x": 0, "y": 0, "resize_source": False,
+-                    "mask": ["LoadImage_Mask", 1]
+-                }
+-            },
++            job_data = res.json()
++            runpod_job_id = job_data.get("id")
++            if not runpod_job_id:
++                raise Exception(f"RunPod failed to queue job: {job_data}")
++
++            # 5. Polling thăm hỏi trạng thái của Job (Timeout 5 phút)
++            start_time = time.time()
++            success = False
++            while time.time() - start_time < 300:
++                status_res = await client.get(f"https://api.runpod.ai/v2/{RUNPOD_REDRAW_ENDPOINT_ID}/status/{runpod_job_id}", headers=headers)
++                status_data = status_res.json()
++                status = status_data.get("status")
+ 
+-            # --- LƯU ẢNH ---
+-            "Save": {"class_type": "SaveImage", "inputs": {"filename_prefix": "MangaRedraw_Pro", "images": ["Composite", 0]}}
+-        }
++                if status == "COMPLETED":
++                    success = True
++                    break
++                elif status in ["FAILED", "CANCELLED"]:
++                    raise Exception(f"RunPod Serverless báo lỗi: {status_data.get('error', 'Lỗi không xác định')}")
++                
++                await asyncio.sleep(3)
+ 
+-        # 5. Gửi cho ComfyUI chạy
+-        queue_res = queue_prompt_to_comfyui(workflow)
+-        prompt_id = queue_res['prompt_id']
+-
+-        # 6. Chờ kết quả
+-        output_image_path = None
+-        while True:
+-            time.sleep(1)
+-            history = get_comfyui_history(prompt_id)
+-            if prompt_id in history:
+-                outputs = history[prompt_id]['outputs']
+-                for node_id in outputs:
+-                    if 'images' in outputs[node_id]:
+-                        comfy_filename = outputs[node_id]['images'][0]['filename']
+-                        output_image_path = f"/app/workspace/ComfyUI/output/{comfy_filename}"
+-                        break
+-                break
++            if not success:
++                raise Exception("Thời gian chờ xử lý AI trên RunPod Serverless đã quá hạn (Timeout 5 phút)")
+ 
+-        if not output_image_path:
+-            raise Exception("ComfyUI không trả về ảnh")
++        # 6. Đồng bộ DB nếu có page_id
++        if req.page_id:
++            result = await db.execute(select(models.Page).where(models.Page.id == req.page_id))
++            page = result.scalars().first()
++            if page:
++                page.clean_url = f"/{clean_path}"
++                page.status = "cleaned" 
++                await db.commit()
+ 
+-        # 7. Di chuyển ảnh vẽ xong vào đúng thư mục Clean
+-        clean_path = img_path.replace("/raw/", "/clean/")
+-        os.rename(output_image_path, clean_path)
+-        
+-        # Xóa file mask rác
+-        if os.path.exists(mask_absolute_path): os.remove(mask_absolute_path)
++        # 7. Dọn dẹp file mặt nạ tạm
++        if os.path.exists(mask_temp_path):
++            os.remove(mask_temp_path)
+ 
+-        new_url = f"{get_base_url()}/{clean_path}"
++        new_url = f"{get_base_url()}/{clean_path}?t={int(time.time())}"
+         return {"status": "success", "new_url": new_url}
+ 
+     except Exception as e:
+         print("Lỗi Redraw:", str(e))
++        if 'mask_temp_path' in locals() and os.path.exists(mask_temp_path):
++            os.remove(mask_temp_path)
+         raise HTTPException(status_code=500, detail=str(e))
+ 
+ 
+@@ -1068,14 +1193,14 @@ async def redraw_image(req: RedrawRequest):
+ # API XUẤT FILE PSD (SỬA LỖI NHẦM ẢNH RAW)
+ # ==========================================
+ @app.get("/api/pages/{page_id}/download-psd")
+-async def download_psd(page_id: str, db: AsyncSession = Depends(get_db)):
++async def download_psd(
++    page_id: str, 
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
++):
+     try:
+-        # 1. Tìm thông tin trang truyện từ DB
+-        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+-        page = result.scalars().first()
+-        
+-        if not page:
+-            raise HTTPException(status_code=404, detail="Dữ liệu cũ! Hãy tạo Project mới và Upload lại ảnh nhé sếp!")
++        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++        page = await check_page_ownership(page_id, user_id, db)
+ 
+         # 2. Xử lý đường dẫn chuẩn xác
+         raw_path = get_local_path_from_url(page.raw_url)
+@@ -1125,20 +1250,26 @@ import glob # Bổ sung dòng import này ở tít trên cùng file main.py nế
+ import json # Bổ sung nếu chưa có
+ 
+ @app.get("/api/pages/{page_id}/jsx")
+-async def download_jsx(page_id: str, db: AsyncSession = Depends(get_db)):
++async def download_jsx(
++    page_id: str, 
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
++):
+     """
+     API Tạo và Tải file JSX Động (Realtime):
+     Đọc thẳng từ CSDL, sếp gõ tay hay AI dịch nó đều xuất ra được hết!
+     """
+-    # 1. Tìm trang truyện
+-    result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+-    page = result.scalar_one_or_none()
+-    if not page:
+-        raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện")
++    # 1. Tìm trang truyện & Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++    page = await check_page_ownership(page_id, user_id, db)
+ 
+-    # 2. Lấy toàn bộ bong bóng thoại của trang này từ CSDL (kể cả do sếp tự vẽ tay)
+-    bubbles_result = await db.execute(select(models.TextBubble).where(models.TextBubble.page_id == page_id))
+-    bubbles = bubbles_result.scalars().all()
++    # 2. Lấy toàn bộ bong bóng thoại của trang này từ JSON trong CSDL
++    bubbles = []
++    if page.bubbles_data:
++        try:
++            bubbles = json.loads(page.bubbles_data)
++        except Exception as e:
++            print(f"Lỗi đọc JSON bubbles: {e}")
++            bubbles = []
+ 
+     if not bubbles:
+         raise HTTPException(status_code=404, detail="Trang này chưa có chữ nào! Hãy dùng AI Dịch hoặc tự thêm chữ rồi Lưu lại.")
+@@ -1146,20 +1277,16 @@ async def download_jsx(page_id: str, db: AsyncSession = Depends(get_db)):
+     # 3. Gom dữ liệu tọa độ và chữ để nạp vào Script
+     js_data = []
+     for b in bubbles:
+-        text = (b.vietnamese_text or "").strip()
++        text = (b.get("text") or "").strip()
+         if not text:
+             continue # Bỏ qua ô nào không có chữ
+         
+-        # Tính toán chiều rộng, chiều cao từ tọa độ
+-        w = b.box_x2 - b.box_x1
+-        h = b.box_y2 - b.box_y1
+-        
+         js_data.append({
+             "text": text,
+-            "x": b.box_x1,
+-            "y": b.box_y1,
+-            "w": w,
+-            "h": h
++            "x": b.get("x", 0),
++            "y": b.get("y", 0),
++            "w": b.get("w", 100),
++            "h": b.get("h", 100)
+         })
+         
+     if not js_data:
+@@ -1269,15 +1396,15 @@ async def startup_event():
+     asyncio.create_task(auto_cleanup_workspace())
+ 
+ @app.delete("/api/pages/{page_id}")
+-async def delete_page_from_server(page_id: str, db: AsyncSession = Depends(get_db)):
++async def delete_page_from_server(
++    page_id: str, 
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
++):
+     try:
+-        # 1. Tìm thông tin trang trong Database
+-        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+-        page = result.scalars().first()
++        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++        page = await check_page_ownership(page_id, user_id, db)
+         
+-        if not page:
+-            raise HTTPException(status_code=404, detail="Trang không tồn tại trên Server")
+-            
+         project_id = page.project_id
+ 
+         # 2. XÓA FILE RAW VẬT LÝ
+@@ -1384,12 +1511,14 @@ async def get_project_pages(project_id: str, db: AsyncSession = Depends(get_db),
+ 
+ 
+ @app.get("/api/pages/{page_id}/export-manga")
+-async def export_manga(page_id: str, db: AsyncSession = Depends(get_db)):
++async def export_manga(
++    page_id: str, 
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
++):
+     """Đóng gói Ảnh và Chữ thành 1 file .manga (Thực chất là file ZIP) để người dùng tải về"""
+-    result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+-    page = result.scalars().first()
+-    if not page:
+-        raise HTTPException(status_code=404, detail="Không tìm thấy trang!")
++    # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++    page = await check_page_ownership(page_id, user_id, db)
+ 
+     # 1. Lấy đường dẫn ảnh (Ưu tiên ảnh đã Clean, nếu chưa có thì lấy ảnh Raw)
+     img_path_url = page.clean_url if page.clean_url else page.raw_url
+@@ -1493,22 +1622,21 @@ import httpx # Nhớ đảm bảo có dòng này ở đầu file
+ # 1. BẮN LỆNH LÊN RUNPOD (Thay Celery)
+ # ==========================================
+ @app.post("/api/pages/{page_id}/translate")
+-async def translate_page(page_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+-    from sqlalchemy.future import select
+-    
+-    # 1. Lấy thông tin trang truyện từ DB
+-    result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+-    page = result.scalar_one_or_none()
+-    if not page:
+-        raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện")
++async def translate_page(
++    page_id: str, 
++    request: Request, 
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
++):
++    # 1. Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++    page = await check_page_ownership(page_id, user_id, db)
+ 
+-    # 2. Đọc ảnh và chuyển thành Base64
+-    img_path = f".{page.raw_url}"
+-    try:
+-        with open(img_path, "rb") as f:
+-            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+-    except Exception as e:
+-        raise HTTPException(status_code=400, detail="Không đọc được file ảnh gốc")
++    # 2. Lấy URL ảnh gốc từ CSDL (tự động biến thành URL tuyệt đối nếu là đường dẫn tương đối)
++    img_url = page.raw_url
++    if not img_url:
++        raise HTTPException(status_code=400, detail="Không tìm thấy URL ảnh gốc")
++    if img_url.startswith("/"):
++        img_url = f"{get_base_url()}{img_url}"
+ 
+     config = await request.json()
+ 
+@@ -1520,7 +1648,7 @@ async def translate_page(page_id: str, request: Request, db: AsyncSession = Depe
+     }
+     payload = {
+         "input": {
+-            "image_base64": img_b64,
++            "image_url": img_url,
+             "genre": config.get("genre", ""),
+             "tone": config.get("tone", ""),
+             "pronouns": config.get("pronouns", ""),
+@@ -1560,7 +1688,7 @@ async def get_task_result(task_id: str):
+         if isinstance(output, dict) and output.get("status") == "error":
+             return {"status": "FAILURE", "message": str(output)}
+             
+-        clean_b64 = output.get("clean_image_base64")
++        clean_url = output.get("clean_image_url") or output.get("clean_url") or ""
+         extracted_data = output.get("data", [])
+         context = output.get("context", {}) # Lấy lại ngữ cảnh Runpod dội về
+         
+@@ -1591,15 +1719,7 @@ async def get_task_result(task_id: str):
+                 for item in extracted_data:
+                     item["vietnamese"] = "Lỗi dịch thuật (VPS)"
+         
+-        # LƯU ẢNH SẠCH LÊN Ổ CỨNG VPS
+-        clean_url = ""
+-        if clean_b64:
+-            clean_img_data = base64.b64decode(clean_b64)
+-            os.makedirs("workspace", exist_ok=True) 
+-            file_path = f"workspace/temp_clean_{task_id}.jpg"
+-            with open(file_path, "wb") as f:
+-                f.write(clean_img_data)
+-            clean_url = f"/{file_path}"
++        # S3 Migration: The clean image is already hosted on S3 (clean_url)
+             
+         # Trả cục dữ liệu ĐÃ ĐƯỢC DỊCH HOÀN CHỈNH về cho React vẽ
+         return {
+@@ -1688,13 +1808,14 @@ async def import_manga_file(
+ 
+ # 🚀 API BỔ SUNG: CHỈ DỊCH LẠI CHỮ (BẢN VÁ LỖI CHỐNG ĐẠN)
+ @app.post("/api/pages/{page_id}/retry-text-translation")
+-async def retry_text_translation(page_id: str, db: AsyncSession = Depends(get_db)):
++async def retry_text_translation(
++    page_id: str, 
++    db: AsyncSession = Depends(get_db),
++    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
++):
+     try:
+-        # 1. Tìm thông tin trang trong DB
+-        result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+-        page = result.scalars().first()
+-        if not page:
+-            raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện này!")
++        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
++        page = await check_page_ownership(page_id, user_id, db)
+         
+         # 🚀 BẢN VÁ: Hướng dẫn người dùng bấm đúng nút
+         if not page.bubbles_data or page.bubbles_data == "[]":
+@@ -1984,7 +2105,7 @@ payos_client = PayOS(
+ # API 1: TẠO MÃ QR THANH TOÁN CHO NGƯỜI DÙNG
+ # ==========================================
+ @app.post("/api/payment/create-link")
+-async def create_payment_link(user_id: str, package_id: str, db: AsyncSession = Depends(get_db)):
++async def create_payment_link(request: Request, package_id: str, db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user_id)):
+     # 1. Định nghĩa các gói bán
+     packages = {
+         "pack_test": {"name": "Gói Test Luồng", "price": 2000, "credits": 20},
+@@ -2000,33 +2121,13 @@ async def create_payment_link(user_id: str, package_id: str, db: AsyncSession =
+     # ========================================================
+     # 🚀 BẢN VÁ LỖI KHÓA NGOẠI: TỰ ĐỘNG TẠO USER NẾU CHƯA CÓ
+     # ========================================================
+-    from sqlalchemy import select
+-    stmt_user = select(User).where(User.id == user_id)
+-    existing_user = (await db.execute(stmt_user)).scalar_one_or_none()
+-    
+-    if not existing_user:
+-        # Tạo user giả định để thỏa mãn khóa ngoại Database
+-        new_user = User(id=user_id, email=f"user_{user_id}@deepkoma.local")
+-        db.add(new_user)
+-        # Flush để đẩy data xuống ổ cứng ngay lập tức, giúp lệnh Transaction bên dưới có thể trỏ tới!
+-        await db.flush() 
++    email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
++    await ensure_user_exists(db, user_id, email)
+ 
+     # 2. Tạo mã đơn hàng duy nhất bằng Timestamp
+     order_code = int(time.time() * 1000)
+     
+-    # 3. Lưu giao dịch PENDING vào Database
+-    new_txn = Transaction(
+-        order_code=order_code,
+-        user_id=user_id,
+-        package_name=selected_pack["name"],
+-        amount=selected_pack["price"],
+-        credits_added=selected_pack["credits"],
+-        status="PENDING"
+-    )
+-    db.add(new_txn)
+-    await db.commit()
+-
+-    # 4. Gọi API PayOS SDK Mới để tạo link
++    # 3. Gọi API PayOS SDK Mới để tạo link thanh toán trước
+     from payos.types import CreatePaymentLinkRequest
+     payment_request = CreatePaymentLinkRequest(
+         order_code=order_code,
+@@ -2036,7 +2137,24 @@ async def create_payment_link(user_id: str, package_id: str, db: AsyncSession =
+         return_url="http://localhost:5173/workspace?payment=success"
+     )
+     
+-    payment_link = payos_client.payment_requests.create(payment_request)
++    try:
++        payment_link = payos_client.payment_requests.create(payment_request)
++    except Exception as e:
++        print(f"🛑 [LỖI TẠO LINK PAYOS]: {e}")
++        raise HTTPException(status_code=500, detail="Không thể tạo link thanh toán từ cổng PayOS!")
++        
++    # 4. Lưu giao dịch PENDING kèm link thanh toán vào Database
++    new_txn = Transaction(
++        order_code=order_code,
++        user_id=user_id,
++        package_name=selected_pack["name"],
++        amount=selected_pack["price"],
++        credits_added=selected_pack["credits"],
++        status="PENDING",
++        checkout_url=payment_link.checkout_url
++    )
++    db.add(new_txn)
++    await db.commit()
+     
+     return {"checkoutUrl": payment_link.checkout_url}
+ 
+@@ -2059,36 +2177,62 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+     txn = result.scalar_one_or_none()
+     
+     if txn and txn.status == "PENDING":
+-        txn.status = "PAID"
+-        
+-        stmt_user = select(User).where(User.id == txn.user_id)
+-        user = (await db.execute(stmt_user)).scalar_one_or_none()
+-        
+-        if user:
+-            if "PRO" in txn.package_name:
+-                user.is_pro = True
+-            else:
+-                user.credits += txn.credits_added
+-        
+-        await db.commit()
+-        print(f"💰 TING TING! Đã cộng {txn.credits_added} credits cho user {txn.user_id}")
++        payos_status = webhook_data.get("status")
++        if payos_status == "CANCELLED":
++            txn.status = "CANCELLED"
++            await db.commit()
++            print(f"❌ Giao dịch {order_code} đã bị HỦY từ cổng PayOS")
++        else:
++            txn.status = "PAID"
++            
++            stmt_user = select(User).where(User.id == txn.user_id)
++            user = (await db.execute(stmt_user)).scalar_one_or_none()
++            
++            if user:
++                if "PRO" in txn.package_name:
++                    user.is_pro = True
++                else:
++                    user.credits += txn.credits_added
++            
++            await db.commit()
++            print(f"💰 TING TING! Đã cộng {txn.credits_added} credits cho user {txn.user_id}")
+ 
+     return {"success": True}
+ 
++# ==========================================
++# API 3: LẤY LỊCH SỬ GIAO DỊCH CỦA USER
++# ==========================================
++@app.get("/api/payment/history")
++async def get_payment_history(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
++    """API lấy lịch sử giao dịch của người dùng hiện tại"""
++    stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.created_at.desc())
++    result = await db.execute(stmt)
++    txns = result.scalars().all()
++    
++    return {
++        "transactions": [
++            {
++                "order_code": txn.order_code,
++                "package_name": txn.package_name,
++                "amount": txn.amount,
++                "credits_added": txn.credits_added,
++                "status": txn.status,
++                "checkout_url": getattr(txn, "checkout_url", None),
++                "created_at": txn.created_at.isoformat() if txn.created_at else None
++            }
++            for txn in txns
++        ]
++    }
++
+ # ==========================================
+ # QUẢN LÝ CREDITS: LẤY SỐ DƯ & TRỪ TIỀN
+ # ==========================================
+ @app.get("/api/users/me")
+-async def get_user_profile(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
++async def get_user_profile(request: Request, user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+     """API lấy thông tin User (Bao gồm Credits và gói Pro)"""
+-    stmt = select(User).where(User.id == user_id)
+-    user = (await db.execute(stmt)).scalar_one_or_none()
+-    
+-    if not user:
+-        # Tự động tạo user mới tặng 20 credits nếu lần đầu đăng nhập
+-        user = User(id=user_id, email=f"user_{user_id}@deepkoma.local", credits=20)
+-        db.add(user)
+-        await db.commit()
++    email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
++    user = await ensure_user_exists(db, user_id, email)
++    await db.commit()
+         
+     return {
+         "id": user.id,
+diff --git a/manga-backend/redraw_utils.py b/manga-backend/redraw_utils.py
+new file mode 100644
+index 0000000..e810906
+--- /dev/null
++++ b/manga-backend/redraw_utils.py
+@@ -0,0 +1,108 @@
++import cv2
++import numpy as np
++from skimage import exposure
++
++def pad_to_modulo(img, modulo=32, is_mask=False):
++    """
++    Pads height and width of BGR images or grayscale masks to be divisible by the modulo.
++    Uses BORDER_REFLECT for BGR images and BORDER_CONSTANT (value=0) for masks.
++    """
++    H, W = img.shape[:2]
++    pad_h = (modulo - (H % modulo)) % modulo
++    pad_w = (modulo - (W % modulo)) % modulo
++    
++    if pad_h == 0 and pad_w == 0:
++        return img
++        
++    if is_mask:
++        return cv2.copyMakeBorder(img, 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=0.0)
++    else:
++        return cv2.copyMakeBorder(img, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT)
++
++def apply_laplacian_pyramid_blend(orig_img, gen_img, mask, num_levels=6):
++    """
++    Applies Laplacian Pyramid Blending to blend orig_img and gen_img using the mask.
++    This resolves seam/moire artifacts and color drift between original and generated images.
++    
++    Parameters:
++    - orig_img: numpy.ndarray of shape (H, W, 3), original BGR high-res image (uint8 or float32).
++    - gen_img: numpy.ndarray of shape (H, W, 3), generated BGR image (uint8 or float32).
++    - mask: numpy.ndarray of shape (H, W), grayscale mask (uint8 or float32).
++    - num_levels: int, number of levels in the Gaussian and Laplacian pyramids.
++    """
++    # 1. Standardize inputs to float32 [0.0, 1.0]
++    H, W = orig_img.shape[:2]
++    
++    if orig_img.dtype == np.uint8:
++        orig_img_f = orig_img.astype(np.float32) / 255.0
++    else:
++        orig_img_f = orig_img.astype(np.float32)
++        
++    if gen_img.dtype == np.uint8:
++        gen_img_f = gen_img.astype(np.float32) / 255.0
++    else:
++        gen_img_f = gen_img.astype(np.float32)
++        
++    if mask.dtype == np.uint8:
++        mask_f = mask.astype(np.float32) / 255.0
++    else:
++        mask_f = mask.astype(np.float32)
++
++    # 2. Align color distributions to neutralize VAE color drift
++    # Match gen_img's histogram to orig_img's histogram
++    gen_img_matched = exposure.match_histograms(gen_img_f, orig_img_f, channel_axis=-1)
++
++    # 3. Pad images and mask to modulo 32
++    orig_padded = pad_to_modulo(orig_img_f, modulo=32, is_mask=False)
++    gen_padded = pad_to_modulo(gen_img_matched, modulo=32, is_mask=False)
++    mask_padded = pad_to_modulo(mask_f, modulo=32, is_mask=True)
++
++    # Ensure mask has (H, W, 1) shape for convenient multiplication
++    if len(mask_padded.shape) == 2:
++        mask_padded = np.expand_dims(mask_padded, axis=-1)
++
++    # 4. Generate Gaussian Pyramids
++    gp_a = [orig_padded]
++    gp_b = [gen_padded]
++    gp_mask = [mask_padded]
++
++    for i in range(num_levels - 1):
++        gp_a.append(cv2.pyrDown(gp_a[-1]))
++        gp_b.append(cv2.pyrDown(gp_b[-1]))
++        gp_mask.append(cv2.pyrDown(gp_mask[-1]))
++
++    # 5. Generate Laplacian Pyramids
++    lp_a = [None] * num_levels
++    lp_b = [None] * num_levels
++    
++    lp_a[num_levels-1] = gp_a[num_levels-1]
++    lp_b[num_levels-1] = gp_b[num_levels-1]
++
++    for i in range(num_levels - 2, -1, -1):
++        size = (gp_a[i].shape[1], gp_a[i].shape[0])
++        lp_a[i] = gp_a[i] - cv2.pyrUp(gp_a[i+1], dstsize=size)
++        lp_b[i] = gp_b[i] - cv2.pyrUp(gp_b[i+1], dstsize=size)
++
++    # 6. Blend Pyramids
++    ls = []
++    for i in range(num_levels):
++        mask_val = gp_mask[i]
++        if len(mask_val.shape) == 2:
++            mask_val = np.expand_dims(mask_val, axis=-1)
++        
++        mask_expanded = np.repeat(mask_val, 3, axis=-1)
++        
++        ls_level = lp_a[i] * (1.0 - mask_expanded) + lp_b[i] * mask_expanded
++        ls.append(ls_level)
++
++    # 7. Reconstruct Image
++    reconstructed = ls[num_levels-1]
++    for i in range(num_levels - 1, 0, -1):
++        size = (ls[i-1].shape[1], ls[i-1].shape[0])
++        reconstructed = cv2.pyrUp(reconstructed, dstsize=size) + ls[i-1]
++
++    # 8. Crop final reconstructed image back to original dimensions
++    final_img = reconstructed[0:H, 0:W]
++    final_img = np.clip(final_img * 255.0, 0, 255).astype(np.uint8)
++    
++    return final_img
+diff --git a/manga-backend/requirements-serverless.txt b/manga-backend/requirements-serverless.txt
+index d5ed43d..bd69722 100644
+--- a/manga-backend/requirements-serverless.txt
++++ b/manga-backend/requirements-serverless.txt
+@@ -10,4 +10,8 @@ wandb==0.26.1
+ shapely==2.1.2
+ pyclipper
+ PyYAML==6.0.3
+-loguru==0.7.3
+\ No newline at end of file
++loguru==0.7.3
++requests==2.31.0
++diffusers>=0.28.0
++accelerate
++scikit-image
+\ No newline at end of file
+diff --git a/manga-backend/requirements.txt b/manga-backend/requirements.txt
+index 3ffc907..13075f0 100644
+--- a/manga-backend/requirements.txt
++++ b/manga-backend/requirements.txt
+@@ -33,4 +33,9 @@ filetype
+ 
+ 
+ # --- PAYMENT ---
+-payos==1.1.0
+\ No newline at end of file
++payos==1.1.0
++
++# --- GENERATIVE INPAINT (PHASE 3) ---
++diffusers>=0.28.0
++accelerate
++scikit-image
+\ No newline at end of file
+diff --git a/manga-backend/runpod-serverless/Dockerfile b/manga-backend/runpod-serverless/Dockerfile
+new file mode 100644
+index 0000000..db47085
+--- /dev/null
++++ b/manga-backend/runpod-serverless/Dockerfile
+@@ -0,0 +1,39 @@
++# Base Image: Stable PyTorch/CUDA developer base image
++FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
++
++# Prevent Python from writing .pyc files and buffering outputs
++ENV PYTHONDONTWRITEBYTECODE=1 \
++    PYTHONUNBUFFERED=1 \
++    DEBIAN_FRONTEND=noninteractive \
++    RUNPOD_ENDPOINT_TYPE=redraw
++
++# Working Directory set to /workspace
++WORKDIR /workspace
++
++# Install system dependencies required for OpenCV
++RUN apt-get update && apt-get install -y --no-install-recommends \
++    libgl1-mesa-glx \
++    libglib2.0-0 \
++    && rm -rf /var/lib/apt/lists/*
++
++# Copy requirements file first to take advantage of Docker layer caching
++# Note: Execute build from 'manga-backend' directory:
++# docker build --build-arg HF_TOKEN=your_token -f runpod-serverless/Dockerfile -t your-tag .
++COPY runpod-serverless/requirements.txt ./
++
++# Upgrade pip and install Python packages
++RUN pip install --no-cache-dir --upgrade pip && \
++    pip install --no-cache-dir -r requirements.txt
++
++# Pre-download Models phase
++# Define ARG HF_TOKEN to authenticate with Hugging Face during the build phase
++ARG HF_TOKEN
++COPY runpod-serverless/builder.py ./
++RUN HF_TOKEN=$HF_TOKEN python builder.py
++
++# Copy source code and ONNX models into the image
++COPY handler.py redraw_utils.py lama-manga.onnx detector.onnx ./
++COPY comic_text_detector/ ./comic_text_detector/
++
++# Entrypoint for RunPod Serverless worker
++CMD ["python", "-u", "handler.py"]
+diff --git a/manga-backend/runpod-serverless/builder.py b/manga-backend/runpod-serverless/builder.py
+new file mode 100644
+index 0000000..3bf88b0
+--- /dev/null
++++ b/manga-backend/runpod-serverless/builder.py
+@@ -0,0 +1,31 @@
++import os
++import torch
++from diffusers import StableDiffusionXLInpaintPipeline
++
++def download_model():
++    # Read the Hugging Face Token from the environment variable
++    hf_token = os.environ.get("HF_TOKEN")
++    if not hf_token:
++        print("[builder.py] Warning: HF_TOKEN environment variable is not set. If the model requires authorization, the download will fail.")
++    else:
++        print("[builder.py] HF_TOKEN detected in environment.")
++
++    model_id = "ShinoharaHare/Waifu-Inpaint-XL"
++    save_path = "/workspace/models/waifu-inpaint-xl"
++
++    print(f"[builder.py] Pre-downloading model '{model_id}'...")
++    
++    # Load pipeline with torch.float16 and safetensors
++    pipe = StableDiffusionXLInpaintPipeline.from_pretrained(
++        model_id,
++        torch_dtype=torch.float16,
++        use_safetensors=True,
++        token=hf_token
++    )
++
++    print(f"[builder.py] Model downloaded successfully. Saving pretrained pipeline to '{save_path}'...")
++    pipe.save_pretrained(save_path)
++    print("[builder.py] Model caching completed successfully.")
++
++if __name__ == "__main__":
++    download_model()
+diff --git a/manga-backend/runpod-serverless/requirements.txt b/manga-backend/runpod-serverless/requirements.txt
+new file mode 100644
+index 0000000..562bec4
+--- /dev/null
++++ b/manga-backend/runpod-serverless/requirements.txt
+@@ -0,0 +1,18 @@
++diffusers==0.29.2
++transformers==4.40.2
++runpod
++opencv-python-headless
++accelerate
++scikit-image
++onnxruntime-gpu
++manga-ocr
++torchsummary
++
++# Supporting libraries required by handler.py
++Pillow
++requests
++numpy==1.26.4
++shapely
++pyclipper
++PyYAML
++loguru
+diff --git a/manga-backend/runpod.Dockerfile b/manga-backend/runpod.Dockerfile
+index 878fb9b..36e5d86 100644
+--- a/manga-backend/runpod.Dockerfile
++++ b/manga-backend/runpod.Dockerfile
+@@ -4,6 +4,7 @@ FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+ WORKDIR /app
+ ENV DEBIAN_FRONTEND=noninteractive
+ ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib64:$LD_LIBRARY_PATH
++ENV RUNPOD_ENDPOINT_TYPE=translate
+ 
+ # Cài đặt thư viện lõi (Đã xóa redis-server vì không cần thiết trên Serverless)
+ RUN apt-get update && apt-get install -y --no-install-recommends \
+@@ -11,9 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
+     && rm -rf /var/lib/apt/lists/*
+ 
+ # Cài đặt thư viện Python AI
+-COPY requirements_serverless.txt .
++COPY requirements-serverless.txt .
+ RUN pip install --no-cache-dir --upgrade pip
+-RUN pip install --no-cache-dir -r requirements_serverless.txt
++RUN pip install --no-cache-dir -r requirements-serverless.txt
+ 
+ # Cài bản ONNX GPU xịn nhất cho CUDA 12 giống sếp đã làm
+ RUN pip uninstall -y onnxruntime onnxruntime-gpu && \
+diff --git a/manga-backend/s3_utils.py b/manga-backend/s3_utils.py
+new file mode 100644
+index 0000000..2c7005a
+--- /dev/null
++++ b/manga-backend/s3_utils.py
+@@ -0,0 +1,41 @@
++import cv2
++import numpy as np
++import httpx
++from fastapi import HTTPException
++
++async def fetch_image_from_url(url: str, flags: int = cv2.IMREAD_COLOR) -> np.ndarray:
++    """
++    Streams the binary data from the given S3/presigned URL directly into memory,
++    and decodes it into an OpenCV image matrix in RAM.
++    No local disk I/O is performed.
++    """
++    try:
++        async with httpx.AsyncClient() as client:
++            response = await client.get(url, follow_redirects=True)
++            if response.status_code == 404:
++                raise HTTPException(status_code=404, detail=f"Image not found at S3 URL: {url}")
++            response.raise_for_status()
++            content = response.content
++            
++        nparr = np.frombuffer(content, np.uint8)
++        img = cv2.imdecode(nparr, flags)
++        if img is None:
++            raise HTTPException(status_code=400, detail="Invalid image format or failed to decode image.")
++        return img
++    except httpx.HTTPStatusError as exc:
++        raise HTTPException(
++            status_code=exc.response.status_code,
++            detail=f"HTTP error occurred while fetching image: {exc.response.reason_phrase}"
++        )
++    except httpx.RequestError as exc:
++        raise HTTPException(
++            status_code=502,
++            detail=f"Network error occurred while fetching image: {str(exc)}"
++        )
++    except HTTPException:
++        raise
++    except Exception as exc:
++        raise HTTPException(
++            status_code=500,
++            detail=f"Unexpected error while processing image from URL: {str(exc)}"
++        )
+diff --git a/manga-backend/scratch/inspect_main.py b/manga-backend/scratch/inspect_main.py
+new file mode 100644
+index 0000000..590ad49
+--- /dev/null
++++ b/manga-backend/scratch/inspect_main.py
+@@ -0,0 +1,6 @@
++with open("d:/Workspaces/VSCode-workspace/AI_Manga_Translator/manga-backend/main.py", "r", encoding="utf-8") as f:
++    lines = f.readlines()
++
++for i, line in enumerate(lines):
++    if "runpod_translation_task" in line:
++        print(f"Line {i+1}: {line.strip()}")

@@ -8,3 +8,6 @@ docker run --name deepkoma-db \
   -e POSTGRES_DB=manga_studio \
   -p 5433:5432 \
   -d ankane/pgvector:v0.5.1
+
+
+

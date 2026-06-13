@@ -372,4 +372,13 @@ export const mangaApi = {
     await handleApiError(response, "Lỗi Server Lưu kết quả!");
     return await response.json();
   },
+
+  cancelTask: async (taskId: string) => {
+    const response = await fetch(`${API_URL}/tasks/${taskId}/cancel`, {
+      method: "POST",
+      headers: await getAuthHeaders()
+    });
+    await handleApiError(response, "Lỗi khi hủy tiến trình!");
+    return await response.json();
+  },
 };
