@@ -340,7 +340,8 @@ export default function Sidebar() {
           genre: configStore.genre,
           tone: configStore.tone,
           pronouns: configStore.pronoun,
-          glossary: configStore.glossary
+          glossary: configStore.glossary,
+          targetLanguage: configStore.targetLanguage || "Tiếng Việt"
         });
 
         if (data.task_id) {

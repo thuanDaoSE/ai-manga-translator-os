@@ -123,6 +123,7 @@ export const mangaApi = {
     formData.append("tone", config.tone);
     formData.append("pronouns", config.pronoun);
     formData.append("glossary", config.glossary);
+    formData.append("target_language", config.targetLanguage || "Tiếng Việt");
 
     const response = await fetch(`${API_URL}/translate`, {
       method: "POST",
@@ -355,7 +356,8 @@ export const mangaApi = {
         genre: config.genre,
         tone: config.tone,
         pronouns: config.pronouns || config.pronoun,
-        glossary: config.glossary
+        glossary: config.glossary,
+        target_language: config.targetLanguage || "Tiếng Việt"
       }),
     });
     await handleApiError(response, "Lỗi Server Dịch thuật!");

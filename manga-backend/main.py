@@ -222,7 +222,7 @@ def robust_json_parse(llm_response: str) -> dict:
 
 def extract_translations(ai_response: any) -> dict:
     """
-    Extract translations mapping (str(id) -> vietnamese_text) from any JSON shape DeepSeek returns.
+    Extract translations mapping (str(id) -> translated_text) from any JSON shape DeepSeek returns.
     """
     translations = {}
     if not ai_response:
@@ -240,7 +240,11 @@ def extract_translations(ai_response: any) -> dict:
         for item in raw_trans:
             if isinstance(item, dict):
                 t_id = item.get("id") or item.get("box_id")
-                t_val = item.get("vietnamese") or item.get("translation") or item.get("text")
+                t_val = item.get("translation")
+                if t_val is None:
+                    t_val = item.get("vietnamese")
+                if t_val is None:
+                    t_val = item.get("text")
                 if t_id is not None and t_val is not None:
                     translations[str(t_id)] = str(t_val)
             elif isinstance(item, list) and len(item) >= 2:
@@ -251,13 +255,18 @@ def extract_translations(ai_response: any) -> dict:
     elif isinstance(raw_trans, dict):
         for k, v in raw_trans.items():
             if isinstance(v, dict):
-                t_val = v.get("vietnamese") or v.get("translation") or v.get("text")
+                t_val = v.get("translation")
+                if t_val is None:
+                    t_val = v.get("vietnamese")
+                if t_val is None:
+                    t_val = v.get("text")
                 if t_val is not None:
                     translations[str(k)] = str(t_val)
             else:
                 translations[str(k)] = str(v)
                 
     return translations
+
 # ==========================================
 
 
@@ -952,6 +961,7 @@ class QuickScanPayload(BaseModel):
     tone: str = Field(default="", max_length=100)
     pronouns: str = Field(default="", max_length=100)
     glossary: str = Field(default="", max_length=1000)
+    target_language: str = Field(default="Tiếng Việt", max_length=100)
 
 import os
 import glob
@@ -1011,14 +1021,27 @@ async def quick_scan(request: Request, payload: QuickScanPayload):
         if not japanese_text: 
             return {"status": "success", "japanese": "", "vietnamese": "AI không đọc được chữ!"}
         
+        target_language = payload.target_language or "Tiếng Việt"
+
         # 🚀 GỌI DEEPSEEK TRÊN VPS ĐỂ DỊCH (Giữ nguyên logic cache)
         glossary_hash = hashlib.md5(payload.glossary.encode('utf-8')).hexdigest() if payload.glossary else "none"
-        cache_key = f"{japanese_text}_{payload.genre}_{payload.tone}_{payload.pronouns}_{glossary_hash}"
+        cache_key = f"{japanese_text}_{payload.genre}_{payload.tone}_{payload.pronouns}_{glossary_hash}_{target_language}"
         
         if cache_key in LENS_CACHE:
             return LENS_CACHE[cache_key]
 
-        system_prompt = f"Bạn là Biên dịch Manga.\nThể loại: {payload.genre}\nVăn phong: {payload.tone}\nXưng hô: {payload.pronouns}\n{f'TỪ ĐIỂN: {payload.glossary}' if payload.glossary else ''}\n\nTRẢ VỀ JSON: {{\"context_reasoning\": \"...\", \"vietnamese\": \"...\"}}"
+        system_prompt = (
+            f"Bạn là Biên dịch Manga.\n"
+            f"Nhiệm vụ của bạn là dịch đoạn thoại truyện tranh sau sang {target_language}.\n"
+            f"Thể loại: {payload.genre}\n"
+            f"Văn phong: {payload.tone}\n"
+            f"Xưng hô: {payload.pronouns}\n"
+            f"{f'TỪ ĐIỂN: {payload.glossary}' if payload.glossary else ''}\n\n"
+            f"Yêu cầu: Giữ nguyên văn phong truyện tranh tự nhiên. "
+            f"Nếu {target_language} là tiếng Anh, hãy dùng tiếng lóng (slang) tự nhiên. "
+            f"Nếu {target_language} là Tiếng Việt, giữ cấu trúc kính ngữ phù hợp.\n\n"
+            f"TRẢ VỀ JSON: {{\"context_reasoning\": \"...\", \"translation\": \"...\"}}"
+        )
         
         response = deepseek_client.chat.completions.create(
             model="deepseek-chat",
@@ -1029,7 +1052,8 @@ async def quick_scan(request: Request, payload: QuickScanPayload):
         # 🚀 BẢN VÁ: Dùng hàm Parse chống đạn
         ai_response = robust_json_parse(response.choices[0].message.content)
        
-        result_data = {"status": "success", "japanese": japanese_text, "vietnamese": ai_response.get("vietnamese", "Lỗi")}
+        translated_text = ai_response.get("translation") or ai_response.get("vietnamese") or "Lỗi"
+        result_data = {"status": "success", "japanese": japanese_text, "vietnamese": translated_text}
         LENS_CACHE[cache_key] = result_data 
         return result_data
         
@@ -1768,9 +1792,11 @@ async def delete_page_from_server(
                 try:
                     img_hash = get_image_ahash(raw_path)
                     if img_hash:
-                        cache_key = f"ocr_translate_cache:{img_hash}"
-                        await async_redis_client.delete(cache_key)
-                        print(f"🔥 [DELETE] Đã xóa cache Redis cho ảnh: {img_hash}")
+                        pattern = f"ocr_translate_cache:{img_hash}:*"
+                        async for key in async_redis_client.scan_iter(match=pattern):
+                            await async_redis_client.delete(key)
+                        await async_redis_client.delete(f"ocr_translate_cache:{img_hash}")
+                        print(f"🔥 [DELETE] Đã xóa tất cả cache Redis cho ảnh: {img_hash}")
                 except Exception as ce:
                     print(f"⚠️ [DELETE] Lỗi xóa cache Redis: {ce}")
                     
@@ -2086,14 +2112,27 @@ async def translate_page(
     if not os.path.exists(raw_path):
         raise HTTPException(status_code=404, detail="Không tìm thấy file ảnh gốc trên VPS")
 
+    config = await request.json()
+    target_language = config.get("target_language", "Tiếng Việt")
+    if not target_language:
+        target_language = "Tiếng Việt"
+
     # 🚀 BƯỚC LỌC ĐẦU TIÊN: KIỂM TRA REDIS CACHE BẰNG IMAGE AHASH
     img_hash = get_image_ahash(raw_path)
     if img_hash:
         try:
-            cache_key = f"ocr_translate_cache:{img_hash}"
+            cache_key = f"ocr_translate_cache:{img_hash}:{target_language}"
             cached_data = await async_redis_client.get(cache_key)
+            
+            # Fallback cho cache cũ không có hậu tố ngôn ngữ (mặc định là Tiếng Việt)
+            if not cached_data and target_language == "Tiếng Việt":
+                legacy_key = f"ocr_translate_cache:{img_hash}"
+                cached_data = await async_redis_client.get(legacy_key)
+                if cached_data:
+                    print(f"🚀 [CACHE HIT - LEGACY] Lấy dữ liệu dịch của hình ảnh cũ từ legacy Redis Cache! Hash: {img_hash}")
+                    
             if cached_data:
-                print(f"🚀 [CACHE HIT] Lấy dữ liệu dịch của hình ảnh cũ từ Redis Cache! Hash: {img_hash}")
+                print(f"🚀 [CACHE HIT] Lấy dữ liệu dịch của hình ảnh cũ từ Redis Cache! Hash: {img_hash}, Ngôn ngữ: {target_language}")
                 cached_result_dict = json.loads(cached_data)
                 
                 # Giả lập task_id để Frontend polling
@@ -2106,8 +2145,6 @@ async def translate_page(
                 return {"task_id": task_id}
         except Exception as e:
             print(f"⚠️ [CACHE ERROR] Lỗi kiểm tra cache Redis: {e}")
-
-    config = await request.json()
 
     # 🚀 THẢ TÁC VỤ VÀO CELERY QUEUE CHẠY NGẦM HOÀN TOÀN
     from worker import process_manga_page
@@ -2243,6 +2280,7 @@ async def import_manga_file(
 
 class RetryTranslationRequest(BaseModel):
     local_prompt: Optional[str] = None
+    target_language: Optional[str] = "Tiếng Việt"
 
 # 🚀 API BỔ SUNG: CHỈ DỊCH LẠI CHỮ (BẢN VÁ LỖI CHỐNG ĐẠN)
 @app.post("/api/pages/{page_id}/retry-text-translation")
@@ -2271,8 +2309,12 @@ async def retry_text_translation(
         if not ocr_batch_payload:
             raise HTTPException(status_code=400, detail="Trang này trống trơn tiếng Nhật! Sếp hãy bấm nút [Quét lại ảnh] hình cây đũa phép ở góc phải nhé.")
 
+        target_language = payload.target_language if payload else "Tiếng Việt"
+        if not target_language:
+            target_language = "Tiếng Việt"
+
         # 2. GOM LÊN DEEPSEEK TRÊN VPS VỚI PROMPT MẠNH HƠN
-        prompt = f"Bạn là biên dịch viên Manga chuyên nghiệp. Dịch mảng JSON sau sang tiếng Việt. Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"vietnamese\\\": \\\"bản dịch\\\"}}]}}. Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+        prompt = f"Bạn là biên dịch viên Manga chuyên nghiệp. Dịch mảng JSON sau sang {target_language}. Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"translation\\\": \\\"bản dịch\\\"}}]}}. Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
         if payload and payload.local_prompt:
             prompt += f"\n\nChỉ thị bổ sung từ người dùng (Hãy làm theo chỉ thị này một cách nghiêm ngặt): {payload.local_prompt}"
         
@@ -2283,7 +2325,7 @@ async def retry_text_translation(
                 response = deepseek_client.chat.completions.create(
                     model="deepseek-chat",
                     messages=[
-                        {"role": "system", "content": "You output strict JSON containing a 'translations' array of dicts with 'id' and 'vietnamese'."},
+                        {"role": "system", "content": "You output strict JSON containing a 'translations' array of dicts with 'id' and 'translation'."},
                         {"role": "user", "content": prompt}
                     ],
                     response_format={'type': 'json_object'}

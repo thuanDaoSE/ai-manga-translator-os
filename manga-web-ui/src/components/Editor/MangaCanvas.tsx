@@ -300,7 +300,8 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             genre: config.genre,
             tone: config.tone,
             pronouns: config.pronoun,
-            glossary: config.glossary
+            glossary: config.glossary,
+            target_language: config.targetLanguage || "Tiếng Việt"
           });
 
           if (result.status === "success") {

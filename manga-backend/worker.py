@@ -147,7 +147,7 @@ def robust_json_parse(llm_response: str) -> dict:
 
 def extract_translations(ai_response: any) -> dict:
     """
-    Extract translations mapping (str(id) -> vietnamese_text) from any JSON shape DeepSeek returns.
+    Extract translations mapping (str(id) -> translated_text) from any JSON shape DeepSeek returns.
     """
     translations = {}
     if not ai_response:
@@ -165,7 +165,11 @@ def extract_translations(ai_response: any) -> dict:
         for item in raw_trans:
             if isinstance(item, dict):
                 t_id = item.get("id") or item.get("box_id")
-                t_val = item.get("vietnamese") or item.get("translation") or item.get("text")
+                t_val = item.get("translation")
+                if t_val is None:
+                    t_val = item.get("vietnamese")
+                if t_val is None:
+                    t_val = item.get("text")
                 if t_id is not None and t_val is not None:
                     translations[str(t_id)] = str(t_val)
             elif isinstance(item, list) and len(item) >= 2:
@@ -176,13 +180,18 @@ def extract_translations(ai_response: any) -> dict:
     elif isinstance(raw_trans, dict):
         for k, v in raw_trans.items():
             if isinstance(v, dict):
-                t_val = v.get("vietnamese") or v.get("translation") or v.get("text")
+                t_val = v.get("translation")
+                if t_val is None:
+                    t_val = v.get("vietnamese")
+                if t_val is None:
+                    t_val = v.get("text")
                 if t_val is not None:
                     translations[str(k)] = str(t_val)
             else:
                 translations[str(k)] = str(v)
                 
     return translations
+
 
 def broadcast_progress(task_id, progress, message, state="PROCESSING", result=None):
     payload = json.dumps({
@@ -217,6 +226,10 @@ def process_manga_page(self, page_id: str, config: dict):
     task_id = self.request.id
     try:
         import db_models as models
+        
+        target_language = config.get("target_language", "Tiếng Việt")
+        if not target_language:
+            target_language = "Tiếng Việt"
         
         # 1. Kiểm tra checkpoint hủy đầu tiên trước khi đọc DB
         if is_task_cancelled(task_id):
@@ -318,7 +331,16 @@ def process_manga_page(self, page_id: str, config: dict):
             broadcast_progress(task_id, 80, "Đang gửi nội dung sang Deepseek dịch nghĩa...")
             try:
                 ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
-                prompt = f"Thể loại: {config.get('genre', '')}. Xưng hô: {config.get('pronouns', '')}. Văn phong: {config.get('tone', '')}. Dịch mảng JSON sau sang tiếng Việt. Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"vietnamese\\\": \\\"bản dịch\\\"}}]}}. Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+                # Tinh chỉnh prompt động theo target_language
+                prompt = (
+                    f"Nhiệm vụ của bạn là dịch đoạn thoại truyện tranh sau sang {target_language}. "
+                    f"Thể loại: {config.get('genre', '')}. Xưng hô: {config.get('pronouns', '')}. Văn phong: {config.get('tone', '')}. "
+                    f"Yêu cầu: Giữ nguyên văn phong truyện tranh tự nhiên. "
+                    f"Nếu {target_language} là tiếng Anh, hãy dùng tiếng lóng (slang) tự nhiên. "
+                    f"Nếu {target_language} là Tiếng Việt, giữ cấu trúc kính ngữ phù hợp. "
+                    f"Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"translation\\\": \\\"bản dịch\\\"}}]}}. "
+                    f"Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+                )
                 if config.get("glossary"):
                     prompt = f"Từ điển thuật ngữ (ưu tiên sử dụng): {config.get('glossary')}\n" + prompt
                     
@@ -329,7 +351,7 @@ def process_manga_page(self, page_id: str, config: dict):
                         response = deepseek_client.chat.completions.create(
                             model="deepseek-chat",
                             messages=[
-                                {"role": "system", "content": "You output strict JSON containing a 'translations' array of dicts with 'id' and 'vietnamese'."},
+                                {"role": "system", "content": "You output strict JSON containing a 'translations' array of dicts with 'id' and 'translation'."},
                                 {"role": "user", "content": prompt}
                             ],
                             response_format={'type': 'json_object'}
@@ -392,7 +414,7 @@ def process_manga_page(self, page_id: str, config: dict):
         try:
             img_hash = get_image_ahash(raw_path)
             if img_hash:
-                cache_key = f"ocr_translate_cache:{img_hash}"
+                cache_key = f"ocr_translate_cache:{img_hash}:{target_language}"
                 redis_client.set(cache_key, json.dumps(result_payload), ex=2592000)
         except Exception as ce:
             print(f"⚠️ [CACHE WRITE ERROR] Lỗi lưu Redis cache: {ce}")

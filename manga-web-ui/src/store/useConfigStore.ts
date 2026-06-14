@@ -13,6 +13,7 @@ interface ConfigState {
   pronoun: string;
   customPronoun: string;
   glossary: string;
+  targetLanguage: string;
 
   // Các hàm cập nhật
   setConfig: (field: string, value: string) => void;
@@ -32,6 +33,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   pronoun: 'Tôi - Cậu (Bạn bè ngang hàng)',
   customPronoun: '',
   glossary: '',
+  targetLanguage: 'Tiếng Việt',
 
   setConfig: (field, value) => set({ [field]: value }),
 
@@ -48,7 +50,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       genre: state.genre, customGenre: state.customGenre,
       tone: state.tone, customTone: state.customTone,
       pronoun: state.pronoun, customPronoun: state.customPronoun,
-      glossary: state.glossary
+      glossary: state.glossary,
+      targetLanguage: state.targetLanguage
     };
     localStorage.setItem('manga_trans_settings', JSON.stringify(dataToSave));
     set({ isModalOpen: false }); // Đóng modal sau khi lưu
