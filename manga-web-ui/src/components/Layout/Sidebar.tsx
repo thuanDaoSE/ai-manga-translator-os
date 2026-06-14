@@ -877,7 +877,7 @@ export default function Sidebar() {
         </div>
 
         {/* NÚT DỊCH TẤT CẢ (Ẩn đi khi đang chọn ảnh) */}
-        <div className={`absolute bottom-0 left-0 w-full p-3 bg-sidebar/95 backdrop-blur-md border-t border-border z-10 transition-transform duration-300 ${isSelectionMode ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
+        <div className={`absolute bottom-0 left-0 w-full p-3 bg-sidebar/95 backdrop-blur-md border-t border-border z-30 transition-transform duration-300 ${isSelectionMode ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
           <button
             onClick={handleTranslateAll}
             disabled={!hasUnprocessed}
