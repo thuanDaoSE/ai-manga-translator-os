@@ -1395,12 +1395,14 @@ async def redraw_image(
         public_mask_url = f"{get_base_url()}/{mask_temp_path}"
 
         # 3. Setup Prompt Tiếng Anh chuẩn Manga / Webtoon (Hỗ trợ luồng vẽ mới)
+        # Forcefully append NSFW guardrail to negative prompt for legal compliance (Zero Hentai/Doujinshi 18+ policy)
+        nsfw_guardrail = "nsfw, nude, explicit, pornography, uncensored, genitalia"
         if req.negative_prompt:
             positive_prompt = req.prompt
-            negative_prompt = req.negative_prompt
+            negative_prompt = f"{req.negative_prompt.strip().rstrip(',')}, {nsfw_guardrail}"
         else:
             positive_prompt = f"{req.prompt}, masterpiece, best quality, manga page, monochrome, grayscale, sharp lineart, seamless background, flat shading, high contrast lighting"
-            negative_prompt = "text, speech bubble, watermark, color, photorealistic, 3d render, blurry, artifacts, smooth gradient, western comic"
+            negative_prompt = f"text, speech bubble, watermark, color, photorealistic, 3d render, blurry, artifacts, smooth gradient, western comic, {nsfw_guardrail}"
 
         # 4. Gửi Job lên RunPod Serverless
         runpod_payload = {
@@ -1637,9 +1639,9 @@ async def auto_cleanup_workspace():
             if os.path.exists(workspace_dir):
                 current_time = time.time()
                 
-                # THỜI GIAN HẾT HẠN (24 giờ = 86400 giây)
-                # ⏳ ĐỂ TEST: Đổi số 86400 thành số 60 (1 phút)
-                EXPIRATION_TIME = 86400 
+                # THỜI GIAN HẾT HẠN (6 giờ = 21600 giây) để tuân thủ chính sách "Zero-Storage"
+                # ⏳ ĐỂ TEST: Đổi số 21600 thành số 60 (1 phút)
+                EXPIRATION_TIME = 21600 
                 # EXPIRATION_TIME = 60 
                 
                 deleted_count = 0
@@ -2238,7 +2240,6 @@ async def retry_text_translation(
                 if "text" in item: 
                     item["text"] = new_text # Đồng bộ font chữ Frontend
             else:
-                # If we don't have a new translation, keep the existing one if it's not empty, or fallback to Lỗi dịch
                 if not item.get("vietnamese"):
                     item["vietnamese"] = "Lỗi dịch"
                     if "text" in item:

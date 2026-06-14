@@ -361,6 +361,8 @@ def process_manga_page(self, page_id: str, config: dict):
                 print(f"⚠️ [DEEPSEEK ERROR] Lỗi dịch DeepSeek: {de}")
                 for item in extracted_data:
                     item["vietnamese"] = "Lỗi dịch thuật (VPS)"
+                    if "text" in item:
+                        item["text"] = "Lỗi dịch thuật (VPS)"
                     
         # 6. Checkpoint hủy lần 4: TRƯỚC KHI LƯU ẢNH VÀ COMMIT CSDL
         if is_task_cancelled(task_id):

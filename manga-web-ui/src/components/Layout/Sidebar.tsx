@@ -19,7 +19,8 @@ const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 function SortableItem({
   id, file, isActive, status, displayImg, progress,
   onClick, onTranslate, onDelete, onCancel, onRetry,
-  isSelected, isSelectionMode, onToggleSelection, hasCleanUrl
+  isSelected, isSelectionMode, onToggleSelection, hasCleanUrl,
+  isProcessing
 }: any) {
 
   const {
@@ -80,12 +81,12 @@ function SortableItem({
         {/* 🚀 BẢN VÁ UI 1: PHÓNG TO THUMBNAIL (w-14 h-20) */}
         <div className={`relative w-14 h-20 shrink-0 rounded-lg overflow-hidden border border-border bg-black/40 transition-transform shadow-sm ${isSelectionMode && !isSelected ? 'ml-6' : isSelected ? 'ml-6' : (!isSelectionMode ? 'ml-1' : '')}`}>
           {displayImg ? (
-            <img src={displayImg} className={`w-full h-full object-cover ${(status === 'processing' || status === 'error') ? 'blur-[2px] opacity-50 scale-110' : ''}`} alt="thumb" crossOrigin="anonymous" />
+            <img src={displayImg} className={`w-full h-full object-cover ${(status === 'processing' || isProcessing || status === 'error') ? 'blur-[2px] opacity-50 scale-110' : ''}`} alt="thumb" crossOrigin="anonymous" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gray-800"><Loader2 className="animate-spin text-gray-600" size={16} /></div>
           )}
 
-          {status === 'processing' && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={20} /></div>}
+          {(status === 'processing' || isProcessing) && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={20} /></div>}
           {status === 'completed' && <div className="absolute top-1 right-1 bg-emerald-500 rounded-full p-0.5 shadow-sm"><CheckCircle2 size={10} className="text-white" /></div>}
         </div>
 
@@ -184,6 +185,7 @@ function SortableItem({
 export default function Sidebar() {
   const projectStore = useProjectStore();
   const { fileQueue, currentIndex, setCurrentIndex, pageStatuses, processedUrls, uploadProjectFiles, reorderFiles, progresses } = projectStore;
+  const isProcessing = useToolStore((state) => state.isProcessing);
 
   const [previews, setPreviews] = useState<Record<number, string>>({});
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -557,27 +559,33 @@ export default function Sidebar() {
   const handleDeletePage = (index: number) => {
     const file = fileQueue[index];
     const fileName = file.name;
+    const pageId = projectStore.pageIds[index];
+    const uniqueId = pageId || `temp-${index}-${file.name}`;
 
-    if (deleteTimeoutsRef.current[fileName]) return;
+    if (deleteTimeoutsRef.current[uniqueId]) return;
 
     if (index === projectStore.currentIndex) {
-      const nextIndex = fileQueue.findIndex((f, i) => i !== index && !pendingDeletes.has(f.name));
+      const nextIndex = fileQueue.findIndex((f, i) => {
+        if (i === index) return false;
+        const uid = projectStore.pageIds[i] || `temp-${i}-${f.name}`;
+        return !pendingDeletes.has(uid);
+      });
       projectStore.setCurrentIndex(nextIndex !== -1 ? nextIndex : -1);
     }
 
-    setPendingDeletes(prev => new Set(prev).add(fileName));
+    setPendingDeletes(prev => new Set(prev).add(uniqueId));
 
     toast((t) => (
       <div className="flex items-center gap-3">
         <span className="text-sm">Đang xóa <b>{fileName}</b>...</span>
         <button
           onClick={() => {
-            clearTimeout(deleteTimeoutsRef.current[fileName]);
-            delete deleteTimeoutsRef.current[fileName];
+            clearTimeout(deleteTimeoutsRef.current[uniqueId]);
+            delete deleteTimeoutsRef.current[uniqueId];
 
             setPendingDeletes(prev => {
               const next = new Set(prev);
-              next.delete(fileName);
+              next.delete(uniqueId);
               return next;
             });
 
@@ -589,11 +597,14 @@ export default function Sidebar() {
           ↩️ Hoàn tác
         </button>
       </div>
-    ), { duration: 5000, id: `delete-${fileName}`, icon: '⏳' });
+    ), { duration: 5000, id: `delete-${uniqueId}`, icon: '⏳' });
 
-    deleteTimeoutsRef.current[fileName] = setTimeout(async () => {
+    deleteTimeoutsRef.current[uniqueId] = setTimeout(async () => {
       const state = useProjectStore.getState();
-      const realIndex = state.fileQueue.findIndex(f => f.name === fileName);
+      const realIndex = state.fileQueue.findIndex((f, i) => {
+        const uid = state.pageIds[i] || `temp-${i}-${f.name}`;
+        return uid === uniqueId;
+      });
 
       if (realIndex !== -1) {
         if (state.pageStatuses[realIndex] === 'processing') {
@@ -601,11 +612,11 @@ export default function Sidebar() {
         }
         await state.removePage(realIndex);
       }
-      delete deleteTimeoutsRef.current[fileName];
+      delete deleteTimeoutsRef.current[uniqueId];
 
       setPendingDeletes(prev => {
         const next = new Set(prev);
-        next.delete(fileName);
+        next.delete(uniqueId);
         return next;
       });
     }, 5000);
@@ -625,6 +636,10 @@ export default function Sidebar() {
   };
 
   const handlePageClick = (index: number) => {
+    if (isProcessing) {
+      toast.error("Vui lòng chờ tiến trình xử lý AI hiện tại hoàn tất!");
+      return;
+    }
     const currentPageId = projectStore.pageIds[projectStore.currentIndex];
 
     // 🚀 BẢN VÁ TỐI THƯỢNG: CHẶN ĐỨNG RACE CONDITION
@@ -676,7 +691,6 @@ export default function Sidebar() {
     };
   }, [fileQueue, projectStore.processedUrls]);
 
-  // 🚀 FIX: TẠO ID DUY NHẤT AN TOÀN KỂ CẢ KHI ẢNH ĐANG UPLOAD
   const visibleFiles = fileQueue
     .map((file, index) => {
       const pageId = projectStore.pageIds[index];
@@ -687,7 +701,7 @@ export default function Sidebar() {
         uniqueId: pageId || `temp-${index}-${file.name}`
       };
     })
-    .filter(({ file }) => !pendingDeletes.has(file.name));
+    .filter(({ uniqueId }) => !pendingDeletes.has(uniqueId));
 
   const itemIds = visibleFiles.map(f => f.uniqueId);
 
@@ -853,6 +867,7 @@ export default function Sidebar() {
                       isSelectionMode={isSelectionMode}
                       onToggleSelection={() => toggleSelection(uniqueId)}
                       hasCleanUrl={!!processedUrls[index]} // 🚀 Dùng ID an toàn
+                      isProcessing={index === currentIndex && isProcessing}
                     />
                   );
                 })}

@@ -143,7 +143,7 @@ export const FloatingCanvasToolbar: React.FC = () => {
           {/* 🚀 NÚT MỚI: BẬT TẮT VÙNG BÁO AI XỬ LÝ */}
           <div className="relative flex flex-col items-center group">
             <div className="absolute -top-10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 px-2.5 py-1.5 bg-panel text-white text-[11px] font-bold rounded-lg shadow-xl whitespace-nowrap pointer-events-none border border-border z-50">
-              {showAiGuides ? "Tắt vùng báo AI" : "Hiện vùng AI xử lý"}
+              {showAiGuides ? "Tắt vùng thay đổi" : "Hiện vùng thay đổi"}
               <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 border-4 border-transparent border-t-border"></div>
             </div>
             <button

@@ -11,6 +11,7 @@ interface PaywallDrawerProps {
 export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose }) => {
   const user = useAuthStore((state) => state.user);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDisclaimerChecked, setIsDisclaimerChecked] = useState(false);
 
   if (!isOpen) return null;
 
@@ -169,13 +170,30 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
             </div>
           </div>
 
+          {/* Điều khoản pháp lý và tuyên bố miễn trừ trách nhiệm */}
+          <div className="flex gap-2.5 bg-red-500/5 border border-red-500/10 p-3.5 rounded-xl text-[11px] leading-relaxed text-gray-300">
+            <input 
+              type="checkbox" 
+              id="legal-disclaimer-checkbox" 
+              checked={isDisclaimerChecked}
+              onChange={(e) => setIsDisclaimerChecked(e.target.checked)}
+              className="mt-1 shrink-0 cursor-pointer accent-indigo-500 rounded border-gray-700 bg-neutral-900 w-4 h-4" 
+            />
+            <label htmlFor="legal-disclaimer-checkbox" className="leading-relaxed cursor-pointer select-none">
+              Tôi cam kết và đồng ý rằng: 
+              <strong> (1)</strong> Mọi hình ảnh/nội dung tôi tải lên hoặc dịch thuật đều thuộc quyền sở hữu/sử dụng hợp pháp của tôi; 
+              <strong> (2)</strong> Tôi hoàn toàn tự chịu 100% trách nhiệm trước pháp luật Việt Nam (bao gồm các quy định về truyền bá văn hóa phẩm đồi trụy - <strong>Điều 326 Bộ luật Hình sự</strong>, nội dung kích động, phản động); 
+              <strong> (3)</strong> Nghiêm cấm sử dụng công cụ để xử lý tranh ảnh, truyện đồi trụy (18+/Hentai/Doujinshi), vi phạm thuần phong mỹ tục. Hệ thống hoạt động theo cơ chế xử lý tức thời và tự động xóa bỏ hoàn toàn dữ liệu sau 6 giờ, không lưu trữ để bảo vệ quyền riêng tư và tuân thủ pháp luật.
+            </label>
+          </div>
+
         </div>
 
         {/* Nút Hành động xác nhận chuyển khoản xong ở chân */}
         <div className="p-5 border-t border-gray-800/60 bg-black/10">
           <button
             onClick={handleConfirmPayment}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !isDisclaimerChecked}
             className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all duration-200 cursor-pointer active:scale-[0.98] shadow-[0_4px_15px_rgba(79,70,229,0.3)]"
           >
             {isSubmitting ? "Đang ghi nhận giao dịch..." : "Tôi đã chuyển khoản xong"}

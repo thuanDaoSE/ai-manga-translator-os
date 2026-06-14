@@ -36,12 +36,14 @@ export default function PolicyModal({ isOpen, onClose }: Props) {
           
           <h3 className="text-white font-bold uppercase tracking-wider text-xs">1. Quyền riêng tư & Lưu trữ dữ liệu</h3>
           <p>
-            Hệ thống của chúng tôi (MangaAI Studio) chỉ lưu trữ tạm thời các tệp tin ảnh và bản dịch của bạn trên máy chủ để phục vụ quá trình làm việc. Hệ thống có <b>Bot dọn rác tự động</b> sẽ xóa vĩnh viễn toàn bộ dữ liệu dự án của bạn sau 24 giờ không hoạt động nhằm bảo vệ quyền riêng tư.
+            Hệ thống của chúng tôi (MangaAI Studio) chỉ lưu trữ tạm thời các tệp tin ảnh và bản dịch của bạn trên máy chủ để phục vụ quá trình làm việc. Hệ thống có <b>Bot dọn rác tự động</b> sẽ xóa vĩnh viễn toàn bộ dữ liệu dự án của bạn sau <b>6 giờ</b> không hoạt động nhằm bảo vệ quyền riêng tư và tuân thủ mô hình xử lý tức thời.
           </p>
 
-          <h3 className="text-white font-bold uppercase tracking-wider text-xs">2. Trách nhiệm bản quyền (DMCA)</h3>
+          <h3 className="text-white font-bold uppercase tracking-wider text-xs">2. Trách nhiệm bản quyền & Pháp lý</h3>
           <p>
-            Người dùng tự chịu hoàn toàn trách nhiệm về bản quyền của các hình ảnh, truyện tranh tải lên nền tảng. Chúng tôi chỉ cung cấp công cụ (Công nghệ AI, OCR, Typesetting) và không giữ bản quyền hay phân phối bất kỳ tác phẩm nào của người dùng.
+            Người dùng tự chịu hoàn toàn trách nhiệm về bản quyền và tính pháp lý của các hình ảnh, truyện tranh tải lên nền tảng. Chúng tôi chỉ cung cấp công cụ (Công nghệ AI, OCR, Typesetting) và không giữ bản quyền hay phân phối bất kỳ tác phẩm nào của người dùng.
+            <br/><br/>
+            Nghiêm cấm tuyệt đối việc sử dụng công cụ để tải lên, xử lý hoặc dịch thuật các ấn phẩm đồi trụy (truyện tranh 18+, hentai, doujinshi người lớn), phản động hoặc kích động bạo lực. Người dùng hoàn toàn tự chịu 100% trách nhiệm hình sự trước pháp luật Việt Nam (bao gồm <strong>Điều 326 Bộ luật Hình sự</strong> về tội truyền bá văn hóa phẩm đồi trụy) đối với bất kỳ hành vi vi phạm nào.
           </p>
 
           <h3 className="text-white font-bold uppercase tracking-wider text-xs">3. Lạm dụng hệ thống AI</h3>

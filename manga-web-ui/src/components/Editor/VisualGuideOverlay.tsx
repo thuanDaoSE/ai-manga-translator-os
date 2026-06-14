@@ -8,8 +8,8 @@ const VisualGuideOverlay: React.FC = () => {
   const showAiGuides = useToolStore((state) => state.showAiGuides);
   const bubbles = useCanvasStore((state) => state.bubbles);
 
-  // 🚀 LOGIC MỚI: Chỉ ẩn khi KHÔNG xài Cọ Phục hồi VÀ KHÔNG bật nút Show
-  if (activeMode !== 'restore' && !showAiGuides) {
+  // 🚀 LOGIC MỚI: Chỉ hiện khi bật nút "Hiện vùng thay đổi"
+  if (!showAiGuides) {
     return null; 
   }
 

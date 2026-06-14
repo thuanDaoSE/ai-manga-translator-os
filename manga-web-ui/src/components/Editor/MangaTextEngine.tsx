@@ -167,6 +167,8 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
       // 3. FONT ĐÃ SẴN SÀNG -> TIẾN HÀNH VẼ CANVAS
       const existingIds = canvas.getObjects().map((obj: any) => obj.id);
 
+      const updates: { id: string; data: { fontSize: number } }[] = [];
+
       bubbles.forEach((bubble) => {
         const safeText = bubble.text || "Nhập chữ...";
         const safeColor = bubble.fontColor || '#000000';
@@ -324,18 +326,25 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
           let fs = defaultFontSize;
 
           if (textObj.height > bubble.h) {
-            while (textObj.height > bubble.h && fs > 8) {
-              fs -= 1;
-              textObj.set({ fontSize: fs });
+            let low = 8;
+            let high = defaultFontSize;
+            while (low <= high) {
+              const mid = Math.floor((low + high) / 2);
+              textObj.set({ fontSize: mid });
               textObj.initDimensions();
-            }
-
-            setTimeout(() => {
-              const currentBubble = useCanvasStore.getState().bubbles.find(b => b.id === bubble.id);
-              if (currentBubble && currentBubble.fontSize > fs) {
-                useCanvasStore.getState().updateBubble(bubble.id, { fontSize: fs }, true);
+              if (textObj.height <= bubble.h) {
+                fs = mid;
+                low = mid + 1;
+              } else {
+                high = mid - 1;
               }
-            }, 10);
+            }
+            textObj.set({ fontSize: fs });
+            textObj.initDimensions();
+
+            if (bubble.fontSize !== fs) {
+              updates.push({ id: bubble.id, data: { fontSize: fs } });
+            }
           }
         }
       });
@@ -348,6 +357,13 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
       });
 
       canvas.renderAll();
+
+      if (updates.length > 0) {
+        setTimeout(() => {
+          if (!fabricCanvas.current || fabricCanvas.current !== canvas) return;
+          useCanvasStore.getState().updateBubbles(updates, true);
+        }, 0);
+      }
     }; // Kết thúc hàm loadFontsAndRender
 
     // 🚀 GỌI HÀM KHI CHẠY USEEFFECT

@@ -12,12 +12,16 @@ export const useDynamicLoadingText = (isProcessing: boolean) => {
 
     const messages = [
       "🔍 Đang phân tích vùng chọn...",
-      "🤖 Đang kết nối tới máy chủ AI...",
-      "🧠 AI đang cật lực xử lý...",
-      "🎨 Đang hoàn thiện nét vẽ...",
+      "⚡ Đang gọi GPU (Lần đầu có thể mất 1-2 phút do khởi động lạnh)...",
+      "📦 Đang nạp mô hình AI lên VRAM...",
+      "🤖 Kết nối thành công! AI đang xử lý...",
+      "🎨 Đang hoàn thiện các nét vẽ & screentones...",
       "⏳ Chờ thêm một tẹo nữa thôi sếp nhé...",
-      "🐌 Mạng hơi chậm, AI đang cố gắng hết sức..."
+      "🐌 Mạng hoặc GPU đang bận, AI vẫn đang cố hết sức..."
     ];
+    
+    // Đặt text đầu tiên ngay lập tức thay vì đợi 2.5s
+    setText(messages[0]);
     
     let index = 0;
     // Cứ 2.5 giây đổi chữ một lần để mắt người dùng luôn được "bận rộn"

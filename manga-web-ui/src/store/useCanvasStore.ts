@@ -49,6 +49,7 @@ interface CanvasState {
   setBubbles: (bubbles: TextBubble[]) => void;
   addBubble: (bubble: Omit<TextBubble, 'id'>, skipHistory?: boolean) => void;
   updateBubble: (id: string, data: Partial<TextBubble>, skipHistory?: boolean) => void;
+  updateBubbles: (updates: { id: string; data: Partial<TextBubble> }[], skipHistory?: boolean) => void;
   removeBubble: (id: string) => void;
   setActiveBubble: (id: string | null) => void;
   setHoveredBubble: (id: string | null) => void;
@@ -116,6 +117,22 @@ export const useCanvasStore = create<CanvasState>()(
         set((state) => ({
           bubbles: state.bubbles.map((b) => b.id === id ? { ...b, ...data } : b)
         }));
+      },
+
+      updateBubbles: (updates, skipHistory = false) => {
+        if (updates.length === 0) return;
+        if (!skipHistory) {
+          get().saveHistory();
+        }
+        set((state) => {
+          const updateMap = new Map(updates.map(u => [u.id, u.data]));
+          return {
+            bubbles: state.bubbles.map((b) => {
+              const data = updateMap.get(b.id);
+              return data ? { ...b, ...data } : b;
+            })
+          };
+        });
       },
 
       removeBubble: (id) => {

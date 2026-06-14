@@ -19,17 +19,15 @@ import { useConfigStore } from '../../store/useConfigStore';
 import { PaywallDrawer } from '../Modals/PaywallDrawer';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useMangaEditorStore } from '../../store/useMangaEditorStore';
-import { NovitaInpaintingModal } from '../Modals/NovitaInpaintingModal';
 
 export default function Workspace() {
   const [showPaywall, setShowPaywall] = useState(false);
-  const [isNovitaModalOpen, setIsNovitaModalOpen] = useState(false);
-  const [novitaMask, setNovitaMask] = useState("");
-  const [novitaRawUrl, setNovitaRawUrl] = useState("");
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isEraseProcessingRef = useRef(false);
+  const isRedrawProcessingRef = useRef(false);
 
   // 1. Lifecycle Garbage Collection (CRITICAL)
   useEffect(() => {
@@ -191,7 +189,7 @@ export default function Workspace() {
     return () => { isMounted = false; };
   }, [projectStore.currentIndex, projectStore.pageIds]);
 
-  const { currentZoom, activeMode, setActiveMode, brushSize, setBrushSize, setZoom, isComparing, setIsComparing, actionPosition, setActionPosition, showText } = useToolStore();
+  const { currentZoom, activeMode, setActiveMode, brushSize, setBrushSize, setZoom, isComparing, setIsComparing, actionPosition, setActionPosition, showText, isProcessing, setIsProcessing } = useToolStore();
 
   const [rawUrl, setRawUrl] = useState<string | null>(null);
 
@@ -204,7 +202,7 @@ export default function Workspace() {
   const startMouse = useRef({ x: 0, y: 0 });
   const isSpaceDown = useRef(false);
 
-  const [isProcessing, setIsProcessing] = useState(false);
+  // isProcessing and setIsProcessing are loaded from useToolStore
   const [redrawPrompt, setRedrawPrompt] = useState("");
   const dynamicLoadingText = useDynamicLoadingText(isProcessing);
 
@@ -427,13 +425,16 @@ export default function Workspace() {
 
   // 4. AI Backend Integration (Actual Erase Mask)
   const handleErase = async () => {
+    if (isEraseProcessingRef.current) return;
     if (!projectStore.pageIds[currentIndex]) return toast.error("Ảnh đang tải lên!");
     const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
     const ctx = drawCanvas?.getContext("2d");
     if (!ctx?.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data.some((p, i) => i % 4 === 3 && p > 0)) return toast.error("Hãy khoanh vùng đỏ!");
 
+    isEraseProcessingRef.current = true;
     setIsProcessing(true);
     setActionPosition(null);
+    const toastId = toast.loading("Bắt đầu xử lý xóa nền thông minh...");
     try {
       const maskBase64 = drawCanvas.toDataURL("image/png");
       const pageId = projectStore.pageIds[currentIndex];
@@ -454,25 +455,29 @@ export default function Workspace() {
       projectStore.setProcessedUrl(currentIndex, newUrl);
 
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-      toast.success("Đã xóa nền!");
+      toast.success("Đã xóa nền thông minh thành công!", { id: toastId });
       setActiveMode("none");
     } catch (e: any) { 
-      toast.error(e.message || "Lỗi xóa nền!"); 
+      toast.error(e.message || "Xử lý xóa nền thất bại!", { id: toastId }); 
     } finally { 
+      isEraseProcessingRef.current = false;
       setIsProcessing(false); 
     }
   };
 
   // 4.5. AI Redraw Integration (Waifu SDXL Model)
   const handleRedraw = async (positivePrompt: string, negativePrompt: string) => {
+    if (isRedrawProcessingRef.current) return;
     if (!positivePrompt.trim()) return toast.error("Vui lòng nhập prompt!");
     if (!projectStore.pageIds[currentIndex]) return toast.error("Ảnh đang tải lên!");
     const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
     const ctx = drawCanvas?.getContext("2d");
     if (!ctx?.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data.some((p, i) => i % 4 === 3 && p > 0)) return toast.error("Hãy khoanh vùng đỏ!");
 
+    isRedrawProcessingRef.current = true;
     setIsProcessing(true);
     setActionPosition(null);
+    const toastId = toast.loading("Bắt đầu vẽ lại vùng chọn bằng AI...");
     try {
       const maskBase64 = drawCanvas.toDataURL("image/png");
       const pageId = projectStore.pageIds[currentIndex];
@@ -493,49 +498,17 @@ export default function Workspace() {
       projectStore.setProcessedUrl(currentIndex, newUrl);
 
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-      toast.success("Đã vẽ lại vùng chọn!");
+      toast.success("Vẽ lại vùng chọn bằng AI thành công!", { id: toastId });
       setActiveMode("none");
       setRedrawPrompt("");
     } catch (e: any) {
-      toast.error(e.message || "Lỗi vẽ lại AI!");
+      toast.error(e.message || "Vẽ lại bằng AI thất bại!", { id: toastId });
     } finally {
+      isRedrawProcessingRef.current = false;
       setIsProcessing(false);
     }
   };
 
-  const handleOpenNovitaTest = () => {
-    if (!projectStore.pageIds[currentIndex]) return toast.error("Ảnh đang tải lên!");
-    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
-    const ctx = drawCanvas?.getContext("2d");
-    if (!ctx?.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data.some((p, i) => i % 4 === 3 && p > 0)) {
-      return toast.error("Hãy vẽ/khoanh vùng đỏ cần vẽ lại/inpainting trước!");
-    }
-
-    const maskBase64 = drawCanvas.toDataURL("image/png");
-    const pageId = projectStore.pageIds[currentIndex];
-
-    const fileName = fileQueue[currentIndex]?.name || "";
-    const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
-    const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
-    const targetUrl = processedUrls[currentIndex] || serverRawUrl;
-
-    setNovitaMask(maskBase64);
-    setNovitaRawUrl(targetUrl);
-    setIsNovitaModalOpen(true);
-  };
-
-  const handleApplyNovitaResult = (newUrl: string) => {
-    useMangaEditorStore.getState().saveHistory();
-    useMangaEditorStore.getState().setImageUrl(newUrl);
-    projectStore.setProcessedUrl(currentIndex, newUrl);
-
-    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
-    const ctx = drawCanvas?.getContext("2d");
-    if (ctx) ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-    
-    setActiveMode("none");
-    setActionPosition(null);
-  };
 
   // Tải Custom Fonts
   useEffect(() => {
@@ -683,11 +656,7 @@ export default function Workspace() {
               <div className="w-px h-8 bg-border mx-1"></div>
               <button onClick={handleErase} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm">
                 {isProcessing ? <span className="animate-spin">⏳</span> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
-                {isProcessing ? dynamicLoadingText : "✨ Xóa AI"}
-              </button>
-              <div className="w-px h-8 bg-border mx-1"></div>
-              <button onClick={handleOpenNovitaTest} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-sm">
-                🧪 Test Novita
+                {isProcessing ? dynamicLoadingText : "✨ Xóa nền thông minh"}
               </button>
             </div>
           )}
@@ -703,17 +672,10 @@ export default function Workspace() {
                   setActionPosition(null);
                   setRedrawPrompt("");
                 }}
-                onSubmit={({ positive, negative }) => {
-                  handleRedraw(positive, negative);
+                onSubmit={async ({ positive, negative }) => {
+                  await handleRedraw(positive, negative);
                 }}
               />
-              <button
-                onClick={handleOpenNovitaTest}
-                disabled={isProcessing}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs shadow-md transition-colors cursor-pointer text-center"
-              >
-                🧪 Test Novita Inpainting
-              </button>
             </div>
           )}
         </>
@@ -736,14 +698,6 @@ export default function Workspace() {
       <PaywallDrawer
         isOpen={showPaywall}
         onClose={() => setShowPaywall(false)}
-      />
-
-      <NovitaInpaintingModal
-        isOpen={isNovitaModalOpen}
-        onClose={() => setIsNovitaModalOpen(false)}
-        rawImageUrl={novitaRawUrl}
-        maskBase64={novitaMask}
-        onApplyResult={handleApplyNovitaResult}
       />
     </div>
   );

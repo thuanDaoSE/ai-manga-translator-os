@@ -1,9 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Sparkles, Wand2, ChevronDown, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Sparkles, ChevronDown, Check } from 'lucide-react';
 import { mangaApi } from '../../services/api';
 import toast from 'react-hot-toast';
+import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
 
-// Tag taxonomy categorized by purpose with dedicated color styles
+interface TagOption {
+  value: string;
+  label: string;
+}
+
+// Tag taxonomy categorized by purpose with dedicated color styles (Vietnamese labels for display, English values for GPU diffusion model)
 const CATEGORIES = [
   {
     id: "manga",
@@ -11,7 +17,12 @@ const CATEGORIES = [
     color: "blue",
     pillClass: "bg-blue-500/10 text-blue-400 border-blue-500/30",
     tagClass: "bg-blue-500/10 text-blue-300 border border-blue-500/20 hover:bg-blue-500/20 hover:border-blue-500/40 text-xs px-3 py-1.5",
-    tags: ["monochrome", "screentones", "crosshatching", "precise lineart"]
+    tags: [
+      { value: "monochrome", label: "Ảnh đen trắng" },
+      { value: "screentones", label: "Lưới hiệu ứng Screentone" },
+      { value: "crosshatching", label: "Nét gạch chéo bóng" },
+      { value: "precise lineart", label: "Nét vẽ mảnh sắc nét" }
+    ]
   },
   {
     id: "webtoon",
@@ -19,7 +30,12 @@ const CATEGORIES = [
     color: "purple",
     pillClass: "bg-purple-500/10 text-purple-400 border-purple-500/30",
     tagClass: "bg-purple-500/10 text-purple-300 border border-purple-500/20 hover:bg-purple-500/20 hover:border-purple-500/40 text-xs px-3 py-1.5",
-    tags: ["cel shading", "flat colors", "vibrant palette", "webtoon style"]
+    tags: [
+      { value: "cel shading", label: "Đổ bóng khối Cel-shading" },
+      { value: "flat colors", label: "Tô màu phẳng đơn giản" },
+      { value: "vibrant palette", label: "Màu sắc sống động" },
+      { value: "webtoon style", label: "Phong cách Webtoon" }
+    ]
   },
   {
     id: "sfx",
@@ -27,7 +43,12 @@ const CATEGORIES = [
     color: "orange",
     pillClass: "bg-orange-500/10 text-orange-400 border-orange-500/30",
     tagClass: "bg-orange-500/10 text-orange-300 border border-orange-500/20 hover:bg-orange-500/20 hover:border-orange-500/40 text-xs px-3 py-1.5",
-    tags: ["speed lines", "impact debris", "motion blur", "floating hair"]
+    tags: [
+      { value: "speed lines", label: "Đường chuyển động bay" },
+      { value: "impact debris", label: "Vụn vỡ va chạm" },
+      { value: "motion blur", label: "Làm mờ chuyển động" },
+      { value: "floating hair", label: "Tóc bay trước gió" }
+    ]
   },
   {
     id: "context",
@@ -35,7 +56,12 @@ const CATEGORIES = [
     color: "green",
     pillClass: "bg-green-500/10 text-green-400 border-green-500/30",
     tagClass: "bg-green-500/10 text-green-300 border border-green-500/20 hover:bg-green-500/20 hover:border-green-500/40 text-xs px-3 py-1.5",
-    tags: ["simple background", "detailed background", "brick wall", "starry sky"]
+    tags: [
+      { value: "simple background", label: "Phông nền đơn giản" },
+      { value: "detailed background", label: "Phông nền chi tiết" },
+      { value: "brick wall", label: "Bức tường gạch" },
+      { value: "starry sky", label: "Bầu trời sao đêm" }
+    ]
   }
 ];
 
@@ -59,11 +85,11 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   const [vietnameseText, setVietnameseText] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [mode, setMode] = useState<'manga' | 'webtoon'>('manga');
-  const [isOpenFlyout, setIsOpenFlyout] = useState(false); // Collapsed by default
+  const [isOpenFlyout, setIsOpenFlyout] = useState(false);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [isTranslating, setIsTranslating] = useState(false);
+  const dynamicLoadingText = useDynamicLoadingText(isProcessing);
 
-  // Cycling placeholder text every 3 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       setPlaceholderIndex((prev) => (prev + 1) % PLACEHOLDERS.length);
@@ -71,31 +97,33 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // Toggle a tag in/out of selected list
-  const handleToggleTag = (tag: string) => {
+  const handleToggleTag = (tagValue: string) => {
     setSelectedTags((prev) => 
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+      prev.includes(tagValue) ? prev.filter((t) => t !== tagValue) : [...prev, tagValue]
     );
   };
 
-  // Find category style class for a specific tag
-  const getTagPillClass = (tag: string) => {
-    const category = CATEGORIES.find(cat => cat.tags.includes(tag));
+  const getTagPillClass = (tagValue: string) => {
+    const category = CATEGORIES.find(cat => cat.tags.some(t => t.value === tagValue));
     return category ? category.pillClass : "bg-gray-500/10 text-gray-300 border-gray-500/30";
   };
 
-  // Handle form submission and prompt packaging
+  const getTagLabel = (tagValue: string) => {
+    for (const cat of CATEGORIES) {
+      const found = cat.tags.find(t => t.value === tagValue);
+      if (found) return found.label;
+    }
+    return tagValue;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     if (e) e.preventDefault();
     if (isTranslating || isProcessing) return;
 
     setIsTranslating(true);
     try {
-      // Gọi API dịch và sinh prompt
       const result = await mangaApi.processRedrawPrompt(vietnameseText, selectedTags, mode);
-      
-      // Gửi prompt đã dịch ngược về hàm redraw cha
-      onSubmit({
+      await onSubmit({
         positive: result.finalPositivePrompt,
         negative: result.finalNegativePrompt
       });
@@ -107,7 +135,6 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
     }
   };
 
-  // Filter out categories based on active mode
   const filteredCategories = CATEGORIES.filter(category => {
     if (mode === 'manga' && category.id === 'webtoon') return false;
     if (mode === 'webtoon' && category.id === 'manga') return false;
@@ -117,9 +144,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   return (
     <div className="flex flex-col gap-3.5 p-4 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.7)] rounded-2xl w-[380px] animate-in slide-in-from-bottom-5 fade-in duration-300 pointer-events-auto text-white">
       
-      {/* Input Form */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        {/* Natural Language Input field at the very top */}
         <div className="relative">
           <textarea
             value={vietnameseText}
@@ -131,7 +156,6 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
           />
         </div>
 
-        {/* Selected Tags list (Pills) visible directly under the input if any */}
         {selectedTags.length > 0 && (
           <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pr-1">
             {selectedTags.map(tag => (
@@ -139,7 +163,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
                 key={tag} 
                 className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold border rounded-full ${getTagPillClass(tag)}`}
               >
-                <span>{tag}</span>
+                <span>{getTagLabel(tag)}</span>
                 <button 
                   type="button" 
                   onClick={() => handleToggleTag(tag)}
@@ -152,7 +176,6 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
           </div>
         )}
 
-        {/* Large Prominent 1-Click Action Button and Cancel Button */}
         <div className="flex items-center gap-2">
           <button
             type="submit"
@@ -164,7 +187,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             ) : (
               <Sparkles size={15} />
             )}
-            {isTranslating ? "Đang dịch..." : isProcessing ? "Đang vẽ..." : "Vẽ lại AI"}
+            {isTranslating ? "Đang dịch..." : isProcessing ? dynamicLoadingText : "Vẽ lại AI"}
           </button>
           
           <button
@@ -178,7 +201,6 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
         </div>
       </form>
 
-      {/* Accordion / Dropdown for Advanced Tags - Collapsed by default */}
       <div className="border-t border-white/5 pt-2">
         <button
           type="button"
@@ -192,7 +214,6 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
         {isOpenFlyout && (
           <div className="mt-3 z-50 bg-[#141414] border border-white/10 shadow-2xl rounded-xl p-3 flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
             
-            {/* Toggle at the top of the advanced section to filter styles */}
             <div className="flex items-center justify-between border-b border-white/5 pb-2">
               <span className="text-[10px] font-bold text-neutral-500 uppercase">Bộ lọc phong cách</span>
               <div className="flex bg-neutral-950 border border-white/5 p-0.5 rounded-lg text-[9px] font-extrabold">
@@ -221,20 +242,19 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
               </div>
             </div>
 
-            {/* Render only filtered categories based on mode */}
             {filteredCategories.map(category => (
               <div key={category.name} className="flex flex-col gap-1.5">
                 <span className="text-[9px] font-extrabold uppercase tracking-wider text-neutral-500">
                   {category.name}
                 </span>
                 <div className="flex flex-wrap gap-1.5">
-                  {category.tags.map(tag => {
-                    const isSelected = selectedTags.includes(tag);
+                  {category.tags.map(tagObj => {
+                    const isSelected = selectedTags.includes(tagObj.value);
                     return (
                       <button
-                        key={tag}
+                        key={tagObj.value}
                         type="button"
-                        onClick={() => handleToggleTag(tag)}
+                        onClick={() => handleToggleTag(tagObj.value)}
                         className={`flex items-center gap-1.5 rounded-xl border transition-all cursor-pointer font-medium ${
                           isSelected 
                             ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm font-semibold'
@@ -242,7 +262,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
                         }`}
                       >
                         {isSelected && <Check size={10} />}
-                        <span>{tag}</span>
+                        <span>{tagObj.label}</span>
                       </button>
                     );
                   })}

@@ -59,6 +59,8 @@ interface ToolState {
 
   showAiGuides: boolean;
   toggleAiGuides: () => void;
+  isProcessing: boolean;
+  setIsProcessing: (val: boolean) => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
@@ -116,5 +118,7 @@ export const useToolStore = create<ToolState>((set) => ({
   setActionPosition: (pos) => set({ actionPosition: pos }),
 
   showAiGuides: false,
-  toggleAiGuides: () => set((state) => ({ showAiGuides: !state.showAiGuides }))
+  toggleAiGuides: () => set((state) => ({ showAiGuides: !state.showAiGuides })),
+  isProcessing: false,
+  setIsProcessing: (val) => set({ isProcessing: val })
 }));

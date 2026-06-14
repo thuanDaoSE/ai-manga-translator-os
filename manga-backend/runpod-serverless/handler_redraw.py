@@ -75,7 +75,15 @@ def handler(job):
         image_url = job_input['image_url']
         mask_url = job_input['mask_url']
         prompt = job_input['prompt']
-        negative_prompt = job_input.get('negative_prompt', '')
+        raw_negative_prompt = job_input.get('negative_prompt', '')
+        
+        # Forcefully append NSFW guardrail string to negative prompt for strict regulatory compliance
+        nsfw_guardrail = "nsfw, nude, explicit, pornography, uncensored, genitalia"
+        if raw_negative_prompt:
+            negative_prompt = f"{raw_negative_prompt.strip().rstrip(',')}, {nsfw_guardrail}"
+        else:
+            negative_prompt = nsfw_guardrail
+            
         output_url = job_input['output_url']
         
         # Tải local SDXL inpaint pipeline
