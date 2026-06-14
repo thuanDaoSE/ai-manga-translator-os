@@ -141,7 +141,7 @@ export default function IsolatedTest() {
 
       <div style={{ width: '100%', height: '100%', overflow: 'auto', paddingTop: '70px', paddingBottom: '50px', display: 'flex', justifyContent: 'center' }}>
         <div ref={containerRef} style={{ position: 'relative', width: imgSize.w > 0 ? imgSize.w : 'auto', height: imgSize.h > 0 ? imgSize.h : 'auto', border: imageUrl ? '2px solid #444' : 'none', boxShadow: '0 0 20px rgba(0,0,0,0.8)' }}>
-          {imageUrl && <img src={imageUrl} onLoad={handleImageLoad} alt="Test Manga" style={{ display: 'block', pointerEvents: 'none' }} />}
+          {imageUrl && <img src={imageUrl} onLoad={handleImageLoad} alt="Test Manga" style={{ display: 'block', pointerEvents: 'none' }} className="ph-no-capture" />}
           {bubbles.map((b) => (
             <div key={b.id} style={{ position: 'absolute', left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px`, border: '2px solid #00ff00', background: 'rgba(0, 255, 0, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <div style={{ width: '100%', textAlign: 'center', fontSize: '18px', fontFamily: 'sans-serif', fontWeight: 'bold', color: 'black', textShadow: '2px 2px 0 #fff, -2px -2px 0 #fff, 2px -2px 0 #fff, -2px 2px 0 #fff' }}>

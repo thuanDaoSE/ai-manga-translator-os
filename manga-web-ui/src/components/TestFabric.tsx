@@ -62,7 +62,7 @@ export default function TestFabric() {
     <div className="p-10 flex flex-col items-center">
       <h2 className="text-white mb-4 text-xl font-bold">TEST SPRINT 1: FABRIC.JS & AUTO-FIT</h2>
       <div className="border-4 border-primary rounded-lg overflow-hidden shadow-2xl bg-white">
-        <canvas ref={canvasRef} />
+        <canvas ref={canvasRef} className="ph-no-capture" />
       </div>
       <p className="text-text-muted mt-4">
         Hãy click đúp vào đoạn chữ để chỉnh sửa, kéo các góc để xem viền chữ trắng không bao giờ lẹm vào chữ đen!

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, memo, useCallback } from 'react';
-import { useConfigStore } from '../../store/useConfigStore';
+import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
 import { 
   X, Database, Users, Save, Plus, Trash2, 
   ArrowRight, UploadCloud, Download, Wand2, Loader2, FileJson, Sparkles, ChevronDown
@@ -248,10 +248,9 @@ export default function TranslationConfigModal() {
                   onChange={(e) => config.setConfig('targetLanguage', e.target.value)}
                   className="appearance-none bg-background border border-border rounded-xl py-1.5 pl-3 pr-8 text-[11px] font-bold text-text-main focus:outline-none focus:border-primary transition-all cursor-pointer shadow-sm"
                 >
-                  <option value="Tiếng Việt">Tiếng Việt</option>
-                  <option value="English">English</option>
-                  <option value="Español">Español (Spanish)</option>
-                  <option value="Português">Português (Portuguese)</option>
+                  {VALID_LANGUAGES.map((lang) => (
+                    <option key={lang} value={lang}>{lang}</option>
+                  ))}
                 </select>
                 <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" />
               </div>

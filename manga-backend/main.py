@@ -566,6 +566,9 @@ async def create_project(
     email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
     await ensure_user_exists(db, user_id, email)
 
+    # Khóa và trừ 2 Xu phí Cold Start tạo dự án mới
+    await check_and_deduct_credits(db, user_id, 2, f"Tạo dự án mới: {payload.get('name', 'New Project')} (Phí Cold Start)")
+
     project_id = str(uuid.uuid4())
     db_project = models.Project(id=project_id, name=payload.get("name", "New Project"), user_id=user_id)
     db.add(db_project)
@@ -1405,10 +1408,15 @@ async def redraw_image(
     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
     redraw_start = time.time()
+    if req.page_id:
+        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+        await check_page_ownership(req.page_id, user_id, db)
+
+    # Khóa và trừ 1 Xu phí vẽ lại AI
+    await check_and_deduct_credits(db, user_id, 1, "Vẽ lại bằng AI (Redraw)")
+    await db.commit() # Commit ngay để tránh khóa dòng User lâu khi gọi API RunPod (tốn 10-30s)
+
     try:
-        if req.page_id:
-            # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
-            await check_page_ownership(req.page_id, user_id, db)
 
         # 1. Tìm đường dẫn file gốc
         img_path = get_local_path_from_url(req.image_url)
@@ -1541,6 +1549,9 @@ async def redraw_image(
         return {"status": "success", "new_url": new_url}
 
     except Exception as e:
+        # Hoàn Xu khi gặp lỗi vẽ lại AI
+        await refund_credits(db, user_id, 1, f"Hoàn 1 Xu: Vẽ lại thất bại (Lỗi: {str(e)[:100]})")
+
         # Capture error/OOM in Sentry with extra context
         with sentry_sdk.push_scope() as scope:
             scope.set_extra("user_prompt", req.prompt)
@@ -1938,55 +1949,111 @@ async def export_manga(
     )
 
 @app.post("/api/projects/{project_id}/import-manga")
-async def import_manga(
+async def import_manga_file(
     project_id: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id) # Chốt chặn bảo mật
 ):
-    """Khôi phục lại trang truyện từ file .manga của người dùng"""
-    if not file.filename.endswith('.manga'):
-        raise HTTPException(status_code=400, detail="Chỉ chấp nhận file .manga hợp lệ!")
+    # 1. Kiểm tra xem Project có tồn tại và thuộc sở hữu của User này không (Chống IDOR)
+    result = await db.execute(select(models.Project).where(models.Project.id == project_id, models.Project.user_id == user_id))
+    project = result.scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Không tìm thấy Dự án!")
 
-    page_id = str(uuid.uuid4())
-    project_dir = f"workspace/{project_id}"
-    raw_dir = f"{project_dir}/raw"
-    os.makedirs(raw_dir, exist_ok=True)
+    # 2. Đếm số trang hiện có của dự án để tránh trừ Xu 2 lần khi khôi phục dự án mới tinh vừa tạo
+    pages_result = await db.execute(select(models.Page).where(models.Page.project_id == project_id))
+    pages_count = len(pages_result.scalars().all())
 
-    # 1. Đọc và giải nén file .manga ngay trên RAM
-    zip_data = await file.read()
+    # Chỉ trừ 2 Xu nếu dự án đã có trang (người dùng đang import thêm chapter mới/tải tệp bổ sung)
+    # Nếu dự án rỗng (mới tạo từ WelcomeScreen), người dùng đã trả 2 Xu phí Cold Start khi tạo dự án rồi!
+    if pages_count > 0:
+        await check_and_deduct_credits(db, user_id, 2, f"Nhập chapter mới / Tải tệp sao lưu (.manga) (Dự án: {project_id})")
+
+    # 3. Đọc dữ liệu file nén (.manga / .zip)
+    file_bytes = await file.read()
+    pages_created = []
+    
     try:
-        with zipfile.ZipFile(io.BytesIO(zip_data)) as zipf:
-            file_names = zipf.namelist()
-            img_name = next((f for f in file_names if f.startswith("image.")), None)
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+            namelist = z.namelist()
             
-            if not img_name or "bubbles.json" not in file_names:
-                raise Exception("File hỏng")
-
-            # 2. Lưu lại ảnh xuống ổ cứng (Lưu vào raw coi như 1 file mới)
-            ext = img_name.split('.')[-1]
-            raw_path = f"{raw_dir}/{page_id}.{ext}"
-            with open(raw_path, "wb") as f:
-                f.write(zipf.read(img_name))
-
-            # 3. Lôi cục chữ JSON ra
-            bubbles_json = zipf.read("bubbles.json").decode('utf-8')
-    except:
-        raise HTTPException(status_code=400, detail="File .manga bị hỏng hoặc sai định dạng!")
-
-    # 4. Lưu vào Database như một trang truyện đang làm dở
-    db_page = models.Page(
-        id=page_id,
-        project_id=project_id,
-        filename=file.filename.replace(".manga", ""),
-        raw_url=f"/workspace/{project_id}/raw/{page_id}.{ext}",
-        status="translating",
-        bubbles_data=bubbles_json
-    )
-    db.add(db_page)
-    await db.commit()
-
-    return {"status": "success", "page_id": page_id}    
+            # Trường hợp 1: Tệp sao lưu .manga đơn lẻ (Có bubbles.json và file ảnh)
+            if 'bubbles.json' in namelist:
+                # Tìm file ảnh (image.* hoặc raw.jpg/clean.jpg)
+                img_name = next((f for f in namelist if f.startswith("image.") or f == "raw.jpg" or f == "clean.jpg"), None)
+                if not img_name:
+                    raise Exception("Không tìm thấy ảnh gốc trong file sao lưu .manga!")
+                    
+                bubbles_json = z.read("bubbles.json").decode('utf-8')
+                page_id = str(uuid.uuid4())
+                
+                # Tạo thư mục lưu ảnh
+                ext = img_name.split('.')[-1]
+                os.makedirs(f"workspace/{project_id}/raw", exist_ok=True)
+                os.makedirs(f"workspace/{project_id}/clean", exist_ok=True)
+                
+                raw_filename = f"workspace/{project_id}/raw/{page_id}.{ext}"
+                with open(raw_filename, "wb") as f_out:
+                    f_out.write(z.read(img_name))
+                    
+                clean_url = None
+                if 'clean.jpg' in namelist:
+                    clean_filename = f"workspace/{project_id}/clean/{page_id}.jpg"
+                    with open(clean_filename, "wb") as f_out:
+                        f_out.write(z.read('clean.jpg'))
+                    clean_url = f"/{clean_filename}"
+                    
+                db_page = models.Page(
+                    id=page_id,
+                    project_id=project_id,
+                    filename=file.filename.replace(".manga", "").replace(".zip", ""),
+                    raw_url=f"/workspace/{project_id}/raw/{page_id}.{ext}",
+                    clean_url=clean_url,
+                    status="completed" if clean_url else "pending",
+                    bubbles_data=bubbles_json
+                )
+                db.add(db_page)
+                pages_created.append(db_page)
+                
+            # Trường hợp 2: ZIP chứa batch ảnh thô (không có bubbles.json) đại diện cho chapter mới
+            else:
+                supported_exts = ('.jpg', '.jpeg', '.png', '.webp')
+                img_files = [f for f in namelist if f.lower().endswith(supported_exts) and not f.startswith('__MACOSX') and not os.path.basename(f).startswith('.')]
+                
+                if not img_files:
+                    raise Exception("Không tìm thấy ảnh hoặc file bubbles.json trong file nén!")
+                    
+                os.makedirs(f"workspace/{project_id}/raw", exist_ok=True)
+                for img_path_in_zip in img_files:
+                    img_data = z.read(img_path_in_zip)
+                    basename = os.path.basename(img_path_in_zip)
+                    page_id = str(uuid.uuid4())
+                    ext = basename.split('.')[-1]
+                    
+                    raw_filename = f"workspace/{project_id}/raw/{page_id}.{ext}"
+                    with open(raw_filename, "wb") as f_out:
+                        f_out.write(img_data)
+                        
+                    db_page = models.Page(
+                        id=page_id,
+                        project_id=project_id,
+                        filename=basename,
+                        raw_url=f"/workspace/{project_id}/raw/{page_id}.{ext}",
+                        status="unprocessed"
+                    )
+                    db.add(db_page)
+                    pages_created.append(db_page)
+                    
+        await db.commit()
+    except Exception as e:
+        print(f"❌ Lỗi khôi phục tệp sao lưu: {e}")
+        raise HTTPException(status_code=400, detail=f"Không thể đọc file sao lưu: {str(e)}")
+        
+    return {
+        "status": "success", 
+        "pages": [{"id": p.id, "filename": p.filename, "status": p.status} for p in pages_created]
+    }    
 
 # ==========================================
 # 🛑 API HỦY TIẾN TRÌNH DỊCH (SERVERLESS HACK)
@@ -2147,6 +2214,10 @@ async def translate_page(
             print(f"⚠️ [CACHE ERROR] Lỗi kiểm tra cache Redis: {e}")
 
     # 🚀 THẢ TÁC VỤ VÀO CELERY QUEUE CHẠY NGẦM HOÀN TOÀN
+    # Khóa và trừ 1 Xu phí dịch trang truyện (nếu cache miss)
+    await check_and_deduct_credits(db, user_id, 1, f"Dịch trang truyện (Trang ID: {page_id})")
+    await db.commit() # Lưu CSDL ngay trước khi khởi chạy tác vụ ngầm
+
     from worker import process_manga_page
     task = process_manga_page.delay(page_id, config)
     
@@ -2204,78 +2275,7 @@ async def get_task_result(task_id: str):
             
     return {"status": res.state}
 
-import zipfile
-import io
-
-@app.post("/api/projects/{project_id}/import-manga")
-async def import_manga_file(
-    project_id: str,
-    file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
-):
-    # 1. Kiểm tra đuôi file xem có chuẩn không
-    if not file.filename.lower().endswith('.manga'):
-        raise HTTPException(status_code=400, detail="Chỉ chấp nhận file định dạng .manga")
-
-    try:
-        # Đọc toàn bộ file vào bộ nhớ
-        file_bytes = await file.read()
-        
-        # 2. Mở file nén ZIP (.manga thực chất là file zip gom ảnh + json)
-        with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
-            # Đọc file meta dữ liệu chữ (bubbles.json)
-            if 'bubbles.json' not in z.namelist():
-                raise HTTPException(status_code=400, detail="Cấu trúc file .manga bị lỗi (Thiếu bubbles.json)")
-                
-            meta_content = z.read('bubbles.json').decode('utf-8')
-            meta_data = json.loads(meta_content) # Chứa thông tin ảnh và đống ô thoại cũ
-            
-            # 3. Tạo một Trang truyện mới (Page) trong Database dựa trên dữ liệu giải nén
-            page_id = str(uuid.uuid4())
-            os.makedirs("workspace", exist_ok=True)
-            
-            # Giải nén ảnh gốc (raw) và ảnh sạch (clean) ra ổ cứng của VPS
-            raw_filename = f"workspace/raw_{page_id}.jpg"
-            if 'raw.jpg' in z.namelist():
-                with open(raw_filename, "wb") as f:
-                    f.write(z.read('raw.jpg'))
-            
-            clean_url = None
-            if 'clean.jpg' in z.namelist():
-                clean_filename = f"workspace/clean_{page_id}.jpg"
-                with open(clean_filename, "wb") as f:
-                    f.write(z.read('clean.jpg'))
-                clean_url = f"/{clean_filename}"
-
-            # 4. Ghi nhận vào Database phân phòng an toàn
-            db_page = models.Page(
-                id=page_id,
-                project_id=project_id,
-                filename=meta_data.get("filename", file.filename.replace('.manga', '.jpg')),
-                status="completed" if clean_url else "pending",
-                raw_url=f"/{raw_filename}",
-                clean_url=clean_url,
-                bubbles_data=json.dumps(meta_data.get("bubbles", [])) # Trả lại toàn bộ đống chữ cũ
-            )
-            
-            db.add(db_page)
-            await db.commit()
-            
-            return {
-                "status": "success",
-                "page": {
-                    "id": page_id,
-                    "filename": db_page.filename,
-                    "status": db_page.status,
-                    "raw_url": db_page.raw_url,
-                    "clean_url": db_page.clean_url,
-                    "bubbles": meta_data.get("bubbles", [])
-                }
-            }
-            
-    except Exception as e:
-        print(f"❌ Lỗi import file .manga: {e}")
-        raise HTTPException(status_code=500, detail=f"Không thể đọc file .manga này: {str(e)}")
+# [Đã gộp endpoint khôi phục dự án .manga vào vị trí trên của main.py]
     
 
 class RetryTranslationRequest(BaseModel):
@@ -2495,99 +2495,28 @@ async def copilot_chat(req: CopilotRequest):
         else: # custom
             user_prompt = f"Tiếng Nhật: {req.japanese}. Bản dịch: {req.text}. Yêu cầu riêng: {req.custom_prompt}"
 
-        # Giả sử sếp đã có:
-        # req.japanese (Text OCR tiếng Nhật)
-        # req.project_id (ID của dự án)
-        # redis_client (Biến kết nối Redis sếp đã khởi tạo)
-        
-        # 1. KHỞI TẠO CỖ MÁY
-        nlp = TranslationEngine(redis_client)
-        
-        # 2. BƯỚC LỌC ĐẦU TIÊN: KIỂM TRA REDIS (EXACT MATCH)
-        cached_result, cache_key = await nlp.get_exact_match(req.project_id, req.japanese)
-        if cached_result:
-            print("🚀 CACHE HIT! Lấy ngay từ Redis, không tốn 1 xu API DeepSeek!")
-            return {"result": cached_result, "cached": True}
+        def call_llm():
+            response = deepseek_client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=150,
+                temperature=0.3
+            )
+            return response.choices[0].message.content.strip()
 
-        # 3. NẾU KHÔNG CÓ TRONG CACHE -> CHUẨN BỊ GỌI DEEPSEEK
-        # Trích xuất từ điển thông minh bằng Aho-Corasick (Thay vì nhét cả mớ vào prompt)
-        
-        # TODO: Sếp query Database lấy toàn bộ thuật ngữ của project này
-        # Ví dụ giả lập từ DB: db_terms = {"螺旋丸": "Rasengan", "木ノ葉": "Làng Lá", "サスケ": "Sasuke"}
-        db_terms = {"螺旋丸": "Rasengan"} # Sếp thay bằng câu lệnh SQL SQLAlchemy nhé
-        
-        # Quét nhặt từ
-        automaton = nlp.build_glossary_automaton(db_terms)
-        relevant_terms = nlp.extract_relevant_terms(automaton, req.japanese)
-        
-        # 3.5. LẤY NGỮ CẢNH CỬA SỔ TRƯỢT (SLIDING WINDOW)
-        # Sếp truyền session db, id project và id của trang đang dịch vào
-        # Giả sử req.project_id và req.page_id có sẵn trong payload từ Frontend gửi lên
-        previous_context = await get_sliding_window_context(db, req.project_id, req.page_id, window_size=2)
-
-        # 4. CHUẨN BỊ PROMPT TẦNG ĐỘNG (USER PROMPT)
-        # Nối Từ điển (Glossary) + Ngữ cảnh cũ (Context) + Text hiện tại (Current)
-        glossary_text = "\n".join([f"- {j} -> {v}" for j, v in relevant_terms.items()]) if relevant_terms else "None"
-        
-        user_prompt = f"""MANDATORY GLOSSARY & PRONOUNS:
-{glossary_text}
-
-PREVIOUS PAGES CONTEXT (Use this to maintain story flow and pronouns):
-{previous_context}
-
-CURRENT PAGE TO TRANSLATE (JSON format):
-{json.dumps(req.ocr_data, ensure_ascii=False)}
-
-Translate the text based on the rules and return ONLY the JSON object."""
-
-        # 5. GỌI DEEPSEEK API VỚI JSON MODE
-        DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-xxx")
-        headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
-        
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": DEEPKOMA_SYSTEM_PROMPT}, # TẦNG TĨNH -> HƯỞNG GIẢM GIÁ 90%
-                {"role": "user", "content": user_prompt}               # TẦNG ĐỘNG -> CHỊU PHÍ 100%
-            ],
-            # 🚀 ÉP KIỂU JSON: Chống lỗi Frontend không parse được dữ liệu
-            "response_format": {"type": "json_object"}, 
-            "temperature": 0.3, # 🚀 Giữ cái đầu lạnh cho LLM
-            "max_tokens": 1000  # Cho phép trả JSON dài hơn một chút
-        }
-        
-        response = await run_in_threadpool(
-            requests.post, 
-            "https://api.deepseek.com/chat/completions", 
-            headers=headers, json=payload, timeout=20
-        )
-        response.raise_for_status()
-        
-        # 6. NHẬN KẾT QUẢ VÀ PARSE JSON TRỰC TIẾP
-        raw_result = response.json()["choices"][0]["message"]["content"]
-        
-        try:
-            # Vì đã ép JSON Object, ta có thể parse thẳng thành Dict trong Python
-            translated_dict = json.loads(raw_result)
-        except json.JSONDecodeError:
-            # Đề phòng lỗi (rất hiếm khi xảy ra với JSON mode)
-            translated_dict = {"error": "Lỗi parse JSON từ LLM", "raw": raw_result}
-            
-        # Lưu vào Redis (như Bước 2)
-        # ...
-        
-        return {"result": translated_dict, "cached": False}
-
+        result = await run_in_threadpool(call_llm)
+        return {"result": result}
     except Exception as e:
         print(f"❌ Lỗi AI Copilot: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    
-# ========================================================
 # KẾT NỐI PAYOS (CHUẨN SDK PYTHON MỚI NHẤT)
 # ========================================================
 from payos import PayOS
 from payos.types import CreatePaymentLinkRequest
-from db_models import User, Transaction
+from db_models import User, Transaction, UserTransaction
 import time
 import os
 
@@ -2598,40 +2527,113 @@ payos_client = PayOS(
     checksum_key=os.getenv("PAYOS_CHECKSUM_KEY")
 )
 
-# ==========================================
-# API 1: TẠO MÃ QR THANH TOÁN CHO NGƯỜI DÙNG
-# ==========================================
-@app.post("/api/payment/create-link")
-async def create_payment_link(request: Request, package_id: str, db: AsyncSession = Depends(get_db), user_id: str = Depends(get_current_user_id)):
-    # 1. Định nghĩa các gói bán
-    packages = {
-        "pack_test": {"name": "Gói Test Luồng", "price": 2000, "credits": 20},
-        "pack_50k": {"name": "Gói 500 Credits", "price": 50000, "credits": 500},
-        "pack_100k": {"name": "Gói 1200 Credits", "price": 100000, "credits": 1200},
-        "pack_pro": {"name": "Thuê bao PRO 1 Tháng", "price": 200000, "credits": 0}
-    }
+# ========================================================
+# HÀM BỔ TRỢ: KIỂM TRA & TRỪ XU, HOÀN XU (CHỐNG RACE CONDITION)
+# ========================================================
+async def check_and_deduct_credits(db: AsyncSession, user_id: str, amount: int, description: str) -> User:
+    """
+    Kiểm tra số dư và trừ Xu của người dùng. Sử dụng SELECT FOR UPDATE để khóa dòng CSDL.
+    """
+    stmt = select(User).where(User.id == user_id).with_for_update()
+    res = await db.execute(stmt)
+    user = res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+        
+    if user.is_pro:
+        return user
+        
+    if user.credits < amount:
+        raise HTTPException(
+            status_code=402, 
+            detail=f"Không đủ Xu! Cần {amount} Xu nhưng bạn chỉ có {user.credits} Xu. Vui lòng nạp thêm."
+        )
+        
+    user.credits -= amount
     
-    selected_pack = packages.get(package_id)
-    if not selected_pack:
-        raise HTTPException(status_code=400, detail="Gói không hợp lệ")
+    # Ghi nhận lịch sử giao dịch
+    new_txn = UserTransaction(
+        user_id=user.id,
+        amount=-amount,
+        type="DEDUCT",
+        description=description
+    )
+    db.add(new_txn)
+    await db.flush() # Đẩy xuống DB trước để khóa tiếp nếu có, chưa commit vội
+    return user
 
-    # ========================================================
-    # 🚀 BẢN VÁ LỖI KHÓA NGOẠI: TỰ ĐỘNG TẠO USER NẾU CHƯA CÓ
-    # ========================================================
+async def refund_credits(db: AsyncSession, user_id: str, amount: int, description: str):
+    """
+    Hoàn lại Xu cho người dùng khi cuộc gọi AI thất bại.
+    """
+    try:
+        stmt = select(User).where(User.id == user_id).with_for_update()
+        res = await db.execute(stmt)
+        user = res.scalar_one_or_none()
+        if user:
+            if user.is_pro:
+                return
+            user.credits += amount
+            new_txn = UserTransaction(
+                user_id=user.id,
+                amount=amount,
+                type="TOPUP",
+                description=description
+            )
+            db.add(new_txn)
+            await db.commit()
+            print(f"🔄 [REFUND] Đã hoàn {amount} Xu cho user {user_id} ({description})")
+    except Exception as e:
+        print(f"⚠️ [REFUND ERROR] Lỗi khi hoàn Xu cho user {user_id}: {e}")
+
+# ==========================================
+# API: KÍCH HOẠT CÔNG CỤ VẼ LẠI AI (COLD START)
+# ==========================================
+@app.post("/api/tools/redraw/activate")
+async def activate_redraw_tool(
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    """Kích hoạt Engine vẽ lại AI đồ họa (Trừ 2 Xu phí khởi động)"""
+    user = await check_and_deduct_credits(db, user_id, 2, "Kích hoạt Engine AI Đồ Họa (SDXL)")
+    await db.commit()
+    return {"status": "success", "credits": user.credits}
+
+# ==========================================
+# API 1: TẠO MÃ QR/LINK THANH TOÁN CHO NGƯỜI DÙNG
+# ==========================================
+class CreatePaymentLinkPayload(BaseModel):
+    amount: int
+
+@app.post("/api/payments/create-link")
+@app.post("/api/payment/create-link")
+async def create_payment_link(
+    payload: CreatePaymentLinkPayload,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    amount = payload.amount
+    if amount < 20000:
+        raise HTTPException(status_code=400, detail="Số tiền nạp tối thiểu là 20.000 VNĐ")
+
+    # Quy đổi: 20.000 VNĐ = 200 Xu (100 VNĐ = 1 Xu)
+    credits_to_add = amount // 100
+
     email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
     await ensure_user_exists(db, user_id, email)
 
-    # 2. Tạo mã đơn hàng duy nhất bằng Timestamp
     order_code = int(time.time() * 1000)
     
-    # 3. Gọi API PayOS SDK Mới để tạo link thanh toán trước
-    from payos.types import CreatePaymentLinkRequest
+    cancel_url = "http://localhost:5173/workspace?payment=failed"
+    return_url = "http://localhost:5173/workspace?payment=success"
+    
     payment_request = CreatePaymentLinkRequest(
         order_code=order_code,
-        amount=selected_pack["price"],
-        description="Thanh toan DeepKoma", 
-        cancel_url="http://localhost:5173/workspace?payment=failed",
-        return_url="http://localhost:5173/workspace?payment=success"
+        amount=amount,
+        description=f"Nap {credits_to_add} Xu", 
+        cancel_url=cancel_url,
+        return_url=return_url
     )
     
     try:
@@ -2640,81 +2642,129 @@ async def create_payment_link(request: Request, package_id: str, db: AsyncSessio
         print(f"🛑 [LỖI TẠO LINK PAYOS]: {e}")
         raise HTTPException(status_code=500, detail="Không thể tạo link thanh toán từ cổng PayOS!")
         
-    # 4. Lưu giao dịch PENDING kèm link thanh toán vào Database
+    # Lưu giao dịch PENDING vào CSDL PayOS (để quản lý link)
     new_txn = Transaction(
         order_code=order_code,
         user_id=user_id,
-        package_name=selected_pack["name"],
-        amount=selected_pack["price"],
-        credits_added=selected_pack["credits"],
+        package_name=f"Nạp {credits_to_add} Xu",
+        amount=amount,
+        credits_added=credits_to_add,
         status="PENDING",
         checkout_url=payment_link.checkout_url
     )
     db.add(new_txn)
     await db.commit()
     
-    return {"checkoutUrl": payment_link.checkout_url}
-
+    return {
+        "checkoutUrl": payment_link.checkout_url,
+        "qrCode": payment_link.qr_code,
+        "orderCode": order_code
+    }
 
 # ==========================================
-# API 2: WEBHOOK LẮNG NGHE TIỀN VỀ
+# API: KIỂM TRA TRẠNG THÁI GIAO DỊCH (POLLING)
 # ==========================================
+@app.get("/api/payments/status/{order_code}")
+@app.get("/api/payment/status/{order_code}")
+async def get_payment_status(order_code: int, db: AsyncSession = Depends(get_db)):
+    stmt = select(Transaction).where(Transaction.order_code == order_code)
+    res = await db.execute(stmt)
+    txn = res.scalar_one_or_none()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Giao dịch không tồn tại")
+    return {"status": txn.status}
+
+# ==========================================
+# API 2: WEBHOOK LẮNG NGHE TIỀN VỀ (BẢO VỆ 2 LỚP)
+# ==========================================
+@app.post("/api/payments/webhook")
 @app.post("/api/payment/webhook")
 async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
     
-    webhook_data = body.get("data", {})
-    order_code = webhook_data.get("orderCode")
-    
-    if not order_code:
-        return {"success": True} 
+    # Lớp 1: Verify Signature của PayOS
+    try:
+        webhook_data = payos_client.webhooks.verify(body)
+    except Exception as e:
+        print(f"❌ [WEBHOOK] Xác thực chữ ký thất bại: {e}")
+        raise HTTPException(status_code=400, detail="Chữ ký không hợp lệ")
 
-    stmt = select(Transaction).where(Transaction.order_code == order_code)
-    result = await db.execute(stmt)
-    txn = result.scalar_one_or_none()
+    order_code = webhook_data.order_code
+    status = webhook_data.status
+    amount_paid = webhook_data.amount
+    
+    # Lớp 2: Kiểm tra Idempotency chống cộng đúp
+    stmt_check = select(UserTransaction).where(
+        UserTransaction.order_code == order_code,
+        UserTransaction.type == "TOPUP"
+    )
+    res_check = await db.execute(stmt_check)
+    existing_txn = res_check.scalar_one_or_none()
+    if existing_txn:
+        print(f"⚠️ [WEBHOOK] Giao dịch {order_code} đã được xử lý thành công trước đó. Bỏ qua.")
+        return {"success": True, "message": "Already processed"}
+
+    # Tìm giao dịch gốc
+    stmt_legacy = select(Transaction).where(Transaction.order_code == order_code)
+    res_legacy = await db.execute(stmt_legacy)
+    txn = res_legacy.scalar_one_or_none()
     
     if txn and txn.status == "PENDING":
-        payos_status = webhook_data.get("status")
-        if payos_status == "CANCELLED":
+        if status == "CANCELLED":
             txn.status = "CANCELLED"
             await db.commit()
             print(f"❌ Giao dịch {order_code} đã bị HỦY từ cổng PayOS")
-        else:
+        elif status == "PAID":
             txn.status = "PAID"
             
-            stmt_user = select(User).where(User.id == txn.user_id)
-            user = (await db.execute(stmt_user)).scalar_one_or_none()
+            # Khóa dòng User để cộng tiền an toàn
+            stmt_user = select(User).where(User.id == txn.user_id).with_for_update()
+            user_res = await db.execute(stmt_user)
+            user = user_res.scalar_one_or_none()
             
             if user:
-                if "PRO" in txn.package_name:
-                    user.is_pro = True
-                else:
-                    user.credits += txn.credits_added
-            
-            await db.commit()
-            print(f"💰 TING TING! Đã cộng {txn.credits_added} credits cho user {txn.user_id}")
+                credits_to_add = amount_paid // 100
+                user.credits += credits_to_add
+                
+                # Ghi lịch sử biến động số dư
+                new_hist = UserTransaction(
+                    user_id=user.id,
+                    amount=credits_to_add,
+                    type="TOPUP",
+                    description=f"Nạp {credits_to_add} Xu qua cổng PayOS (Số tiền: {amount_paid:,}đ)",
+                    order_code=order_code
+                )
+                db.add(new_hist)
+                await db.commit()
+                print(f"💰 TING TING! Đã cộng {credits_to_add} Xu cho user {user.id} (Order: {order_code})")
+            else:
+                await db.commit()
+                print(f"⚠️ Không tìm thấy user {txn.user_id} để cộng tiền")
 
     return {"success": True}
 
 # ==========================================
 # API 3: LẤY LỊCH SỬ GIAO DỊCH CỦA USER
 # ==========================================
+@app.get("/api/payments/history")
 @app.get("/api/payment/history")
 async def get_payment_history(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
-    """API lấy lịch sử giao dịch của người dùng hiện tại"""
-    stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.created_at.desc())
+    """API lấy lịch sử biến động số dư của người dùng hiện tại"""
+    stmt = select(UserTransaction).where(UserTransaction.user_id == user_id).order_by(UserTransaction.created_at.desc())
     result = await db.execute(stmt)
     txns = result.scalars().all()
     
     return {
         "transactions": [
             {
-                "order_code": txn.order_code,
-                "package_name": txn.package_name,
+                "id": txn.id,
                 "amount": txn.amount,
-                "credits_added": txn.credits_added,
-                "status": txn.status,
-                "checkout_url": getattr(txn, "checkout_url", None),
+                "type": txn.type,
+                "description": txn.description,
+                "order_code": txn.order_code,
                 "created_at": txn.created_at.isoformat() if txn.created_at else None
             }
             for txn in txns
@@ -2741,23 +2791,9 @@ async def get_user_profile(request: Request, user_id: str = Depends(get_current_
 @app.post("/api/users/me/deduct")
 async def deduct_credits(amount: int = 1, user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
     """API trừ tiền mỗi khi dùng AI"""
-    stmt = select(User).where(User.id == user_id)
-    user = (await db.execute(stmt)).scalar_one_or_none()
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
-        
-    # Gói Pro thì không trừ tiền
-    if user.is_pro:
-        return {"status": "success", "credits": user.credits, "is_pro": True}
-        
-    if user.credits < amount:
-        raise HTTPException(status_code=402, detail="Hết Credits! Vui lòng nạp thêm.")
-        
-    user.credits -= amount
+    user = await check_and_deduct_credits(db, user_id, amount, "Trực tiếp trừ Xu qua API")
     await db.commit()
-    
-    return {"status": "success", "credits": user.credits, "is_pro": False}
+    return {"status": "success", "credits": user.credits, "is_pro": user.is_pro}
 
 # ==========================================
 # SYSTEM CỦA ZERO-FRICTION PROMPTING (AI REDRAW)

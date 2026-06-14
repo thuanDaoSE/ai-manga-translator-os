@@ -19,9 +19,16 @@ import { useConfigStore } from '../../store/useConfigStore';
 import { PaywallDrawer } from '../Modals/PaywallDrawer';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useMangaEditorStore } from '../../store/useMangaEditorStore';
+import { useAuthStore } from '../../store/useAuthStore';
+import { useDeviceDetect } from '../../hooks/useDeviceDetect';
+import { Smartphone, ArrowLeft } from 'lucide-react';
 
 export default function Workspace() {
+  const isMobileOrTouch = useDeviceDetect();
+  const { signOut } = useAuthStore();
   const [showPaywall, setShowPaywall] = useState(false);
+  const [showRedrawConfirm, setShowRedrawConfirm] = useState(false);
+  const [isActivatingRedraw, setIsActivatingRedraw] = useState(false);
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
 
@@ -189,9 +196,42 @@ export default function Workspace() {
     return () => { isMounted = false; };
   }, [projectStore.currentIndex, projectStore.pageIds]);
 
-  const { currentZoom, activeMode, setActiveMode, brushSize, setBrushSize, setZoom, isComparing, setIsComparing, actionPosition, setActionPosition, showText, isProcessing, setIsProcessing } = useToolStore();
+  const { currentZoom, activeMode, setActiveMode, brushSize, setBrushSize, setZoom, isComparing, setIsComparing, actionPosition, setActionPosition, showText, isProcessing, setIsProcessing, isRedrawSessionActive, setIsRedrawSessionActive } = useToolStore();
 
   const [rawUrl, setRawUrl] = useState<string | null>(null);
+
+  // 🚀 BẢN VÁ: INTERCEPT CHUYỂN MODE VẼ LẠI -> KIỂM TRA PHIÊN KÍCH HOẠT
+  useEffect(() => {
+    if (activeMode === 'redraw' && !isRedrawSessionActive) {
+      setActiveMode('none');
+      setShowRedrawConfirm(true);
+    }
+  }, [activeMode, isRedrawSessionActive, setActiveMode]);
+
+  const handleActivateRedraw = async () => {
+    setIsActivatingRedraw(true);
+    const loadId = toast.loading("Đang kích hoạt Engine vẽ lại AI...");
+    try {
+      const res = await mangaApi.activateRedrawSession();
+      // Trừ 2 xu cục bộ trên giao diện trước
+      useAuthStore.getState().deductLocalCredits(2);
+      setIsRedrawSessionActive(true);
+      setActiveMode('redraw');
+      setShowRedrawConfirm(false);
+      toast.success("Đã kích hoạt Engine vẽ lại AI (SDXL) thành công!", { id: loadId });
+      // Đồng bộ số dư chính thức từ server
+      await useAuthStore.getState().fetchProfile();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Không thể kích hoạt Engine vẽ lại AI!");
+      if (err.message?.includes("Xu") || err.message?.includes("balance") || err.message?.includes("402")) {
+        setShowPaywall(true);
+        setShowRedrawConfirm(false);
+      }
+    } finally {
+      setIsActivatingRedraw(false);
+    }
+  };
 
   const panRef = useRef({ x: 0, y: 0 });
   const workspaceContainerRef = useRef<HTMLDivElement>(null);
@@ -478,6 +518,11 @@ export default function Workspace() {
     setIsProcessing(true);
     setActionPosition(null);
     const toastId = toast.loading("Bắt đầu vẽ lại vùng chọn bằng AI...");
+    
+    // Trực tiếp trừ 1 xu cục bộ trước
+    toast("Đã trừ 1 Xu", { icon: "💰", duration: 2000 });
+    useAuthStore.getState().deductLocalCredits(1);
+
     try {
       const maskBase64 = drawCanvas.toDataURL("image/png");
       const pageId = projectStore.pageIds[currentIndex];
@@ -501,8 +546,12 @@ export default function Workspace() {
       toast.success("Vẽ lại vùng chọn bằng AI thành công!", { id: toastId });
       setActiveMode("none");
       setRedrawPrompt("");
+      // Đồng bộ ví từ server
+      await useAuthStore.getState().fetchProfile();
     } catch (e: any) {
       toast.error(e.message || "Vẽ lại bằng AI thất bại!", { id: toastId });
+      // Hoàn lại xu hoặc đồng bộ lại ví chính xác từ server
+      await useAuthStore.getState().fetchProfile();
     } finally {
       isRedrawProcessingRef.current = false;
       setIsProcessing(false);
@@ -580,6 +629,45 @@ export default function Workspace() {
     return processedUrls[currentIndex] || rawUrl; // Bần cùng lắm mới lấy ảnh đang hiển thị
   })();
 
+  if (isMobileOrTouch) {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-[#0c0c0e] flex flex-col items-center justify-center p-6 text-center text-white font-sans overflow-auto select-none">
+        {/* Glowing background orbs */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute bottom-1/4 left-1/3 w-[200px] h-[200px] bg-purple-500/5 rounded-full blur-[80px] pointer-events-none" />
+
+        <div className="relative max-w-md w-full bg-[#16161a]/85 backdrop-blur-xl border border-white/5 rounded-3xl p-8 shadow-[0_20px_50px_rgba(0,0,0,0.6)] flex flex-col items-center gap-6 animate-in fade-in zoom-in-95 duration-500">
+          {/* Animated Device Icon Container */}
+          <div className="relative flex items-center justify-center w-20 h-20 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 text-indigo-400">
+            <Smartphone size={40} strokeWidth={1.5} className="animate-pulse" />
+            <div className="absolute -top-1 -right-1 flex h-4 w-4">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 items-center justify-center text-[9px] font-black text-white">!</span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="text-base font-extrabold text-white tracking-tight uppercase flex items-center justify-center gap-2">
+              🚫 Trải nghiệm chưa tối ưu trên điện thoại
+            </h2>
+            <p className="text-xs text-gray-300 leading-relaxed text-left bg-neutral-900/60 p-4 rounded-xl border border-white/5 font-medium">
+              Công cụ xử lý ảnh và vẽ Mask đòi hỏi độ chính xác cao. Để đảm bảo chất lượng nét vẽ và hình ảnh xuất ra tốt nhất, vui lòng lưu lại trang web này và truy cập bằng Máy tính (PC/Laptop).
+            </p>
+          </div>
+
+          {/* Button: Quay lại Trang chủ */}
+          <button
+            onClick={() => signOut()}
+            className="w-full flex items-center justify-center gap-2 py-3.5 px-6 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-indigo-600/20 active:scale-[0.98] transition-all cursor-pointer border border-white/10"
+          >
+            <ArrowLeft size={14} strokeWidth={2.5} />
+            Quay lại Trang chủ
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     // TẦNG 0: NỀN APP TỔNG THỂ (#121212)
     <div className="flex-1 bg-[#121212] relative overflow-hidden flex flex-col items-center justify-center">
@@ -607,8 +695,8 @@ export default function Workspace() {
             }}
           >
             {/* Render Canvas */}
-            <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
-            <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity}`} />
+            <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none ph-no-capture" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
+            <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} />
             <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
               <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
               <VisualGuideOverlay />
@@ -692,6 +780,43 @@ export default function Workspace() {
         <button onClick={() => useToolStore.getState().toggleRightPanel()} className="absolute right-0 top-1/2 -translate-y-1/2 z-[100] p-1.5 bg-panel border-y border-l border-border rounded-l-xl shadow-[-5px_0_15px_rgba(0,0,0,0.5)] text-text-muted hover:text-text-main hover:bg-border cursor-pointer transition-all hover:pl-3">
           <ChevronLeft size={24} />
         </button>
+      )}
+
+      {/* 🚀 MODAL XÁC NHẬN KÍCH HOẠT VẼ LẠI AI (COLD START) */}
+      {showRedrawConfirm && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md" onClick={() => setShowRedrawConfirm(false)} />
+          <div className="relative w-full max-w-sm bg-[#1a1a1a] border border-gray-800 text-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 z-10">
+            <div className="flex items-center gap-3 border-b border-gray-800/60 pb-3">
+              <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse" />
+              <h3 className="text-base font-bold tracking-tight uppercase">Kích hoạt vẽ lại AI (SDXL)</h3>
+            </div>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Tính năng Vẽ lại sử dụng GPU đồ họa cao cấp và Model SDXL chuyên dụng để tái tạo nét vẽ vùng chọn. Phí kích hoạt cho trang truyện hiện tại là <strong className="text-yellow-400">2 Xu</strong>.
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button
+                disabled={isActivatingRedraw}
+                onClick={handleActivateRedraw}
+                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                {isActivatingRedraw ? (
+                  <span className="animate-spin text-sm">⏳</span>
+                ) : (
+                  <Check size={14} strokeWidth={2.5} />
+                )}
+                Đồng ý (2 Xu)
+              </button>
+              <button
+                disabled={isActivatingRedraw}
+                onClick={() => setShowRedrawConfirm(false)}
+                className="px-5 py-3 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 text-neutral-400 hover:text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 🚀 COMPONENT GIAO DIỆN THANH TOÁN */}

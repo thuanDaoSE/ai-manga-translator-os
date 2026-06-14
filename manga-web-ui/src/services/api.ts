@@ -383,4 +383,31 @@ export const mangaApi = {
     await handleApiError(response, "Lỗi khi hủy tiến trình!");
     return await response.json();
   },
+
+  createPaymentLink: async (amount: number) => {
+    const response = await fetch(`${API_URL}/payments/create-link`, {
+      method: "POST",
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({ amount }),
+    });
+    await handleApiError(response, "Lỗi tạo link thanh toán!");
+    return await response.json();
+  },
+
+  getPaymentStatus: async (orderCode: number) => {
+    const response = await fetch(`${API_URL}/payments/status/${orderCode}`, {
+      headers: await getAuthHeaders(),
+    });
+    await handleApiError(response, "Lỗi kiểm tra trạng thái thanh toán!");
+    return await response.json();
+  },
+
+  activateRedrawSession: async () => {
+    const response = await fetch(`${API_URL}/tools/redraw/activate`, {
+      method: "POST",
+      headers: await getAuthHeaders(),
+    });
+    await handleApiError(response, "Lỗi kích hoạt Engine vẽ lại AI!");
+    return await response.json();
+  },
 };

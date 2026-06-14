@@ -236,12 +236,16 @@ def process_manga_page(self, page_id: str, config: dict):
             print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước khi bắt đầu. Dừng!")
             return {"status": "cancelled", "message": "Task was cancelled before execution"}
 
+        user_id = None
         # Lấy thông tin trang truyện từ CSDL (Sync)
         with SessionLocal() as db:
             page = db.query(models.Page).filter(models.Page.id == page_id).first()
             if not page:
                 raise ValueError(f"Không tìm thấy trang truyện cho page_id: {page_id}")
             raw_url = page.raw_url
+            project = db.query(models.Project).filter(models.Project.id == page.project_id).first()
+            if project:
+                user_id = project.user_id
             
         if not raw_url:
             raise ValueError(f"Không tìm thấy URL ảnh gốc cho page_id: {page_id}")
@@ -426,5 +430,25 @@ def process_manga_page(self, page_id: str, config: dict):
         import traceback
         print(f"❌ [WORKER ERROR] Lỗi nghiêm trọng: {e}")
         traceback.print_exc()
+        
+        # Hoàn Xu cho người dùng do lỗi tác vụ ngầm thất bại
+        if 'user_id' in locals() and user_id:
+            try:
+                with SessionLocal() as db:
+                    user = db.query(models.User).filter(models.User.id == user_id).with_for_update().first()
+                    if user and not user.is_pro:
+                        user.credits += 1
+                        new_txn = models.UserTransaction(
+                            user_id=user_id,
+                            amount=1,
+                            type="TOPUP",
+                            description=f"Hoàn 1 Xu: Dịch trang thất bại do lỗi hệ thống (ID: {page_id})"
+                        )
+                        db.add(new_txn)
+                        db.commit()
+                        print(f"🔄 [WORKER REFUND] Đã hoàn lại 1 Xu cho user {user_id} do lỗi dịch trang {page_id}")
+            except Exception as re:
+                print(f"⚠️ [WORKER REFUND ERROR] Không thể hoàn Xu cho user {user_id}: {re}")
+
         broadcast_progress(task_id, 0, f"Thất bại: {str(e)}", state="FAILURE")
         raise e

@@ -12,7 +12,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     
     # Chiến lược Pay-as-you-go
-    credits = Column(Integer, default=20) # Tặng 20 credits dùng thử khi tạo nick mới
+    credits = Column(Integer, default=10) # Tặng 10 credits dùng thử khi tạo nick mới
     
     # Chiến lược Subscription (Thuê bao tháng)
     is_pro = Column(Boolean, default=False)
@@ -136,3 +136,15 @@ class TranslationCorrection(Base):
     user_corrected = Column(Text, nullable=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserTransaction(Base):
+    __tablename__ = "transactions"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    amount = Column(Integer, nullable=False) # Số Xu biến động (+ nếu nạp, - nếu trừ)
+    type = Column(String, nullable=False) # "TOPUP" hoặc "DEDUCT"
+    description = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    order_code = Column(BigInteger, nullable=True, index=True) # order_code từ PayOS nếu là nạp

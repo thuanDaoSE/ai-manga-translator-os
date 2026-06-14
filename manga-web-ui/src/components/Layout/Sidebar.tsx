@@ -7,11 +7,54 @@ import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, I
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore } from '../../store/useConfigStore';
+import { useAuthStore } from '../../store/useAuthStore';
 
 import toast from 'react-hot-toast';
 import { mangaApi } from '../../services/api';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
+
+const getTranslateButtonLabel = (lang: string) => {
+  switch (lang) {
+    case 'Tiếng Việt':
+      return '✨ Dịch sang Tiếng Việt';
+    case 'English':
+      return '✨ Translate to English';
+    case 'Français (French)':
+      return '✨ Traduire en Français';
+    case 'Español (Spanish)':
+      return '✨ Traducir al Español';
+    case 'Bahasa Indonesia':
+      return '✨ Terjemahkan ke Indonesia';
+    case 'ภาษาไทย (Thai)':
+      return '✨ แปลเป็นภาษาไทย';
+    case 'Русский (Russian)':
+      return '✨ Перевести на Русский';
+    default:
+      return `✨ Dịch sang ${lang}`;
+  }
+};
+
+const getBatchTranslateLabel = (lang: string) => {
+  switch (lang) {
+    case 'Tiếng Việt':
+      return '✨ Dịch tất cả sang Tiếng Việt';
+    case 'English':
+      return '✨ Translate all to English';
+    case 'Français (French)':
+      return '✨ Traduire tout en Français';
+    case 'Español (Spanish)':
+      return '✨ Traducir todo al Español';
+    case 'Bahasa Indonesia':
+      return '✨ Terjemahkan tất cả sang Indonesia';
+    case 'ภาษาไทย (Thai)':
+      return '✨ แปลทั้งหมดเป็นภาษาไทย';
+    case 'Русский (Russian)':
+      return '✨ Перевести все на Русский';
+    default:
+      return `✨ Dịch tất cả sang ${lang}`;
+  }
+};
 
 // =========================================
 // 1. COMPONENT CON: THẺ TRANG TRUYỆN (UI NÂNG CẤP)
@@ -20,7 +63,7 @@ function SortableItem({
   id, file, isActive, status, displayImg, progress,
   onClick, onTranslate, onDelete, onCancel, onRetry,
   isSelected, isSelectionMode, onToggleSelection, hasCleanUrl,
-  isProcessing
+  isProcessing, disabled
 }: any) {
 
   const {
@@ -35,6 +78,8 @@ function SortableItem({
     id: id,
     disabled: isSelectionMode
   });
+
+  const targetLanguage = useConfigStore(state => state.targetLanguage);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -82,7 +127,7 @@ function SortableItem({
         {/* 🚀 BẢN VÁ UI 1: PHÓNG TO THUMBNAIL (w-14 h-20) */}
         <div className={`relative w-14 h-20 shrink-0 rounded-lg overflow-hidden border border-border bg-black/40 transition-transform shadow-sm ${isSelectionMode && !isSelected ? 'ml-6' : isSelected ? 'ml-6' : (!isSelectionMode ? 'ml-1' : '')}`}>
           {displayImg ? (
-            <img src={displayImg} className={`w-full h-full object-cover ${(status === 'processing' || isProcessing || status === 'error') ? 'blur-[2px] opacity-50 scale-110' : ''}`} alt="thumb" crossOrigin="anonymous" />
+            <img src={displayImg} className={`w-full h-full object-cover ${(status === 'processing' || isProcessing || status === 'error') ? 'blur-[2px] opacity-50 scale-110' : ''} ph-no-capture`} alt="thumb" crossOrigin="anonymous" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gray-800"><Loader2 className="animate-spin text-gray-600" size={16} /></div>
           )}
@@ -143,21 +188,30 @@ function SortableItem({
 
             {/* CÁC NÚT HÀNH ĐỘNG (Padding lớn hơn, chữ to hơn: text-[11px]) */}
             {status === 'unprocessed' && (
-              <button onClick={(e) => { e.stopPropagation(); onTranslate(); }} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer">
-                <Wand2 size={12} /> Dịch
+              <button
+                disabled={disabled}
+                onClick={(e) => { e.stopPropagation(); onTranslate(); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+              >
+                {getTranslateButtonLabel(targetLanguage)}
               </button>
             )}
 
             {status === 'error' && (
-              <button onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer">
+              <button
+                disabled={disabled}
+                onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+              >
                 <RefreshCw size={12} /> Thử lại
               </button>
             )}
 
             {status === 'completed' && (
               <button 
+                disabled={disabled}
                 onClick={(e) => { e.stopPropagation(); onRetry(); }} 
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer" 
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`} 
                 title="Dịch lại văn bản"
               >
                 <RefreshCw size={12} /> Dịch lại
@@ -188,6 +242,7 @@ export default function Sidebar() {
   const projectStore = useProjectStore();
   const { fileQueue, currentIndex, setCurrentIndex, pageStatuses, processedUrls, uploadProjectFiles, reorderFiles, progresses } = projectStore;
   const isProcessing = useToolStore((state) => state.isProcessing);
+  const targetLanguage = useConfigStore((state) => state.targetLanguage);
 
   const [previews, setPreviews] = useState<Record<number, string>>({});
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -346,6 +401,13 @@ export default function Sidebar() {
 
         if (data.task_id) {
           const taskId = data.task_id;
+          
+          // Kiểm tra xem có phải là cache hit không (nếu là cache hit thì taskId bắt đầu bằng cached_)
+          const isCacheHit = taskId.startsWith("cached_");
+          if (!isCacheHit) {
+            toast("Đã trừ 1 Xu", { icon: "💰", duration: 2000 });
+            useAuthStore.getState().deductLocalCredits(1);
+          }
 
           // 🚀 Chỉ mở 1 đường truyền SSE duy nhất
           const eventSource = new EventSource(`${API_URL}/stream/${taskId}`);
@@ -436,6 +498,9 @@ export default function Sidebar() {
 
                 // 🚀 CHỈ KHI CHỮ ĐÃ ĐƯỢC VẼ LÊN HÌNH THÌ MỚI XÓA THANH TIẾN TRÌNH
                 setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
+                
+                // Đồng bộ Xu từ máy chủ
+                useAuthStore.getState().fetchProfile();
               }
               resolve();
             } else if (sseData.state === "FAILURE") {
@@ -443,6 +508,8 @@ export default function Sidebar() {
               delete activeTasksRef.current[pageIndex];
               projectStore.clearProgress(pageIndex);
               projectStore.setPageStatus(pageIndex, "error");
+              // Đồng bộ Xu (trong trường hợp được hoàn Xu)
+              useAuthStore.getState().fetchProfile();
               resolve();
             }
           };
@@ -452,6 +519,8 @@ export default function Sidebar() {
             delete activeTasksRef.current[pageIndex];
             projectStore.clearProgress(pageIndex);
             projectStore.setPageStatus(pageIndex, "error");
+            // Đồng bộ Xu (trong trường hợp được hoàn Xu)
+            useAuthStore.getState().fetchProfile();
             resolve();
           };
         } else {
@@ -460,6 +529,8 @@ export default function Sidebar() {
       } catch (error) {
         projectStore.clearProgress(pageIndex);
         projectStore.setPageStatus(pageIndex, "error");
+        // Đồng bộ Xu khi gặp lỗi ném ra từ API dịch
+        useAuthStore.getState().fetchProfile();
         resolve();
       }
     });
@@ -471,6 +542,12 @@ export default function Sidebar() {
     const state = useProjectStore.getState();
     const pageId = state.pageIds[pageIndex];
     if (!pageId) return;
+
+    // Đánh dấu trang đang xử lý để ẩn nút bấm
+    projectStore.setPageStatus(pageIndex, "processing");
+    useProjectStore.setState((s: any) => ({
+      progresses: { ...s.progresses, [pageIndex]: { percent: 50, message: "Đang nhờ DeepSeek dịch lại..." } }
+    }));
 
     // 1. Kiểm tra xem trang này đã qua bàn tay Runpod (có ảnh xóa nền) chưa?
     const hasCleanUrl = !!state.processedUrls[pageIndex];
@@ -541,6 +618,7 @@ export default function Sidebar() {
         }
 
         toast.success("Dịch lại thành công!", { id: loadId });
+        projectStore.clearProgress(pageIndex);
 
         // Cập nhật thẻ Xanh/Đỏ
         const hasTranslationError = updatedBubbles.some((b: any) => (b.text || "").toLowerCase().includes("lỗi"));
@@ -551,6 +629,7 @@ export default function Sidebar() {
         }
       } catch (err: any) {
         toast.error(err.message, { id: loadId });
+        projectStore.clearProgress(pageIndex);
         useProjectStore.getState().setPageStatus(pageIndex, "error");
       }
     } else {
@@ -662,6 +741,8 @@ export default function Sidebar() {
     const targetPageId = projectStore.pageIds[index];
     if (currentPageId !== targetPageId) {
       projectStore.setCurrentIndex(index);
+      // Reset trạng thái phiên vẽ lại AI khi đổi trang
+      useToolStore.getState().setIsRedrawSessionActive(false);
     }
   };
 
@@ -884,6 +965,7 @@ export default function Sidebar() {
                       onToggleSelection={() => toggleSelection(uniqueId)}
                       hasCleanUrl={!!processedUrls[index]} // 🚀 Dùng ID an toàn
                       isProcessing={index === currentIndex && isProcessing}
+                      disabled={isAnyProcessingOrWaiting || isProcessing}
                     />
                   );
                 })}
@@ -914,7 +996,7 @@ export default function Sidebar() {
               : errorPages > 0
                 ? `Dịch Lại ${errorPages} Lỗi`
                 : hasUnprocessed
-                  ? "Dịch Tất Cả (Batch)"
+                  ? getBatchTranslateLabel(targetLanguage)
                   : "Đã dịch xong"}
           </button>
         </div>

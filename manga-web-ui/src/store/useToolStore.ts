@@ -61,6 +61,8 @@ interface ToolState {
   toggleAiGuides: () => void;
   isProcessing: boolean;
   setIsProcessing: (val: boolean) => void;
+  isRedrawSessionActive: boolean;
+  setIsRedrawSessionActive: (val: boolean) => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
@@ -120,5 +122,7 @@ export const useToolStore = create<ToolState>((set) => ({
   showAiGuides: false,
   toggleAiGuides: () => set((state) => ({ showAiGuides: !state.showAiGuides })),
   isProcessing: false,
-  setIsProcessing: (val) => set({ isProcessing: val })
+  setIsProcessing: (val) => set({ isProcessing: val }),
+  isRedrawSessionActive: false,
+  setIsRedrawSessionActive: (val) => set({ isRedrawSessionActive: val })
 }));

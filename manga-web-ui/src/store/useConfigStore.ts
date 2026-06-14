@@ -1,5 +1,15 @@
 import { create } from 'zustand';
 
+export const VALID_LANGUAGES = [
+  'Tiếng Việt',
+  'English',
+  'Bahasa Indonesia',
+  'ภาษาไทย (Thai)',
+  'Français (French)',
+  'Español (Spanish)',
+  'Русский (Russian)'
+];
+
 interface ConfigState {
   // Trạng thái bật/tắt Popup
   isModalOpen: boolean;
@@ -40,7 +50,15 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   loadFromLocal: () => {
     const saved = localStorage.getItem('manga_trans_settings');
     if (saved) {
-      set({ ...JSON.parse(saved) });
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.targetLanguage && !VALID_LANGUAGES.includes(parsed.targetLanguage)) {
+          parsed.targetLanguage = 'Tiếng Việt';
+        }
+        set({ ...parsed });
+      } catch (err) {
+        console.error("Lỗi parse config từ local storage:", err);
+      }
     }
   },
 
@@ -61,6 +79,9 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     if (isJson) {
       try {
         const config = JSON.parse(content);
+        if (config.targetLanguage && !VALID_LANGUAGES.includes(config.targetLanguage)) {
+          config.targetLanguage = 'Tiếng Việt';
+        }
         set({ ...config });
       } catch (err) {
         alert("File JSON không hợp lệ!");
@@ -72,3 +93,6 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     }
   }
 }));
+
+// Auto-initialize the store from local storage on load
+useConfigStore.getState().loadFromLocal();

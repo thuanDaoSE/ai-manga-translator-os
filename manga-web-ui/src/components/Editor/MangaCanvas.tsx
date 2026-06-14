@@ -337,15 +337,15 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
 
   return (
     <>
-      <canvas ref={rawRef} className="hidden" />
-      <canvas ref={cleanRef} className="hidden" />
-      <canvas ref={committedRef} className="hidden" />
+      <canvas ref={rawRef} className="hidden ph-no-capture" />
+      <canvas ref={cleanRef} className="hidden ph-no-capture" />
+      <canvas ref={committedRef} className="hidden ph-no-capture" />
       {/* 🚀 Thêm Két sắt vào HTML để vẽ ẩn */}
-      <canvas ref={originalCleanRef} className="hidden" />
+      <canvas ref={originalCleanRef} className="hidden ph-no-capture" />
       <canvas
         ref={drawRef}
         id="draw-layer"
-        className="absolute top-0 left-0 z-30 w-full h-full touch-none"
+        className="absolute top-0 left-0 z-30 w-full h-full touch-none ph-no-capture"
         style={{ cursor: cursorStyle, pointerEvents: activeMode !== 'none' ? 'auto' : 'none' }}
       />
     </>
