@@ -3,7 +3,7 @@ import { toJpeg } from "html-to-image";
 import {
   CloudCheck, Download, Diamond, User, Settings, LogOut, ChevronDown,
   Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages,
-  FileText
+  FileText, Globe
 } from "lucide-react";
 import toast from 'react-hot-toast';
 import { useConfigStore } from "../../store/useConfigStore";
@@ -265,32 +265,6 @@ export default function Topbar() {
           {!user?.isPro && <span className="text-[10px] font-bold uppercase text-amber-500/80 ml-1 hidden sm:inline">{t('topbar.recharge')}</span>}
         </button>
 
-        {/* UI Language Switcher (VN / EN Toggle) */}
-        <div className="h-9 flex items-center bg-background border border-border p-0.5 rounded-lg select-none shrink-0">
-          <button
-            onClick={() => {
-              i18n.changeLanguage('vi');
-              localStorage.setItem('ui_language', 'vi');
-            }}
-            className={`h-full px-2.5 flex items-center justify-center text-sm font-medium uppercase rounded-md transition-all cursor-pointer ${
-              i18n.language === 'vi' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'
-            }`}
-          >
-            VN
-          </button>
-          <button
-            onClick={() => {
-              i18n.changeLanguage('en');
-              localStorage.setItem('ui_language', 'en');
-            }}
-            className={`h-full px-2.5 flex items-center justify-center text-sm font-medium uppercase rounded-md transition-all cursor-pointer ${
-              i18n.language.startsWith('en') ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'
-            }`}
-          >
-            EN
-          </button>
-        </div>
-
         {/* Menu Account */}
         <div className="relative shrink-0" ref={accountMenuRef}>
           <button onClick={() => { setIsAccountMenuOpen(!isAccountMenuOpen); setIsExportMenuOpen(false); }} className="flex items-center justify-center w-9 h-9 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 focus:ring-2 focus:ring-amber-500/50 transition-transform active:scale-95 cursor-pointer shadow-sm shrink-0">
@@ -320,6 +294,37 @@ export default function Topbar() {
                 >
                   <HelpCircle size={14} /> {t('topbar.supportRequest')}
                 </button>
+                {/* Lựa chọn Ngôn ngữ (Language Switcher) */}
+                <div className="w-full flex items-center justify-between px-3 py-2 text-[12px] font-medium text-text-muted rounded-md transition-colors mt-0.5 select-none">
+                  <div className="flex items-center gap-2.5">
+                    <Globe size={14} className="text-text-muted" />
+                    <span>Language / Ngôn ngữ</span>
+                  </div>
+                  <div className="flex items-center bg-background border border-border/50 p-0.5 rounded-md text-[10px]">
+                    <button
+                      onClick={() => {
+                        i18n.changeLanguage('vi');
+                        localStorage.setItem('ui_language', 'vi');
+                      }}
+                      className={`px-1.5 py-0.5 font-bold uppercase rounded transition-all cursor-pointer ${
+                        i18n.language === 'vi' ? 'bg-primary text-white' : 'text-text-muted hover:text-text-main'
+                      }`}
+                    >
+                      VN
+                    </button>
+                    <button
+                      onClick={() => {
+                        i18n.changeLanguage('en');
+                        localStorage.setItem('ui_language', 'en');
+                      }}
+                      className={`px-1.5 py-0.5 font-bold uppercase rounded transition-all cursor-pointer ${
+                        i18n.language.startsWith('en') ? 'bg-primary text-white' : 'text-text-muted hover:text-text-main'
+                      }`}
+                    >
+                      EN
+                    </button>
+                  </div>
+                </div>
               </div>
               <div className="px-2 py-2 bg-background/30">
                 <button onClick={signOut} className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-bold text-danger/80 hover:bg-danger/10 hover:text-danger rounded-md transition-colors cursor-pointer"><LogOut size={14} strokeWidth={2.5} /> {t('topbar.logout')}</button>
