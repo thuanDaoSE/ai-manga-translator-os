@@ -509,7 +509,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
   // 🚀 LẤY DỮ LIỆU (Đọc từ Bubble hoặc Mặc định Global)
   // =====================================
   const currentFontFamily = activeBubble?.fontFamily || toolStore.fontFamily || 'Wild Words';
-  const currentFontSize = activeBubble?.fontSize || toolStore.fontSize || 40;
+  const currentFontSize = activeBubble?.fontSize || toolStore.fontSize || 20;
   const currentTextAlign = activeBubble?.textAlign || toolStore.textAlign || 'center';
   const currentFillColor = activeBubble?.fontColor || toolStore.fontColor || '#000000';
   const currentOutlineWidth = activeBubble?.outlineWidth ?? toolStore.outlineWidth ?? 0;
@@ -645,7 +645,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                 <button
                   onClick={() => {
                     useToolStore.setState({
-                      fontFamily: 'Comic Neue', fontSize: 40, textAlign: 'center',
+                      fontFamily: 'Comic Neue', fontSize: 20, textAlign: 'center',
                       fontColor: '#000000', outlineWidth: 5, outlineColor: '#ffffff', hasShadow: false
                     });
                   }}

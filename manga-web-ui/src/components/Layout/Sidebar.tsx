@@ -513,7 +513,7 @@ export default function Sidebar() {
             text: b.text !== undefined && b.text !== "" ? b.text : (b.vietnamese || ""),
             japanese: b.japanese || "",
             vietnamese: b.vietnamese || b.text || "",
-            fontSize: b.fontSize || toolState.fontSize || 40,
+            fontSize: b.fontSize || toolState.fontSize || 20,
             fontColor: b.fontColor || toolState.fontColor || "#000000",
             fontFamily: b.fontFamily || toolState.fontFamily || "'Comic Neue', cursive",
             rotation: b.rotation !== undefined ? b.rotation : 0,

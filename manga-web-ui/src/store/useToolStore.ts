@@ -76,7 +76,7 @@ export const useToolStore = create<ToolState>((set) => ({
   setZoom: (zoom) => set({ currentZoom: Math.max(0.1, Math.min(zoom, 5.0)) }),
 
   // 🚀 KHỞI TẠO GIÁ TRỊ MẶC ĐỊNH CHUẨN
-  fontSize: 40,
+  fontSize: 20,
   setFontSize: (size) => set({ fontSize: Math.max(8, Math.min(size, 150)) }),
   fontColor: '#000000',
   setFontColor: (color) => set({ fontColor: color }),

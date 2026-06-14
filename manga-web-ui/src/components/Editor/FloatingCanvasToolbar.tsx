@@ -32,7 +32,7 @@ export const FloatingCanvasToolbar: React.FC = () => {
       w: 200, //[cite: 12]
       h: 80, //[cite: 12]
       text: "Gõ chữ vào đây...", //[cite: 12]
-      fontSize: toolState.fontSize || 40, //[cite: 12]
+      fontSize: toolState.fontSize || 20, //[cite: 12]
       fontColor: toolState.fontColor || '#000000', //[cite: 12]
       fontFamily: toolState.fontFamily || "'Comic Neue', cursive", //[cite: 12]
       rotation: 0 //[cite: 12]

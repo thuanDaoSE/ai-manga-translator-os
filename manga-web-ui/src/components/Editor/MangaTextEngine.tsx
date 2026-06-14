@@ -180,7 +180,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
           color: 'rgba(0,0,0,0.6)', blur: 4, offsetX: 2, offsetY: 4
         }) : null;
 
-        const defaultFontSize = bubble.fontSize || 40;
+        const defaultFontSize = bubble.fontSize || 20;
         let textObj: fabric.Textbox | undefined;
 
         // ==========================================
