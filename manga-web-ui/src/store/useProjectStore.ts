@@ -176,6 +176,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
         await mangaApi.deletePage(pageId);
       } catch (err) {
         console.error("Lỗi xóa trang:", err);
+        toast.error("Lỗi xóa trang. Vui lòng thử lại sau.");
       }
     }
 

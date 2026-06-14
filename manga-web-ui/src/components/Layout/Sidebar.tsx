@@ -3,10 +3,10 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package } from 'lucide-react';
+import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
-import { useConfigStore } from '../../store/useConfigStore';
+import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useTranslation } from 'react-i18next';
 
@@ -14,6 +14,16 @@ import toast from 'react-hot-toast';
 import { mangaApi } from '../../services/api';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
+
+const LANGUAGE_SHORT_CODES: Record<string, string> = {
+  'Tiếng Việt': 'VN',
+  'English': 'EN',
+  'Bahasa Indonesia': 'ID',
+  'ภาษาไทย (Thai)': 'TH',
+  'Français (French)': 'FR',
+  'Español (Spanish)': 'ES',
+  'Русский (Russian)': 'RU'
+};
 
 const getTranslateButtonLabel = (lang: string, t: any) => {
   return t(`targetLanguageActions.${lang}`, `✨ Dịch sang ${lang}`);
@@ -48,6 +58,20 @@ function SortableItem({
 
   const targetLanguage = useConfigStore(state => state.targetLanguage);
   const { t } = useTranslation();
+
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isDropdownOpen]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -107,7 +131,11 @@ function SortableItem({
         {/* ============================================================== */}
         {/* 🚀 BẢN VÁ UI 2: CHIA LẠI KHÔNG GIAN (PADDING ĐỘNG) VÀ FIX BỊ ÉP CHỮ */}
         {/* ============================================================== */}
-        <div className={`flex flex-col gap-1 overflow-hidden flex-1 min-w-0 pl-3 justify-center transition-all duration-300 ${status === 'processing' ? 'pr-12' : 'pr-[70px]'}`}>
+        <div className={`flex flex-col gap-1 overflow-hidden flex-1 min-w-0 pl-3 justify-center transition-all duration-300 ${
+          (status === 'processing' || status === 'waiting') 
+            ? 'pr-12' 
+            : 'pr-[65px] group-hover:pr-[130px]'
+        }`}>
           <span className={`text-xs font-bold truncate block w-full ${isActive || isSelected ? 'text-primary' : status === 'error' ? 'text-danger' : 'text-text-main'}`}>
             {file.name}
           </span>
@@ -142,13 +170,14 @@ function SortableItem({
         {/* 🚀 BẢN VÁ UI 3: TĂNG KÍCH THƯỚC CÁC NÚT BẤM DỄ THAO TÁC HƠN */}
         {/* ============================================================== */}
         {!isSelectionMode && status !== 'processing' && (
-          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex flex-col items-end gap-2 
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex flex-row items-center gap-1.5 
             opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20"
           >
             {/* NÚT XÓA (To hơn một chút: p-2, icon 14) */}
             <button 
-              onClick={(e) => { e.stopPropagation(); onDelete(); }} 
-              className="p-2 text-text-muted hover:bg-danger hover:text-white rounded-lg transition-colors bg-background/80 backdrop-blur-md border border-border/50 shadow-sm cursor-pointer" 
+              disabled={disabled}
+              onClick={(e) => { e.stopPropagation(); if (disabled) return; onDelete(); }} 
+              className={`p-2 text-text-muted hover:bg-danger hover:text-white rounded-lg transition-colors bg-background/80 backdrop-blur-md border border-border/50 shadow-sm shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`} 
               title={t('sidebar.deletePage')}
             >
               <Trash2 size={14} />
@@ -156,20 +185,59 @@ function SortableItem({
 
             {/* CÁC NÚT HÀNH ĐỘNG (Padding lớn hơn, chữ to hơn: text-[11px]) */}
             {status === 'unprocessed' && (
-              <button
-                disabled={disabled}
-                onClick={(e) => { e.stopPropagation(); onTranslate(); }}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-              >
-                {getTranslateButtonLabel(targetLanguage, t)}
-              </button>
+              <div ref={dropdownRef} className="relative inline-flex rounded-lg shadow-sm shrink-0">
+                {/* Phần 1: Nút hành động chính (Dịch) */}
+                <button
+                  disabled={disabled}
+                  onClick={(e) => { e.stopPropagation(); onTranslate(); }}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-l-lg text-[11px] font-bold transition-colors cursor-pointer border-r border-indigo-500/30 shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                >
+                  <Wand2 size={11} className="shrink-0" />
+                  <span>{t('canvas.translateAction', 'Dịch')}</span>
+                </button>
+                {/* Phần 2: Nút chọn ngôn ngữ */}
+                <button
+                  disabled={disabled}
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    setIsDropdownOpen(!isDropdownOpen); 
+                  }}
+                  className={`flex items-center gap-0.5 px-1.5 py-1.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-r-lg text-[10px] font-bold transition-colors cursor-pointer shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                >
+                  <span>{LANGUAGE_SHORT_CODES[targetLanguage] || 'VN'}</span>
+                  <ChevronDown size={10} className="shrink-0" />
+                </button>
+
+                {/* Dropdown chọn nhanh ngôn ngữ */}
+                {isDropdownOpen && (
+                  <div className="absolute right-0 bottom-full mb-1 bg-neutral-900 border border-border/80 rounded-xl shadow-xl z-50 py-1 min-w-[130px] animate-in fade-in slide-in-from-bottom-1 duration-200">
+                    {VALID_LANGUAGES.map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          useConfigStore.getState().setConfig('targetLanguage', lang);
+                          useConfigStore.getState().saveToLocal();
+                          setIsDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-1.5 text-[10px] font-bold flex items-center justify-between transition-colors hover:bg-neutral-800 ${
+                          targetLanguage === lang ? 'text-primary' : 'text-text-muted hover:text-text-main'
+                        }`}
+                      >
+                        <span>{lang}</span>
+                        {targetLanguage === lang && <Check size={10} className="text-primary shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             {status === 'error' && (
               <button
                 disabled={disabled}
                 onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
               >
                 <RefreshCw size={12} /> {t('sidebar.retrySingle')}
               </button>
@@ -179,7 +247,7 @@ function SortableItem({
               <button 
                 disabled={disabled}
                 onClick={(e) => { e.stopPropagation(); onRetry(); }} 
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`} 
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`} 
                 title={t('sidebar.retranslate')}
               >
                 <RefreshCw size={12} /> {t('sidebar.retranslateSingle')}

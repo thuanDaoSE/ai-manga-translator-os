@@ -6,6 +6,7 @@ interface DeepKomaLogoProps {
   iconSize?: number;
   showText?: boolean;
   showSubtitle?: boolean;
+  onClick?: () => void;
 }
 
 export default function DeepKomaLogo({
@@ -13,9 +14,10 @@ export default function DeepKomaLogo({
   iconSize = 32,
   showText = true,
   showSubtitle = true,
+  onClick,
 }: DeepKomaLogoProps) {
   return (
-    <div className={cn("flex items-center gap-2.5 select-none", className)}>
+    <div onClick={onClick} className={cn("flex items-center gap-2.5 select-none", className)}>
       <svg
         width={iconSize}
         height={iconSize}

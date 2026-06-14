@@ -29,8 +29,6 @@ export default function Workspace() {
   const isMobileOrTouch = useDeviceDetect();
   const { signOut } = useAuthStore();
   const [showPaywall, setShowPaywall] = useState(false);
-  const [showRedrawConfirm, setShowRedrawConfirm] = useState(false);
-  const [isActivatingRedraw, setIsActivatingRedraw] = useState(false);
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
 
@@ -202,38 +200,52 @@ export default function Workspace() {
 
   const [rawUrl, setRawUrl] = useState<string | null>(null);
 
-  // 🚀 BẢN VÁ: INTERCEPT CHUYỂN MODE VẼ LẠI -> KIỂM TRA PHIÊN KÍCH HOẠT
-  useEffect(() => {
-    if (activeMode === 'redraw' && !isRedrawSessionActive) {
-      setActiveMode('none');
-      setShowRedrawConfirm(true);
-    }
-  }, [activeMode, isRedrawSessionActive, setActiveMode]);
+  // 🚀 Đọc/ghi trạng thái phiên vẽ lại từ localStorage để tránh lệch trạng thái khi F5
+  const pageId = projectStore.pageIds[currentIndex];
+  const fileName = fileQueue[currentIndex]?.name || "";
+  const pageKey = pageId || fileName || "default";
 
-  const handleActivateRedraw = async () => {
-    setIsActivatingRedraw(true);
-    const loadId = toast.loading("Đang kích hoạt Engine vẽ lại AI...");
+  const checkRedrawSessionActive = () => {
     try {
-      const res = await mangaApi.activateRedrawSession();
-      // Trừ 2 xu cục bộ trên giao diện trước
-      useAuthStore.getState().deductLocalCredits(2);
-      setIsRedrawSessionActive(true);
-      setActiveMode('redraw');
-      setShowRedrawConfirm(false);
-      toast.success("Đã kích hoạt Engine vẽ lại AI (SDXL) thành công!", { id: loadId });
-      // Đồng bộ số dư chính thức từ server
-      await useAuthStore.getState().fetchProfile();
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err.message || "Không thể kích hoạt Engine vẽ lại AI!");
-      if (err.message?.includes("Xu") || err.message?.includes("balance") || err.message?.includes("402")) {
-        setShowPaywall(true);
-        setShowRedrawConfirm(false);
+      const sessionsStr = localStorage.getItem("redraw_sessions");
+      if (!sessionsStr) return false;
+      const sessions = JSON.parse(sessionsStr);
+      const timestamp = sessions[pageKey];
+      if (!timestamp) return false;
+      const now = Date.now();
+      if (now - timestamp < 15 * 60 * 1000) {
+        return true;
       }
-    } finally {
-      setIsActivatingRedraw(false);
+      // Xóa nếu hết hạn
+      delete sessions[pageKey];
+      localStorage.setItem("redraw_sessions", JSON.stringify(sessions));
+      return false;
+    } catch (e) {
+      return false;
     }
   };
+
+  const persistRedrawSessionActive = (isActive: boolean) => {
+    setIsRedrawSessionActive(isActive);
+    try {
+      const sessionsStr = localStorage.getItem("redraw_sessions") || "{}";
+      const sessions = JSON.parse(sessionsStr);
+      if (isActive) {
+        sessions[pageKey] = Date.now();
+      } else {
+        delete sessions[pageKey];
+      }
+      localStorage.setItem("redraw_sessions", JSON.stringify(sessions));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Đồng bộ trạng thái vẽ lại từ localStorage khi đổi trang hoặc mount
+  useEffect(() => {
+    const isActive = checkRedrawSessionActive();
+    setIsRedrawSessionActive(isActive);
+  }, [currentIndex, pageId, setIsRedrawSessionActive]);
 
   const panRef = useRef({ x: 0, y: 0 });
   const workspaceContainerRef = useRef<HTMLDivElement>(null);
@@ -521,9 +533,10 @@ export default function Workspace() {
     setActionPosition(null);
     const toastId = toast.loading("Bắt đầu vẽ lại vùng chọn bằng AI...");
     
-    // Trực tiếp trừ 1 xu cục bộ trước
-    toast("Đã trừ 1 Xu", { icon: "💰", duration: 2000 });
-    useAuthStore.getState().deductLocalCredits(1);
+    // Trực tiếp trừ xu cục bộ trước dựa trên trạng thái phiên hoạt động
+    const amountToDeduct = isRedrawSessionActive ? 1 : 4;
+    toast(`Đã trừ ${amountToDeduct} Xu`, { icon: "💰", duration: 2000 });
+    useAuthStore.getState().deductLocalCredits(amountToDeduct);
 
     try {
       const maskBase64 = drawCanvas.toDataURL("image/png");
@@ -534,8 +547,9 @@ export default function Workspace() {
       const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
       const targetUrl = processedUrls[currentIndex] || serverRawUrl;
 
-      // Call API
-      const newUrl = await mangaApi.redrawMask(targetUrl, maskBase64, positivePrompt, pageId, negativePrompt);
+      // Call API with originalImageHash to prevent hash mismatch
+      const originalImageHash = pageId || fileName || "default";
+      const newUrl = await mangaApi.redrawMask(targetUrl, maskBase64, positivePrompt, pageId, negativePrompt, originalImageHash);
 
       // Save history and set image in editor store
       useMangaEditorStore.getState().saveHistory();
@@ -548,6 +562,8 @@ export default function Workspace() {
       toast.success("Vẽ lại vùng chọn bằng AI thành công!", { id: toastId });
       setActiveMode("none");
       setRedrawPrompt("");
+      // Lưu lại trạng thái vẽ lại hoạt động vào localStorage
+      persistRedrawSessionActive(true);
       // Đồng bộ ví từ server
       await useAuthStore.getState().fetchProfile();
     } catch (e: any) {
@@ -784,42 +800,7 @@ export default function Workspace() {
         </button>
       )}
 
-      {/* 🚀 MODAL XÁC NHẬN KÍCH HOẠT VẼ LẠI AI (COLD START) */}
-      {showRedrawConfirm && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md" onClick={() => setShowRedrawConfirm(false)} />
-          <div className="relative w-full max-w-sm bg-[#1a1a1a] border border-gray-800 text-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 z-10">
-            <div className="flex items-center gap-3 border-b border-gray-800/60 pb-3">
-              <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse" />
-              <h3 className="text-base font-bold tracking-tight uppercase">{t('workspace.redrawConfirmTitle')}</h3>
-            </div>
-            <p className="text-xs text-text-muted leading-relaxed">
-              {t('workspace.redrawConfirmDesc')}
-            </p>
-            <div className="flex gap-3 pt-2">
-              <button
-                disabled={isActivatingRedraw}
-                onClick={handleActivateRedraw}
-                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                {isActivatingRedraw ? (
-                  <span className="animate-spin text-sm">⏳</span>
-                ) : (
-                  <Check size={14} strokeWidth={2.5} />
-                )}
-                {t('workspace.agreeCredits')}
-              </button>
-              <button
-                disabled={isActivatingRedraw}
-                onClick={() => setShowRedrawConfirm(false)}
-                className="px-5 py-3 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 text-neutral-400 hover:text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer"
-              >
-                {t('workspace.cancel')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* 🚀 COMPONENT GIAO DIỆN THANH TOÁN */}
       <PaywallDrawer

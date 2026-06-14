@@ -177,7 +177,7 @@ export const mangaApi = {
     return (await response.json()).new_url;
   },
 
-  redrawMask: async (imageUrl: string, maskBase64: string, prompt: string, pageId?: string, negativePrompt?: string) => {
+  redrawMask: async (imageUrl: string, maskBase64: string, prompt: string, pageId?: string, negativePrompt?: string, originalImageHash?: string) => {
     const response = await fetch(`${API_URL}/redraw`, {
       method: "POST",
       headers: await getAuthHeaders(), // Đã thêm await
@@ -186,13 +186,21 @@ export const mangaApi = {
         mask_base64: maskBase64, 
         prompt, 
         page_id: pageId,
-        negative_prompt: negativePrompt 
+        negative_prompt: negativePrompt,
+        original_image_hash: originalImageHash
       }),
     });
     await handleApiError(response, "Lỗi Server Redraw AI");
 
     const data = await response.json();
     if (data.status !== "success") throw new Error(data.message || "Vẽ lại thất bại");
+    
+    if (data.credits !== undefined) {
+      useAuthStore.setState((state) => ({
+        user: state.user ? { ...state.user, credits: data.credits } : null
+      }));
+    }
+
     const cleanUrl = data.new_url.split('?')[0];
     return `${cleanUrl}?t=${Date.now()}`;
   },

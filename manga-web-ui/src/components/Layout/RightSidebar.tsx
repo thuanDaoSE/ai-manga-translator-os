@@ -16,6 +16,7 @@ import { mangaApi } from '../../services/api';
 import { useAuthStore } from '../../store/useAuthStore';
 import LensModal from '../Modals/LensModal';
 import { AdvancedTranslateModal } from '../Modals/AdvancedTranslateModal';
+import { useTranslation } from 'react-i18next';
 
 // ==========================================
 // MICRO-COMPONENTS CHO DESIGN INSPECTOR
@@ -36,6 +37,7 @@ const GlassPanel = ({ children, className = "" }: { children: React.ReactNode, c
 type TabType = 'design' | 'dialogue';
 
 export default function RightSidebar() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabType>('design');
 
   const { activeBubbleId } = useCanvasStore();
@@ -105,8 +107,8 @@ export default function RightSidebar() {
           <div className="flex items-center px-2 py-2 border-b border-border bg-panel/50 shrink-0 gap-1 relative overflow-hidden">
             {/* Nhóm Tabs */}
             <div className="flex-1 flex items-center gap-1">
-              <TabButton icon={<Sliders size={15} />} label="Design" isActive={activeTab === 'design'} onClick={() => setActiveTab('design')} />
-              <TabButton icon={<ListIcon size={15} />} label="Script" isActive={activeTab === 'dialogue'} onClick={() => setActiveTab('dialogue')} />
+              <TabButton icon={<Sliders size={15} />} label={t('rightSidebar.tabDesign', 'Design')} isActive={activeTab === 'design'} onClick={() => setActiveTab('design')} />
+              <TabButton icon={<ListIcon size={15} />} label={t('rightSidebar.tabScript', 'Script')} isActive={activeTab === 'dialogue'} onClick={() => setActiveTab('dialogue')} />
             </div>
 
             {/* Nút Đóng Right Sidebar */}
@@ -114,7 +116,7 @@ export default function RightSidebar() {
             <button
               onClick={() => toolStore.toggleRightPanel()}
               className="p-2 shrink-0 bg-border/40 hover:bg-border text-text-muted hover:text-danger rounded-md cursor-pointer transition-colors"
-              title="Đóng bảng công cụ (Thu gọn màn hình)"
+              title={t('layerPanel.closePanel')}
             >
               <PanelRightClose size={16} />
             </button>
@@ -175,6 +177,7 @@ function TabButton({ icon, label, isActive, onClick }: { icon: any, label: strin
 
 // --- 2. TAB DIALOGUE LIST TÍCH HỢP AI TRỢ LÝ (UX CHUẨN MỰC) ---
 function DialogueListTab({ activeId }: { activeId: string | null }) {
+  const { t } = useTranslation();
   const { bubbles, setActiveBubble, removeBubble, updateBubble } = useCanvasStore();
   const setConfigModalOpen = useConfigStore(state => state.setModalOpen);
   const itemRefs = useRef(new Map());
@@ -188,9 +191,10 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
 
   const handleAdvancedRetry = async (localPrompt: string) => {
     const pageId = useProjectStore.getState().pageIds[useProjectStore.getState().currentIndex];
-    if (!pageId) return toast.error("Không tìm thấy trang để dịch lại!");
+    if (!pageId) return toast.error(t('rightSidebar.pageNotFound'));
     
-    const loadId = toast.loading("Đang nhờ AI dịch lại nâng cao...");
+    const loadId = toast.loading(t('rightSidebar.translatingAdvancedLoading'));
+    useToolStore.getState().setIsProcessing(true);
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/retry-text-translation`, {
         method: 'POST',
@@ -211,9 +215,11 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
       const canvasStore = useCanvasStore.getState();
       canvasStore.setBubbles(updatedBubbles);
       
-      toast.success("Dịch lại nâng cao thành công!", { id: loadId });
+      toast.success(t('rightSidebar.translatingAdvancedSuccess'), { id: loadId });
     } catch (err: any) {
-      toast.error(err.message || "Lỗi khi dịch lại nâng cao", { id: loadId });
+      toast.error(err.message || t('rightSidebar.translatingAdvancedError'), { id: loadId });
+    } finally {
+      useToolStore.getState().setIsProcessing(false);
     }
   };
 
@@ -225,14 +231,14 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
   }, [activeId]);
 
   const handleCopy = (text: string, type: string) => {
-    if (!text) return toast.error(`Trống không! Không có chữ ${type} để copy.`);
+    if (!text) return toast.error(t('rightSidebar.copyEmpty', { type }));
     navigator.clipboard.writeText(text);
-    toast.success(`Đã copy câu tiếng ${type} vào khay nhớ tạm!`, { icon: '📋' });
+    toast.success(t('rightSidebar.copySuccess', { type }), { icon: '📋' });
   };
 
   const handleRetryTranslation = async (e: React.MouseEvent, bubble: any) => {
     e.stopPropagation();
-    const loadId = toast.loading("Đang nhờ AI dịch lại câu này...");
+    const loadId = toast.loading(t('rightSidebar.translatingSingleLoading'));
     try {
       const payload = { text: bubble.text || "", japanese: bubble.japanese || "", action: "natural", custom_prompt: "" };
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/copilot/chat`, {
@@ -241,8 +247,8 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
       if (!response.ok) throw new Error("Lỗi API");
       const data = await response.json();
       updateBubble(bubble.id, { text: data.result });
-      toast.success("Dịch lại thành công!", { id: loadId });
-    } catch (err) { toast.error("Lỗi mạng khi dịch lại!", { id: loadId }); }
+      toast.success(t('rightSidebar.translatingSingleSuccess'), { id: loadId });
+    } catch (err) { toast.error(t('rightSidebar.translatingSingleError'), { id: loadId }); }
   };
 
   // ==========================================================
@@ -278,14 +284,14 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ListIcon size={14} className="text-text-muted" />
-            <h2 className="text-[10px] font-bold text-text-muted tracking-[0.2em] uppercase">Kịch bản thoại</h2>
+            <h2 className="text-[10px] font-bold text-text-muted tracking-[0.2em] uppercase">{t('rightSidebar.dialogueScript')}</h2>
           </div>
           
           <button
             onClick={() => setIsAdvancedModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-lg transition-all duration-300 text-[10px] font-bold uppercase tracking-wider cursor-pointer"
           >
-            <Sparkles size={12} /> Dịch nâng cao
+            <Sparkles size={12} /> {t('rightSidebar.advancedTranslation')}
           </button>
         </div>
 
@@ -295,14 +301,14 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
             onClick={() => setSortMode('reading_order')}
             className={`flex-1 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all ${sortMode === 'reading_order' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main hover:bg-border/50'}`}
           >
-            Theo Ngữ cảnh
+            {t('rightSidebar.sortContext')}
           </button>
           <button
             onClick={() => setSortMode('length')}
             className={`flex-1 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all flex items-center justify-center gap-1 ${sortMode === 'length' ? 'bg-amber-500 text-amber-950 shadow-sm' : 'text-text-muted hover:text-amber-500 hover:bg-amber-500/10'}`}
-            title="Đẩy các đoạn text ngắn (nghi ngờ là rác OCR) lên trên cùng để dễ xóa"
+            title={t('rightSidebar.sortOcrCleanTooltip')}
           >
-            <Zap size={10} /> Dọn Rác OCR
+            <Zap size={10} /> {t('rightSidebar.sortOcrClean')}
           </button>
         </div>
       </div>
@@ -466,6 +472,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
 
 // --- 3. TAB DESIGN (FIGMA-STYLE INSPECTOR) ---
 function DesignInspectorTab({ activeId }: { activeId: string | null }) {
+  const { t } = useTranslation();
   const { bubbles, updateBubble } = useCanvasStore();
   const toolStore = useToolStore();
 
@@ -630,10 +637,10 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
               </div>
               <div className="flex flex-col">
                 <span className="text-[11px] font-bold uppercase tracking-wider leading-none mb-1">
-                  {isGlobal ? 'Cấu hình chung' : 'Đang sửa 1 Ô thoại'}
+                  {isGlobal ? t('rightSidebar.globalConfig') : t('rightSidebar.editingSingleBubble')}
                 </span>
                 <span className="text-[9px] font-medium opacity-70 leading-none">
-                  {isGlobal ? 'Thiết lập thông số nền' : 'Chỉ sửa ô đang chọn'}
+                  {isGlobal ? t('rightSidebar.globalConfigDesc') : t('rightSidebar.editingSingleBubbleDesc')}
                 </span>
               </div>
             </div>
@@ -650,7 +657,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                     });
                   }}
                   className="flex items-center justify-center p-2 bg-primary/10 hover:bg-primary/30 text-primary rounded-lg transition-colors cursor-pointer active:scale-95 shadow-sm border border-primary/20"
-                  title="Khôi phục thông số mặc định ban đầu"
+                  title={t('rightSidebar.resetTooltip')}
                 >
                   <RefreshCcw size={14} strokeWidth={2.5} />
                 </button>
@@ -663,7 +670,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                       ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 border-amber-500/30'
                       : 'bg-background hover:bg-border text-text-muted border-border'
                       }`}
-                    title={activeBubble?.isLocked ? "Mở khóa ô thoại" : "Khóa cứng (Bảo vệ khỏi thay đổi Global)"}
+                    title={activeBubble?.isLocked ? t('rightSidebar.unlockBubble') : t('rightSidebar.lockBubble')}
                   >
                     {activeBubble?.isLocked ? <Lock size={12} strokeWidth={3} /> : <Unlock size={12} />}
                   </button>
@@ -674,9 +681,9 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                       setEffectiveId(null);
                     }}
                     className="flex items-center gap-1 px-2 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-600 rounded-md transition-colors cursor-pointer active:scale-95 shadow-sm border border-emerald-500/30"
-                    title="Bỏ chọn để quay về Cấu hình chung"
+                    title={t('rightSidebar.deselectTooltip')}
                   >
-                    <span className="text-[9px] font-bold uppercase">Bỏ chọn</span>
+                    <span className="text-[9px] font-bold uppercase">{t('rightSidebar.deselectBtn')}</span>
                     <X size={12} strokeWidth={3} />
                   </button>
                 </>
@@ -708,15 +715,15 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                 });
                 
                 if (count > 0) {
-                  toast.success(`Đã áp dụng cấu hình lên ${count} ô thoại!`, { icon: '✨' });
+                  toast.success(t('rightSidebar.applySuccess', { count }), { icon: '✨' });
                 } else {
-                  toast.error(`Không có ô thoại nào để áp dụng (Hoặc tất cả đã bị khóa).`);
+                  toast.error(t('rightSidebar.applyNoBubbles'));
                 }
               }}
               className="w-full flex items-center justify-center gap-2 px-3 py-3 bg-primary hover:bg-primary-hover text-white rounded-xl transition-all cursor-pointer active:scale-[0.98] shadow-md font-bold group"
             >
               <PaintBucket size={14} strokeWidth={2.5} className="group-hover:animate-bounce" />
-              <span className="text-[11px] uppercase tracking-widest">Đồng bộ cấu hình toàn trang</span>
+              <span className="text-[11px] uppercase tracking-widest">{t('rightSidebar.syncAllBtn')}</span>
             </button>
           )}
         </div>
@@ -725,7 +732,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
         {/* 🚀 KHU VỰC PREVIEW TEXT (XEM TRƯỚC) */}
         {/* ========================================================= */}
         <section className="mt-2 mb-2">
-          <SectionHeader title="Xem trước (Preview)" />
+          <SectionHeader title={t('rightSidebar.previewTitle')} />
           <div className="relative w-full h-28 bg-[#1a1a1a] border border-border/80 rounded-xl overflow-hidden flex items-center justify-center p-4 shadow-inner">
             {/* Nền Caro (Checkerboard) */}
             <div 
@@ -770,7 +777,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
 
         {/* ==================== SECTION: TYPOGRAPHY ==================== */}
         <section>
-          <SectionHeader title="Typography" />
+          <SectionHeader title={t('rightSidebar.typographyTitle')} />
 
           <div className="space-y-2">
             {/* Dropdown Chọn Font */}
@@ -781,25 +788,25 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                 onChange={(e) => handleUpdate('fontFamily', e.target.value)}
                 className="w-full appearance-none bg-background border border-border rounded-lg py-2 pl-3 pr-8 text-[12px] font-bold text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all shadow-sm cursor-pointer"
               >
-                <optgroup label="Thoại thường (Dialogue)">
+                <optgroup label={t('rightSidebar.fontGroupDialogue')}>
                   <option value="Comic Neue">Comic Neue</option>
                   <option value="Playpen Sans">Playpen Sans</option>
                   <option value="Itim">Itim</option>
                   <option value="Be Vietnam Pro">Be Vietnam Pro</option>
                 </optgroup>
-                <optgroup label="Suy nghĩ (Monologue)">
+                <optgroup label={t('rightSidebar.fontGroupMonologue')}>
                   <option value="Patrick Hand">Patrick Hand</option>
                   <option value="Balsamiq Sans">Balsamiq Sans</option>
                   <option value="Playwrite VN">Playwrite VN</option>
                   <option value="Caveat">Caveat</option>
                 </optgroup>
-                <optgroup label="La hét (Shouting)">
+                <optgroup label={t('rightSidebar.fontGroupShouting')}>
                   <option value="Bangers">Bangers</option>
                   <option value="Bungee">Bungee</option>
                   <option value="Sedgwick Ave Display">Sedgwick Ave Display</option>
                   <option value="Fredoka">Fredoka</option>
                 </optgroup>
-                <optgroup label="Hiệu ứng (SFX)">
+                <optgroup label={t('rightSidebar.fontGroupSfx')}>
                   <option value="Caveat Brush">Caveat Brush</option>
                   <option value="Rubik Wet Paint">Rubik Wet Paint</option>
                   <option value="Rubik Glitch">Rubik Glitch</option>
@@ -828,7 +835,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                     key={align.id}
                     onClick={() => handleUpdate('textAlign', align.id)}
                     className={`p-1.5 rounded-md transition-all ${currentTextAlign === align.id ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main hover:bg-border/50'}`}
-                    title={`Căn ${align.id}`}
+                    title={t('rightSidebar.alignTooltip', { align: align.id })}
                   >
                     <align.icon className="w-3.5 h-3.5" />
                   </button>
@@ -838,9 +845,9 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
           </div>
           {!isGlobal && (
             <div className="mt-4 pt-3 border-t border-border/50">
-              <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2 block">Dáng Chữ</span>
+              <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2 block">{t('rightSidebar.textShapeTitle')}</span>
               <div className="grid grid-cols-4 gap-2">
-                <button onClick={() => applyTextShape('diamond')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title="Dáng Oval (Kim cương)">
+                <button onClick={() => applyTextShape('diamond')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title={t('rightSidebar.shapeDiamond')}>
                   <Diamond size={16} className="text-text-muted group-hover:text-primary" />
                   <div className="flex flex-col gap-[2px] items-center">
                     <div className="w-2 h-[2px] bg-text-muted/60 rounded-full"></div>
@@ -849,7 +856,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                     <div className="w-2 h-[2px] bg-text-muted/60 rounded-full"></div>
                   </div>
                 </button>
-                <button onClick={() => applyTextShape('block')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title="Dáng Vuông (Khối)">
+                <button onClick={() => applyTextShape('block')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title={t('rightSidebar.shapeBlock')}>
                   <Square size={16} className="text-text-muted group-hover:text-primary" />
                   <div className="flex flex-col gap-[2px] items-center">
                     <div className="w-4 h-[2px] bg-text-muted/60 rounded-full"></div>
@@ -858,7 +865,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                     <div className="w-4 h-[2px] bg-text-muted/60 rounded-full"></div>
                   </div>
                 </button>
-                <button onClick={() => applyTextShape('pyramid')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title="Dáng Kim Tự Tháp">
+                <button onClick={() => applyTextShape('pyramid')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title={t('rightSidebar.shapePyramid')}>
                   <Triangle size={16} className="text-text-muted group-hover:text-primary" />
                   <div className="flex flex-col gap-[2px] items-center">
                     <div className="w-2 h-[2px] bg-text-muted/60 rounded-full"></div>
@@ -866,7 +873,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                     <div className="w-5 h-[2px] bg-text-muted/60 rounded-full"></div>
                   </div>
                 </button>
-                <button onClick={() => applyTextShape('funnel')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title="Dáng Phễu">
+                <button onClick={() => applyTextShape('funnel')} className="p-2 bg-background border border-border rounded-lg hover:bg-primary/10 hover:border-primary/30 flex flex-col items-center gap-1.5 transition-all group" title={t('rightSidebar.shapeFunnel')}>
                   <Triangle size={16} className="text-text-muted group-hover:text-primary rotate-180" />
                   <div className="flex flex-col gap-[2px] items-center">
                     <div className="w-5 h-[2px] bg-text-muted/60 rounded-full"></div>
@@ -886,14 +893,14 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
 
         {/* ==================== SECTION: MANGA EFFECTS ==================== */}
         <section>
-          <SectionHeader title="Hiệu ứng (Effects)" />
+          <SectionHeader title={t('rightSidebar.effectsTitle')} />
 
           <div className="space-y-1">
             {/* DÒNG 1: MÀU CHỮ (FILL) */}
             <div className="flex items-center justify-between p-2 rounded-lg hover:bg-panel transition-colors group cursor-pointer border border-transparent hover:border-border">
               <div className="flex items-center gap-3">
                 <PaintBucket className="w-4 h-4 text-text-muted group-hover:text-primary transition-colors" />
-                <span className="text-[12px] font-semibold text-text-muted group-hover:text-text-main transition-colors">Màu chữ (Fill)</span>
+                <span className="text-[12px] font-semibold text-text-muted group-hover:text-text-main transition-colors">{t('rightSidebar.fillColor')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-mono font-bold text-text-muted uppercase">{currentFillColor}</span>
@@ -908,7 +915,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
             <div className="flex items-center justify-between p-2 rounded-lg hover:bg-panel transition-colors group cursor-pointer border border-transparent hover:border-border">
               <div className="flex items-center gap-3">
                 <PenTool className="w-4 h-4 text-text-muted group-hover:text-primary transition-colors" />
-                <span className="text-[12px] font-semibold text-text-muted group-hover:text-text-main transition-colors">Viền chữ (Stroke)</span>
+                <span className="text-[12px] font-semibold text-text-muted group-hover:text-text-main transition-colors">{t('rightSidebar.strokeColor')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="flex items-center bg-background border border-border rounded-md px-1.5 py-0.5 w-12 shadow-sm focus-within:border-primary transition-colors">
@@ -925,7 +932,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
             <div className="flex items-center justify-between p-2 rounded-lg hover:bg-panel transition-colors group cursor-pointer border border-transparent hover:border-border" onClick={() => handleUpdate('hasShadow', !currentHasShadow)}>
               <div className="flex items-center gap-3">
                 <Layers className="w-4 h-4 text-text-muted group-hover:text-primary transition-colors" />
-                <span className="text-[12px] font-semibold text-text-muted group-hover:text-text-main transition-colors">Đổ bóng (Shadow)</span>
+                <span className="text-[12px] font-semibold text-text-muted group-hover:text-text-main transition-colors">{t('rightSidebar.shadowEffect')}</span>
               </div>
               <button role="switch" aria-checked={currentHasShadow} className={`relative inline-flex h-4 w-8 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${currentHasShadow ? 'bg-primary' : 'bg-border'}`}>
                 <span aria-hidden="true" className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${currentHasShadow ? 'translate-x-4' : 'translate-x-0'}`} />
@@ -941,6 +948,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
 
 // 🚀 COMPONENT AI NỘI TUYẾN MỚI (CHỐNG NGỘP THỞ, THIẾT KẾ DẠNG THOUGHT-BUBBLE)
 function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => void }) {
+  const { t } = useTranslation();
   const [instruction, setInstruction] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState('');
@@ -953,11 +961,11 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/copilot/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
-      if (!response.ok) throw new Error("API Lỗi");
+      if (!response.ok) throw new Error(t('rightSidebar.aiError'));
       const data = await response.json();
       setAiResult(data.result);
       if (type === 'custom') setInstruction('');
-    } catch (error) { setAiResult("❌ Lỗi kết nối AI!"); }
+    } catch (error) { setAiResult(t('rightSidebar.aiError')); }
     finally { setAiLoading(false); }
   };
 
@@ -967,7 +975,7 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
       {/* Header của Panel AI */}
       <div className="flex items-center justify-between px-3 py-2 bg-amber-500/10 border-b border-amber-500/10">
         <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-500 uppercase tracking-widest">
-          <Bot size={12} /> Phân tích Ngữ cảnh
+          <Bot size={12} /> {t('rightSidebar.aiCopilotTitle')}
         </div>
       </div>
 
@@ -975,10 +983,10 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
         {/* Nút gợi ý (Suggestion Chips) */}
         <div className="flex flex-wrap gap-1.5">
           {[
-            { id: 'natural', label: 'Tự nhiên hơn' },
-            { id: 'aggressive', label: 'Hầm hố hơn' },
-            { id: 'shorten', label: 'Rút gọn câu' },
-            { id: 'explain', label: 'Giải nghĩa Kanji' }
+            { id: 'natural', label: t('rightSidebar.aiSuggestionNatural') },
+            { id: 'aggressive', label: t('rightSidebar.aiSuggestionAggressive') },
+            { id: 'shorten', label: t('rightSidebar.aiSuggestionShorten') },
+            { id: 'explain', label: t('rightSidebar.aiSuggestionKanji') }
           ].map(btn => (
             <button
               key={btn.id}
@@ -997,7 +1005,7 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleRealAI('custom'); }}
-            placeholder="Chỉ thị riêng cho AI..."
+            placeholder={t('rightSidebar.aiInputPlaceholder')}
             className="w-full bg-background border border-border rounded-lg py-2 pl-3 pr-10 text-[11px] text-text-main placeholder-text-muted focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all shadow-sm"
           />
           <button
@@ -1014,7 +1022,7 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
           <div className="pt-2 animate-in fade-in slide-in-from-top-2 duration-300">
             {aiLoading ? (
               <div className="flex items-center gap-2 text-[10px] text-amber-500/80 font-medium px-1">
-                <RefreshCcw size={12} className="animate-spin" /> Đang thảo luận với DeepSeek...
+                <RefreshCcw size={12} className="animate-spin" /> {t('rightSidebar.aiDiscussing')}
               </div>
             ) : (
               <div className="space-y-2">
@@ -1032,7 +1040,7 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
                   }}
                   className="w-full flex items-center justify-center gap-1.5 py-2 bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold text-[11px] uppercase tracking-wider rounded-lg transition-transform active:scale-[0.98] shadow-sm"
                 >
-                  <Check size={14} strokeWidth={3} /> Áp dụng
+                  <Check size={14} strokeWidth={3} /> {t('rightSidebar.aiApplyBtn')}
                 </button>
               </div>
             )}

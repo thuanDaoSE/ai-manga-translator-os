@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { supabase } from '../../services/supabaseClient';
 import { useAuthStore } from '../../store/useAuthStore';
 import { Wand2, Mail, Lock, Loader2, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface AuthModalProps {
   onClose?: () => void;
 }
 
 export default function AuthModal({ onClose }: AuthModalProps) {
+  const { t } = useTranslation();
   const { user, loading } = useAuthStore();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
@@ -30,7 +32,7 @@ export default function AuthModal({ onClose }: AuthModalProps) {
       });
       if (error) throw error;
     } catch (err: any) {
-      setError(err.message || 'Lỗi đăng nhập bằng Google!');
+      setError(err.message || t('auth.googleLoginFailed'));
     } finally {
       setAuthLoading(false);
     }
@@ -48,11 +50,11 @@ export default function AuthModal({ onClose }: AuthModalProps) {
       } else {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        alert("🎉 Đăng ký thành công! Bạn có thể đăng nhập ngay.");
+        alert(t('auth.registerSuccessToast'));
         setIsLogin(true);
       }
     } catch (err: any) {
-      setError(err.message === "Invalid login credentials" ? "Sai email hoặc mật khẩu!" : err.message);
+      setError(err.message === "Invalid login credentials" ? t('auth.invalidCredentials') : err.message);
     } finally {
       setAuthLoading(false);
     }
@@ -79,15 +81,15 @@ export default function AuthModal({ onClose }: AuthModalProps) {
           <div className="w-14 h-14 bg-primary/20 border border-primary/30 rounded-2xl flex items-center justify-center mb-4 shadow-inner">
             <Wand2 className="text-primary" size={28} />
           </div>
-          <h2 className="text-2xl font-black text-text-main tracking-tight">{isLogin ? 'Đăng Nhập' : 'Tạo Tài Khoản'}</h2>
-          <p className="text-sm text-text-muted mt-1 font-medium">Manga AI Translation Studio</p>
+          <h2 className="text-2xl font-black text-text-main tracking-tight">{isLogin ? t('auth.loginTitle') : t('auth.registerTitle')}</h2>
+          <p className="text-sm text-text-muted mt-1 font-medium">{t('auth.studioSubtitle')}</p>
         </div>
 
         {error && <div className="bg-danger/10 text-danger text-sm p-3 rounded-xl mb-4 text-center border border-danger/20 font-medium">{error}</div>}
 
         <form onSubmit={handleAuth} className="flex flex-col gap-4">
           <div>
-            <label className="text-[10px] font-black text-text-muted mb-1.5 block uppercase tracking-widest">Email của bạn</label>
+            <label className="text-[10px] font-black text-text-muted mb-1.5 block uppercase tracking-widest">{t('auth.emailLabel')}</label>
             <div className="relative">
               <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
               <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-background border border-border rounded-xl py-2.5 pl-11 pr-4 text-sm text-text-main focus:border-primary outline-none transition-colors" placeholder="name@domain.com" />
@@ -95,7 +97,7 @@ export default function AuthModal({ onClose }: AuthModalProps) {
           </div>
 
           <div>
-            <label className="text-[10px] font-black text-text-muted mb-1.5 block uppercase tracking-widest">Mật khẩu</label>
+            <label className="text-[10px] font-black text-text-muted mb-1.5 block uppercase tracking-widest">{t('auth.passwordLabel')}</label>
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
               <input type="password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-background border border-border rounded-xl py-2.5 pl-11 pr-4 text-sm text-text-main focus:border-primary outline-none transition-colors" placeholder="••••••••" />
@@ -103,13 +105,13 @@ export default function AuthModal({ onClose }: AuthModalProps) {
           </div>
 
           <button type="submit" disabled={authLoading} className="btn-primary w-full justify-center mt-4 py-3 text-base shadow-lg shadow-primary/20">
-            {authLoading ? <Loader2 className="animate-spin" size={20} /> : (isLogin ? 'Vào Studio' : 'Đăng Ký Ngay')}
+            {authLoading ? <Loader2 className="animate-spin" size={20} /> : (isLogin ? t('auth.loginBtn') : t('auth.registerBtn'))}
           </button>
         </form>
 
         <div className="relative flex py-3 items-center my-2">
           <div className="flex-grow border-t border-border"></div>
-          <span className="flex-shrink mx-4 text-text-muted text-[10px] uppercase font-black tracking-wider">Hoặc</span>
+          <span className="flex-shrink mx-4 text-text-muted text-[10px] uppercase font-black tracking-wider">{t('auth.orSeparator')}</span>
           <div className="flex-grow border-t border-border"></div>
         </div>
 
@@ -137,13 +139,13 @@ export default function AuthModal({ onClose }: AuthModalProps) {
               d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.18 2.12 1.21 5.85l4.11 3.15c.94-2.85 3.57-4.96 6.68-4.96z"
             />
           </svg>
-          Tiếp tục với Google
+          {t('auth.continueWithGoogle')}
         </button>
 
         <div className="mt-6 text-center text-sm text-text-muted">
-          {isLogin ? "Lần đầu tới đây? " : "Đã là thành viên? "}
+          {isLogin ? t('auth.newHere') : t('auth.alreadyMember')}
           <button onClick={() => { setIsLogin(!isLogin); setError(''); }} className="text-primary font-bold hover:text-primary-hover transition-colors">
-            {isLogin ? 'Tạo tài khoản mới' : 'Đăng nhập lại'}
+            {isLogin ? t('auth.createNewAccount') : t('auth.loginInstead')}
           </button>
         </div>
       </div>

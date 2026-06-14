@@ -1,6 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+
 
 export const ComparisonSlider: React.FC = () => {
+  const { t } = useTranslation();
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -58,7 +62,7 @@ export const ComparisonSlider: React.FC = () => {
       {/* Base Layer: Raw Japanese Manga Visualization */}
       <div className="absolute inset-0 bg-neutral-950 bg-[url('/raw_manga.png')] bg-cover bg-center pointer-events-none">
         <span className="absolute top-4 right-4 bg-black/80 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white/95 border border-white/10 tracking-wider">
-          Manga Gốc (RAW Japanese)
+          {t('landing.rawMangaLabel')}
         </span>
       </div>
 
@@ -68,7 +72,7 @@ export const ComparisonSlider: React.FC = () => {
         style={{ width: `${sliderPosition}%` }}
       >
         <span className="absolute top-4 left-4 bg-indigo-600/95 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white whitespace-nowrap border border-indigo-400/30 tracking-wider">
-          Bản Dịch AI (CLEAN Vietnamese)
+          {t('landing.translatedMangaLabel')}
         </span>
       </div>
 
@@ -78,31 +82,8 @@ export const ComparisonSlider: React.FC = () => {
         style={{ left: `${sliderPosition}%` }}
       >
         <div className="w-10 h-10 rounded-full bg-white text-neutral-950 flex items-center justify-center shadow-xl transition-transform duration-300 group-hover:scale-110">
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="rotate-180"
-          >
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
+          <ChevronLeft size={18} strokeWidth={2.5} />
+          <ChevronRight size={18} strokeWidth={2.5} />
         </div>
       </div>
     </div>

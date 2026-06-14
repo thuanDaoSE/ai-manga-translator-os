@@ -3,8 +3,10 @@ import { Upload, FolderArchive, FileText } from 'lucide-react';
 import { useMangaUpload } from '../../hooks/useMangaUpload';
 import PolicyModal from '../Modals/PolicyModal';
 import { cn } from '../../utils';
+import { useTranslation, Trans } from 'react-i18next';
 
 export default function WelcomeScreen() {
+  const { t } = useTranslation();
   const {
     isAgreed,
     setIsAgreed,
@@ -59,7 +61,7 @@ export default function WelcomeScreen() {
                 "font-bold text-sm transition-colors duration-300",
                 isAgreed ? "text-white" : "text-text-muted/50"
               )}>
-                Dự án mới
+                {t('welcome.newProject')}
               </span>
             </div>
             
@@ -67,7 +69,7 @@ export default function WelcomeScreen() {
               "text-xs leading-normal transition-colors duration-300",
               isAgreed ? "text-slate-400" : "text-text-muted/30"
             )}>
-              Tải lên các trang scan RAW (.jpg, .png, .webp). Hỗ trợ tối đa 20 trang.
+              {t('welcome.newProjectDesc')}
             </span>
             <input
               type="file"
@@ -76,7 +78,7 @@ export default function WelcomeScreen() {
               className="sr-only"
               disabled={!isAgreed}
               onChange={handleFileChange}
-              aria-label="Tải lên dự án mới"
+              aria-label={t('welcome.uploadLabel')}
             />
           </label>
 
@@ -104,7 +106,7 @@ export default function WelcomeScreen() {
                 "font-bold text-sm transition-colors duration-300",
                 isAgreed ? "text-slate-100" : "text-text-muted/50"
               )}>
-                Khôi phục tiến trình
+                {t('welcome.restoreProgress')}
               </span>
             </div>
             
@@ -112,7 +114,7 @@ export default function WelcomeScreen() {
               "text-xs leading-normal transition-colors duration-300",
               isAgreed ? "text-slate-500" : "text-text-muted/30"
             )}>
-              Mở tệp sao lưu định dạng .manga để khôi phục lại các layer đã dịch.
+              {t('welcome.restoreDesc')}
             </span>
             <input
               type="file"
@@ -120,7 +122,7 @@ export default function WelcomeScreen() {
               className="sr-only"
               disabled={!isAgreed}
               onChange={handleImportManga}
-              aria-label="Khôi phục tiến trình từ file .manga"
+              aria-label={t('welcome.restoreLabel')}
             />
           </label>
 
@@ -129,32 +131,50 @@ export default function WelcomeScreen() {
       </div>
 
       {/* Footer Area for Policy checkbox */}
-      <div className={cn("mt-auto pt-6 border-t border-border/40 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 max-w-xl w-full text-xs text-text-muted")}>
-        <div className="flex items-center gap-2">
+      <div className={cn("mt-auto pt-6 border-t border-border/40 flex flex-col items-start gap-4 max-w-xl w-full text-xs text-text-muted")}>
+        <div className="flex gap-2.5 bg-red-500/5 border border-red-500/10 p-4 rounded-xl text-[11px] leading-relaxed text-gray-300 w-full">
           <input
             type="checkbox"
             id="policy-checkbox"
             checked={isAgreed}
             onChange={(e) => setIsAgreed(e.target.checked)}
-            className={cn("w-3.5 h-3.5 rounded border-border bg-panel text-primary accent-primary cursor-pointer focus:ring-0 focus:ring-offset-0")}
+            className={cn("mt-1 shrink-0 cursor-pointer accent-indigo-500 rounded border-gray-700 bg-neutral-900 w-4 h-4")}
           />
-          <label htmlFor="policy-checkbox" className="cursor-pointer select-none text-text-muted hover:text-text-main">
-            Tôi đồng ý với{' '}
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                setIsPolicyOpen(true);
-              }}
-              className="text-text-main font-semibold hover:underline"
-            >
-              Điều khoản & Chính sách
-            </button>{' '}
-            của hệ thống và cam kết chịu trách nhiệm bản quyền.
+          <label htmlFor="policy-checkbox" className="leading-relaxed cursor-pointer select-none flex-1">
+            <span className="font-bold text-gray-200 block mb-1">{t('paywall.disclaimerHeader')}</span>
+            <ul className="list-disc pl-4 space-y-1.5 text-gray-400 text-[10px]">
+              <li>
+                <Trans i18nKey="paywall.disclaimerItem1">
+                  (1) Mọi nội dung tải lên đều thuộc <strong>quyền sở hữu/sử dụng hợp pháp</strong> của tôi.
+                </Trans>
+              </li>
+              <li>
+                <Trans i18nKey="paywall.disclaimerItem2">
+                  (2) Tôi hoàn toàn <strong>tự chịu trách nhiệm trước pháp luật Việt Nam</strong>.
+                </Trans>
+              </li>
+              <li>
+                <Trans i18nKey="paywall.disclaimerItem3">
+                  (3) Nghiêm cấm sử dụng để xử lý ảnh/truyện <strong>đồi trụy (18+), phản động</strong>. Hệ thống sẽ tự động xóa dữ liệu sau 6 giờ.
+                </Trans>
+              </li>
+            </ul>
           </label>
         </div>
-        <div className="flex items-center gap-2 text-text-muted/60">
-          <FileText size={12} />
-          <span>Phiên bản 2.1.0-alpha</span>
+        <div className="flex items-center justify-between w-full text-text-muted/60 text-[10px]">
+          <div className="flex items-center gap-1.5">
+            <FileText size={12} />
+            <span>{t('welcome.appVersion')}</span>
+          </div>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              setIsPolicyOpen(true);
+            }}
+            className="hover:text-text-main underline transition-colors"
+          >
+            {t('welcome.policyLinkText', 'Điều khoản & Chính sách')}
+          </button>
         </div>
       </div>
 

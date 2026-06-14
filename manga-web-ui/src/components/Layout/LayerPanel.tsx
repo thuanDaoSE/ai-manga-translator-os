@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Lock, Unlock, Layers, Type, Ghost, PanelRightClose, Languages, X, Sparkles, Check } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
+import { useTranslation } from 'react-i18next';
 
 export default function LayerPanel() {
+  const { t } = useTranslation();
   const { bubbles, activeBubbleId, setActiveBubble, updateBubble, addBubble } = useCanvasStore();
   const { scanModal, setScanModal, setActiveMode } = useToolStore();
 
@@ -52,13 +54,13 @@ export default function LayerPanel() {
           <button 
             onClick={() => useToolStore.getState().toggleRightPanel()} 
             className="p-1.5 bg-border/40 hover:bg-border text-text-muted hover:text-danger rounded-md cursor-pointer transition-colors"
-            title="Đóng cột phải"
+            title={t('layerPanel.closePanel')}
           >
             <PanelRightClose size={16} />
           </button>
           <h2 className="text-sm font-bold text-text-main flex items-center gap-1 uppercase tracking-tight">
             <Layers size={18} className="text-primary" />
-            Layers
+            {t('layerPanel.title')}
           </h2>
         </div>
         {bubbles.length > 0 && (
@@ -74,7 +76,7 @@ export default function LayerPanel() {
           
           <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 bg-background/50">
             <div className="flex items-center gap-1.5 text-primary font-bold text-xs uppercase tracking-wider">
-              <Languages size={14} /> Trích xuất & Dịch
+              <Languages size={14} /> {t('lensModal.title')}
             </div>
             <button
               onClick={() => { setScanModal(null); setActiveMode('none'); }}
@@ -87,7 +89,7 @@ export default function LayerPanel() {
           <div className="p-3 space-y-3">
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-text-muted uppercase flex items-center gap-1">
-                <Type size={10} /> Tiếng Nhật
+                <Type size={10} /> {t('lensModal.japaneseLabel')}
               </label>
               <textarea
                 readOnly
@@ -98,7 +100,7 @@ export default function LayerPanel() {
 
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-primary uppercase flex items-center gap-1">
-                <Sparkles size={10} /> Tiếng Việt
+                <Sparkles size={10} /> {t('targetLanguageActions.Tiếng Việt')}
               </label>
               <textarea
                 value={editedVie}
@@ -111,7 +113,7 @@ export default function LayerPanel() {
               onClick={handleApplyScan}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-white bg-primary hover:bg-primary-hover shadow-md transition-all cursor-pointer"
             >
-              <Check size={14} strokeWidth={2.5} /> Chèn vào ảnh
+              <Check size={14} strokeWidth={2.5} /> {t('layerPanel.insertToImage')}
             </button>
           </div>
         </div>
@@ -123,14 +125,14 @@ export default function LayerPanel() {
         {bubbles.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center opacity-20 select-none p-6 text-center">
             <div className="p-4 rounded-full bg-border/30 mb-4"><Ghost size={40} /></div>
-            <p className="text-xs font-bold uppercase tracking-widest">Trống rỗng</p>
+            <p className="text-xs font-bold uppercase tracking-widest">{t('layerPanel.empty')}</p>
           </div>
         ) : (
           reversedBubbles.map((bubble) => {
             const isActive = activeBubbleId === bubble.id;
             const isHovered = useCanvasStore.getState().hoveredBubbleId === bubble.id;
             const cleanText = bubble.text.replace(/\n/g, ' ').trim();
-            const layerName = cleanText ? cleanText.substring(0, 18) + (cleanText.length > 18 ? '...' : '') : 'Chữ trống...';
+            const layerName = cleanText ? cleanText.substring(0, 18) + (cleanText.length > 18 ? '...' : '') : t('layerPanel.emptyText');
 
             return (
               <div 

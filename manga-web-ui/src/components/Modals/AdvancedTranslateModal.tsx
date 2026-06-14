@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, RefreshCw, Sparkles } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface AdvancedTranslateModalProps {
   isOpen: boolean;
@@ -7,30 +8,26 @@ interface AdvancedTranslateModalProps {
   onConfirm: (localPrompt: string) => void;
 }
 
-const SUGGESTIONS = [
-  // Pronouns
-  "Xưng hô: Anh - Em",
-  "Xưng hô: Tao - Mày",
-  "Xưng hô: Bổn tọa - Ngươi",
-  
-  // Tone
-  "Giọng điệu hài hước / Bắt trend",
-  "Dịch thành Thơ Lục Bát",
-  "Nghiêm túc, căng thẳng",
-  
-  // Special Rules
-  "Giữ nguyên kính ngữ (Senpai, Sensei)",
-  "Không dịch tên chiêu thức"
-];
-
 export const AdvancedTranslateModal: React.FC<AdvancedTranslateModalProps> = ({
   isOpen,
   onClose,
   onConfirm,
 }) => {
+  const { t } = useTranslation();
   const [localPrompt, setLocalPrompt] = useState('');
 
   if (!isOpen) return null;
+
+  const suggestions = [
+    t('advancedTranslate.suggestions.pronoun1', 'Xưng hô: Anh - Em'),
+    t('advancedTranslate.suggestions.pronoun2', 'Xưng hô: Tao - Mày'),
+    t('advancedTranslate.suggestions.pronoun3', 'Xưng hô: Bổn tọa - Ngươi'),
+    t('advancedTranslate.suggestions.tone1', 'Giọng điệu hài hước / Bắt trend'),
+    t('advancedTranslate.suggestions.tone2', 'Dịch thành Thơ Lục Bát'),
+    t('advancedTranslate.suggestions.tone3', 'Nghiêm túc, căng thẳng'),
+    t('advancedTranslate.suggestions.rule1', 'Giữ nguyên kính ngữ (Senpai, Sensei)'),
+    t('advancedTranslate.suggestions.rule2', 'Không dịch tên chiêu thức'),
+  ];
 
   const handleAddSuggestion = (text: string) => {
     setLocalPrompt((prev) => {
@@ -63,7 +60,7 @@ export const AdvancedTranslateModal: React.FC<AdvancedTranslateModalProps> = ({
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800/60 bg-black/25">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4.5 h-4.5 text-primary" />
-            <h3 className="text-sm font-bold tracking-wide uppercase">Dịch lại nâng cao</h3>
+            <h3 className="text-sm font-bold tracking-wide uppercase">{t('advancedTranslate.title')}</h3>
           </div>
           <button
             onClick={onClose}
@@ -79,10 +76,10 @@ export const AdvancedTranslateModal: React.FC<AdvancedTranslateModalProps> = ({
           {/* Quick Suggestion Chips */}
           <div>
             <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2 block">
-              💡 Gợi ý nhanh:
+              {t('advancedTranslate.quickSuggestions')}
             </span>
             <div className="flex flex-wrap gap-1.5">
-              {SUGGESTIONS.map((text, idx) => (
+              {suggestions.map((text, idx) => (
                 <button
                   key={idx}
                   type="button"
@@ -97,12 +94,12 @@ export const AdvancedTranslateModal: React.FC<AdvancedTranslateModalProps> = ({
 
           <div className="space-y-2">
             <label className="text-xs font-semibold text-gray-300 block">
-              Chỉ thị bổ sung cho trang này (Tùy chọn)
+              {t('advancedTranslate.inputLabel')}
             </label>
             <textarea
               value={localPrompt}
               onChange={(e) => setLocalPrompt(e.target.value)}
-              placeholder="Ví dụ: Dịch đoạn này thành thơ lục bát, đổi xưng hô thành mày-tao..."
+              placeholder={t('advancedTranslate.placeholder')}
               rows={4}
               className="w-full bg-neutral-900 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder-gray-600 transition-all resize-none"
             />
@@ -115,14 +112,14 @@ export const AdvancedTranslateModal: React.FC<AdvancedTranslateModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 border border-gray-800 hover:bg-white/5 text-xs font-bold text-gray-400 hover:text-white rounded-xl transition-all cursor-pointer"
             >
-              Hủy
+              {t('advancedTranslate.cancel')}
             </button>
             <button
               type="submit"
               className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary-hover text-xs font-bold text-white rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-[0.98] cursor-pointer"
             >
               <RefreshCw size={13} />
-              Dịch ngay
+              {t('advancedTranslate.submit')}
             </button>
           </div>
         </form>
@@ -137,13 +134,14 @@ interface AdvancedTranslateTriggerProps {
 }
 
 export const AdvancedTranslateTrigger: React.FC<AdvancedTranslateTriggerProps> = ({ onClick }) => {
+  const { t } = useTranslation();
   return (
     <button
       onClick={onClick}
       className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-800 bg-[#1a1a1a] hover:bg-neutral-800 text-gray-300 hover:text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
     >
       <RefreshCw size={13} />
-      <span>Dịch lại nâng cao</span>
+      <span>{t('advancedTranslate.triggerBtn')}</span>
     </button>
   );
 };

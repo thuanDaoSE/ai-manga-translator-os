@@ -3,12 +3,34 @@ import { X, Check, Copy, AlertCircle, Sparkles, CreditCard, ArrowLeft, ExternalL
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../store/useAuthStore';
 import { mangaApi } from '../../services/api';
-import { useTranslation } from 'react-i18next';
+import { useTranslation, Trans } from 'react-i18next';
 
 interface PaywallDrawerProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+const calculateXu = (vnd: number) => {
+  const baseXu = Math.floor(vnd / 100);
+  let bonusXu = 0;
+  let bonusPercent = 0;
+  if (vnd >= 200000) {
+    bonusPercent = 20;
+    bonusXu = Math.floor(baseXu * 0.20);
+  } else if (vnd >= 100000) {
+    bonusPercent = 10;
+    bonusXu = Math.floor(baseXu * 0.10);
+  } else if (vnd >= 50000) {
+    bonusPercent = 5;
+    bonusXu = Math.floor(baseXu * 0.05);
+  }
+  return {
+    base: baseXu,
+    bonus: bonusXu,
+    total: baseXu + bonusXu,
+    percent: bonusPercent
+  };
+};
 
 export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose }) => {
   const { t } = useTranslation();
@@ -16,7 +38,6 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   const fetchProfile = useAuthStore((state) => state.fetchProfile);
   const [selectedAmount, setSelectedAmount] = useState<number>(50000); // 50,000 VNĐ default
   const [customAmount, setCustomAmount] = useState<string>('');
-  const [isDisclaimerChecked, setIsDisclaimerChecked] = useState(false);
   
   const [isLoading, setIsLoading] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
@@ -25,14 +46,14 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const predefinedAmounts = [
-    { value: 20000, label: '20.000đ', xu: 200 },
-    { value: 50000, label: '50.000đ', xu: 500 },
-    { value: 100000, label: '100.000đ', xu: 1000 },
-    { value: 200000, label: '200.000đ', xu: 2000 },
+    { value: 20000, label: '20.000đ' },
+    { value: 50000, label: '50.000đ' },
+    { value: 100000, label: '100.000đ' },
+    { value: 200000, label: '200.000đ' },
   ];
 
   const finalAmount = customAmount ? parseInt(customAmount) || 0 : selectedAmount;
-  const equivalentXu = Math.floor(finalAmount / 100);
+  const { total: equivalentXu, bonus: bonusXu } = calculateXu(finalAmount);
 
   // Clear polling on unmount or close
   const stopPolling = () => {
@@ -53,16 +74,12 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
       setOrderCode(null);
       setCustomAmount('');
       setSelectedAmount(50000);
-      setIsDisclaimerChecked(false);
     }
   }, [isOpen]);
 
   const handleGeneratePayment = async () => {
     if (finalAmount < 20000) {
       return toast.error(t('paywall.minAmountError'));
-    }
-    if (!isDisclaimerChecked) {
-      return toast.error(t('paywall.disclaimerError'));
     }
 
     setIsLoading(true);
@@ -99,6 +116,8 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
       setIsLoading(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
@@ -137,24 +156,42 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                   {t('paywall.quickSelect')}
                 </label>
                 <div className="grid grid-cols-2 gap-3">
-                  {predefinedAmounts.map((pkg) => (
-                    <button
-                      key={pkg.value}
-                      type="button"
-                      onClick={() => {
-                        setSelectedAmount(pkg.value);
-                        setCustomAmount('');
-                      }}
-                      className={`p-4 rounded-2xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
-                        selectedAmount === pkg.value && !customAmount
-                          ? 'border-indigo-500 bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.2)]'
-                          : 'border-gray-800 bg-neutral-900/50 hover:bg-neutral-800/80 hover:border-gray-700'
-                      }`}
-                    >
-                      <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">{t('paywall.receiveCreditsShort', { count: pkg.xu })}</span>
-                      <span className="text-lg font-black text-white mt-1">{pkg.label}</span>
-                    </button>
-                  ))}
+                  {predefinedAmounts.map((pkg) => {
+                    const { total, bonus, percent } = calculateXu(pkg.value);
+                    const isSelected = selectedAmount === pkg.value && !customAmount;
+                    return (
+                      <button
+                        key={pkg.value}
+                        type="button"
+                        onClick={() => {
+                          setSelectedAmount(pkg.value);
+                          setCustomAmount('');
+                        }}
+                        className={`p-4 rounded-2xl border text-left flex flex-col justify-between transition-all relative overflow-hidden cursor-pointer ${
+                          isSelected
+                            ? 'border-indigo-500 bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.2)]'
+                            : 'border-gray-800 bg-neutral-900/50 hover:bg-neutral-800/80 hover:border-gray-700'
+                        }`}
+                      >
+                        {percent > 0 && (
+                          <span className="absolute top-2 right-2 bg-emerald-500/10 text-emerald-400 text-[8px] font-black px-1.5 py-0.5 rounded-full border border-emerald-500/20">
+                            +{percent}% Bonus
+                          </span>
+                        )}
+                        <div className="flex flex-col gap-0.5 mt-1">
+                          <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
+                            {t('paywall.receiveCreditsShort', { count: total })}
+                          </span>
+                          {bonus > 0 && (
+                            <span className="text-[10px] text-emerald-400 font-bold block">
+                              {t('paywall.bonusShort', { count: bonus })}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-lg font-black text-white mt-3">{pkg.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -166,14 +203,15 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                 <div className="relative">
                   <input
                     id="custom-amount-input"
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     value={customAmount}
                     onChange={(e) => {
-                      setCustomAmount(e.target.value);
+                      const cleanVal = e.target.value.replace(/\D/g, '');
+                      setCustomAmount(cleanVal);
                       setSelectedAmount(0);
                     }}
                     placeholder={t('paywall.customAmountInputPlaceholder')}
-                    min="20000"
                     className="w-full px-4 py-3.5 bg-neutral-900 border border-gray-800 rounded-xl focus:outline-none focus:border-indigo-500 text-sm font-semibold text-white placeholder-gray-600 transition-all"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-500">
@@ -181,29 +219,26 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                   </span>
                 </div>
                 {finalAmount > 0 && (
-                  <div className="text-[11px] text-yellow-500 font-bold flex items-center gap-1.5 px-1">
-                    {t('paywall.willReceive', { count: equivalentXu })} {t('paywall.rateNotice')}
+                  <div className="flex flex-col gap-1 px-1">
+                    <div className="text-[11px] text-yellow-500 font-bold flex items-center gap-1.5">
+                      <Sparkles size={12} className="text-yellow-400 shrink-0 animate-pulse" />
+                      <span>
+                        {bonusXu > 0 
+                          ? t('paywall.willReceiveWithBonus', { total: equivalentXu, bonus: bonusXu })
+                          : `${t('paywall.willReceive', { count: equivalentXu })} ${t('paywall.rateNotice')}`}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {t('paywall.valueEquivalent', { translate: equivalentXu, redraw: Math.floor(equivalentXu / 4) })}
+                    </p>
                   </div>
                 )}
                 {finalAmount < 20000 && finalAmount > 0 && (
                   <div className="text-[11px] text-red-400 font-bold flex items-center gap-1.5 px-1">
-                    {t('paywall.minRechargeWarning')}
+                    <AlertCircle size={12} className="text-red-400 shrink-0 animate-pulse" />
+                    <span>{t('paywall.minRechargeWarning')}</span>
                   </div>
                 )}
-              </div>
-
-              {/* Điều khoản pháp lý và tuyên bố miễn trừ trách nhiệm */}
-              <div className="flex gap-2.5 bg-red-500/5 border border-red-500/10 p-3.5 rounded-xl text-[11px] leading-relaxed text-gray-300">
-                <input 
-                  type="checkbox" 
-                  id="legal-disclaimer-checkbox" 
-                  checked={isDisclaimerChecked}
-                  onChange={(e) => setIsDisclaimerChecked(e.target.checked)}
-                  className="mt-1 shrink-0 cursor-pointer accent-indigo-500 rounded border-gray-700 bg-neutral-900 w-4 h-4" 
-                />
-                <label htmlFor="legal-disclaimer-checkbox" className="leading-relaxed cursor-pointer select-none">
-                  {t('paywall.disclaimer')}
-                </label>
               </div>
             </>
           ) : (
@@ -267,10 +302,10 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
 
         {/* Nút Hành động ở chân (chỉ hiện ở Bước 1) */}
         {!checkoutUrl && (
-          <div className="p-5 border-t border-gray-800/60 bg-black/10">
+          <div className="p-5 border-t border-gray-800/60 bg-black/10 flex flex-col gap-3">
             <button
               onClick={handleGeneratePayment}
-              disabled={isLoading || finalAmount < 20000 || !isDisclaimerChecked}
+              disabled={isLoading || finalAmount < 20000}
               className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all duration-200 cursor-pointer active:scale-[0.98] shadow-[0_4px_15px_rgba(79,70,229,0.3)]"
             >
               {isLoading ? (
@@ -283,6 +318,11 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                 </>
               )}
             </button>
+            <div className="text-center text-[10px] text-gray-500">
+              <Trans i18nKey="paywall.termsAgreement">
+                Bằng việc tiếp tục, bạn đồng ý với <a href="#" className="underline hover:text-indigo-400 transition-colors">Điều khoản Dịch vụ</a> của chúng tôi.
+              </Trans>
+            </div>
           </div>
         )}
 

@@ -43,6 +43,7 @@ export default function Topbar() {
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
@@ -56,66 +57,113 @@ export default function Topbar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleExportManga = () => {
-    const pageId = projectStore.pageIds[projectStore.currentIndex];
-    if (!pageId) return toast.error("Chưa có trang truyện nào được chọn!");
-    mangaApi.exportManga(pageId);
-    setIsExportMenuOpen(false);
+  const handleLogoClick = () => {
+    if (window.confirm(t('topbar.confirmCloseProject', 'Bạn có muốn đóng dự án hiện tại và quay về màn hình chính không?'))) {
+      projectStore.clearProject();
+    }
   };
 
-  const handleExportText = () => {
+  const handleExportManga = async () => {
+    const pageId = projectStore.pageIds[projectStore.currentIndex];
+    if (!pageId) return toast.error("Chưa có trang truyện nào được chọn!");
+    setIsExporting(true);
+    setIsExportMenuOpen(false);
+    const loadId = toast.loading("Đang đóng gói file backup .manga...");
+    try {
+      const token = useAuthStore.getState().session?.access_token || "";
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/export-manga?token=${token}`);
+      if (!response.ok) throw new Error("Lỗi máy chủ khi đóng gói backup");
+      const blob = await response.blob();
+      saveAs(blob, `backup-${pageId}.manga`);
+      toast.success("Xuất file backup thành công!", { id: loadId });
+    } catch (error: any) {
+      toast.error(error.message || "Lỗi khi xuất file backup!", { id: loadId });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportText = async () => {
     const activePageNumber = projectStore.currentIndex + 1;
     const currentBubbles = useCanvasStore.getState().bubbles;
     
     if (!currentBubbles || currentBubbles.length === 0) {
+      setIsExportMenuOpen(false);
       return toast.error("Trang hiện tại không có văn bản nào để xuất!");
     }
-
+    setIsExporting(true);
+    setIsExportMenuOpen(false);
+    const loadId = toast.loading("Đang xuất file văn bản...");
     const textBlocks = currentBubbles.map(b => ({
       original: b.japanese || b.text,
       translated: b.text || b.vietnamese || ""
     }));
-
     const pagesData = [{ pageNumber: activePageNumber, textBlocks }];
     
     try {
-      exportTranslationToText(pagesData);
+      await new Promise<void>((resolve, reject) => {
+        setTimeout(() => {
+          try {
+            exportTranslationToText(pagesData);
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        }, 100);
+      });
+      toast.success("Xuất file Text thành công!", { id: loadId });
     } catch (e) {
-      toast.error("Lỗi khi xuất file Text!");
+      toast.error("Lỗi khi xuất file Text!", { id: loadId });
+    } finally {
+      setIsExporting(false);
     }
-    setIsExportMenuOpen(false);
   };
 
   const handleExportImage = async () => {
     const el = document.getElementById("manga-canvas-render");
     if (!el) return toast.error("Không tìm thấy vùng vẽ để xuất ảnh!");
+    setIsExporting(true);
+    setIsExportMenuOpen(false);
     const loadId = toast.loading("Đang xuất ảnh JPG...");
     try {
       const dataUrl = await toJpeg(el, { quality: 0.95 });
       saveAs(dataUrl, `deepkoma-${Date.now()}.jpg`);
       toast.success("Xuất ảnh thành công!", { id: loadId });
-    } catch (e) { toast.error("Lỗi khi xuất ảnh!", { id: loadId }); }
-    setIsExportMenuOpen(false);
+    } catch (e) { 
+      toast.error("Lỗi khi xuất ảnh!", { id: loadId }); 
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleExportPSD = async () => {
     const pageId = projectStore.pageIds[projectStore.currentIndex];
     if (!pageId) return toast.error("Chưa có trang truyện nào được chọn!");
-    const loadId = toast.loading("Đang tạo liên kết tải file PSD...");
+    setIsExporting(true);
+    setIsExportMenuOpen(false);
+    const loadId = toast.loading("Đang tạo file PSD...");
     try {
-      mangaApi.downloadPsd(pageId);
+      const token = useAuthStore.getState().session?.access_token || "";
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/download-psd?token=${token}`);
+      if (!response.ok) throw new Error("Lỗi máy chủ khi tạo file PSD");
+      const blob = await response.blob();
+      saveAs(blob, `MangaAI_${pageId}.psd`);
+      
       toast.dismiss(loadId);
       toast.success((t) => (
         <div className="flex flex-col gap-2">
-          <span className="font-bold">Đã bắt đầu tải file PSD!</span>
+          <span className="font-bold">Đã tạo file PSD thành công!</span>
           <div className="text-[11px] opacity-90">Nếu file PSD bị lỗi font tiếng Việt, hãy tải và cài đặt bộ Font chuẩn:</div>
           <button onClick={() => { toast.dismiss(t.id); mangaApi.downloadFontPack(); }} className="px-3 py-1.5 text-[11px] font-bold bg-primary text-white rounded-lg flex items-center justify-center gap-1.5">
             <Download size={14} /> Tải Bộ Font
           </button>
         </div>
       ), { duration: 15000 });
-    } catch (error: any) { toast.error(error.message, { id: loadId }); }
-    setIsExportMenuOpen(false);
+    } catch (error: any) { 
+      toast.error(error.message || "Lỗi tạo file PSD!", { id: loadId }); 
+    } finally {
+      setIsExporting(false);
+    }
   };
 
 
@@ -129,7 +177,7 @@ export default function Topbar() {
         {/* ========================================= */}
         {/* 🚀 LOGO DEEPKOMA CHUẨN CHIẾN LƯỢC SAAS */}
         {/* ========================================= */}
-        <DeepKomaLogo className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
+        <DeepKomaLogo onClick={handleLogoClick} className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
 
         <div className="w-px h-8 bg-border mx-2 hidden sm:block" />
 
@@ -148,40 +196,52 @@ export default function Topbar() {
         </div>
       </div>
 
-      {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa) */}
-      <div className="flex items-center justify-center flex-1">
-        <div className="flex items-center bg-background p-1 rounded-lg border border-border shadow-inner">
-          <button onClick={() => setIsComparing(false)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${!isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeAi')}</button>
-          <button onClick={() => setIsComparing(true)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeRaw')}</button>
-        </div>
-      </div>
+      {/* 2. CENTER ZONE (Empty spacer to align Right Zone) */}
+      <div className="flex-1" />
 
-      {/* 3. RIGHT ZONE: CONFIG, CREDITS, EXPORT, ACCOUNT */}
+      {/* 3. RIGHT ZONE: GROUPED BY SYSTEM & PROJECT CONTROLS */}
       <div className="flex items-center justify-end gap-3 flex-1 relative">
+
+        {/* --- CỤM CÔNG CỤ DỰ ÁN --- */}
+        <div className="h-9 flex items-center bg-background p-0.5 rounded-lg border border-border shadow-inner shrink-0">
+          <button onClick={() => setIsComparing(false)} className={`h-full px-5 text-sm font-medium rounded-md transition-all cursor-pointer ${!isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeAi')}</button>
+          <button onClick={() => setIsComparing(true)} className={`h-full px-5 text-sm font-medium rounded-md transition-all cursor-pointer ${isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeRaw')}</button>
+        </div>
 
         {/* Nút Cài đặt dự án chung (Cấu hình dịch) */}
         <button
           onClick={() => setModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm group"
+          className="h-9 flex items-center gap-1.5 px-3 rounded-lg border border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm group whitespace-nowrap shrink-0 text-sm font-medium"
           title="Cài đặt từ điển & Xưng hô AI"
         >
           <Languages size={14} className="text-primary group-hover:scale-110 transition-transform" />
-          <span className="text-[12px] font-bold">{t('topbar.configBtn')}</span>
-        </button>
-
-        <div className="w-px h-5 bg-border mx-1" />
-
-        {/* Nút Credits */}
-        <button onClick={() => setIsPaywallOpen(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group cursor-pointer shadow-sm ${user?.isPro ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' : 'bg-background hover:bg-border/40 border-border'}`}>
-          <Diamond size={14} className={user?.isPro ? "text-indigo-400 animate-pulse" : "text-amber-500 group-hover:scale-110 transition-transform"} />
-          <span className={`text-[12px] font-bold ${user?.isPro ? 'text-indigo-400' : 'text-text-main'}`}>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span>
-          {!user?.isPro && <span className="text-[9px] font-black uppercase text-amber-500/80 ml-1 hidden sm:inline">{t('topbar.recharge')}</span>}
+          <span>{t('topbar.configBtn')}</span>
         </button>
 
         {/* Menu Export */}
-        <div className="relative" ref={exportMenuRef}>
-          <button onClick={() => { setIsExportMenuOpen(!isExportMenuOpen); setIsAccountMenuOpen(false); }} className="flex items-center gap-1.5 bg-primary hover:bg-primary-hover px-4 py-1.5 rounded-lg text-[12px] font-bold text-white shadow-md transition-colors active:scale-95 cursor-pointer">
-            <Download size={14} strokeWidth={2.5} /> <span className="hidden sm:inline">Export</span> <ChevronDown size={14} />
+        <div className="relative shrink-0" ref={exportMenuRef}>
+          <button 
+            disabled={isExporting}
+            onClick={() => {
+              if (isExporting) return;
+              setIsExportMenuOpen(!isExportMenuOpen); 
+              setIsAccountMenuOpen(false); 
+            }} 
+            className={`h-9 flex items-center gap-1.5 bg-primary hover:bg-primary-hover px-3 rounded-lg text-sm font-medium text-white shadow-md transition-colors active:scale-95 shrink-0 ${isExporting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+          >
+            {isExporting ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-1.5 h-4 w-4 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Exporting...</span>
+              </>
+            ) : (
+              <>
+                <Download size={14} strokeWidth={2.5} /> <span className="hidden sm:inline">Export</span> <ChevronDown size={14} />
+              </>
+            )}
           </button>
 
           {isExportMenuOpen && (
@@ -194,14 +254,25 @@ export default function Topbar() {
           )}
         </div>
 
+        {/* ĐƯỜNG PHÂN CÁCH DỌC */}
+        <div className="w-px h-5 bg-border mx-1 shrink-0" />
+
+        {/* --- CỤM TÀI KHOẢN & HỆ THỐNG --- */}
+        {/* Nút Credits */}
+        <button onClick={() => setIsPaywallOpen(true)} className={`h-9 flex items-center gap-1.5 px-3 rounded-lg border transition-colors group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-sm font-medium ${user?.isPro ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' : 'bg-background hover:bg-border/40 border-border'}`}>
+          <Diamond size={14} className={user?.isPro ? "text-indigo-400 animate-pulse" : "text-amber-500 group-hover:scale-110 transition-transform"} />
+          <span>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span>
+          {!user?.isPro && <span className="text-[10px] font-bold uppercase text-amber-500/80 ml-1 hidden sm:inline">{t('topbar.recharge')}</span>}
+        </button>
+
         {/* UI Language Switcher (VN / EN Toggle) */}
-        <div className="flex items-center bg-background border border-border p-0.5 rounded-lg select-none shrink-0">
+        <div className="h-9 flex items-center bg-background border border-border p-0.5 rounded-lg select-none shrink-0">
           <button
             onClick={() => {
               i18n.changeLanguage('vi');
               localStorage.setItem('ui_language', 'vi');
             }}
-            className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all cursor-pointer ${
+            className={`h-full px-2.5 flex items-center justify-center text-sm font-medium uppercase rounded-md transition-all cursor-pointer ${
               i18n.language === 'vi' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'
             }`}
           >
@@ -212,7 +283,7 @@ export default function Topbar() {
               i18n.changeLanguage('en');
               localStorage.setItem('ui_language', 'en');
             }}
-            className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all cursor-pointer ${
+            className={`h-full px-2.5 flex items-center justify-center text-sm font-medium uppercase rounded-md transition-all cursor-pointer ${
               i18n.language.startsWith('en') ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'
             }`}
           >
@@ -221,8 +292,8 @@ export default function Topbar() {
         </div>
 
         {/* Menu Account */}
-        <div className="relative" ref={accountMenuRef}>
-          <button onClick={() => { setIsAccountMenuOpen(!isAccountMenuOpen); setIsExportMenuOpen(false); }} className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 focus:ring-2 focus:ring-amber-500/50 transition-transform active:scale-95 cursor-pointer shadow-sm">
+        <div className="relative shrink-0" ref={accountMenuRef}>
+          <button onClick={() => { setIsAccountMenuOpen(!isAccountMenuOpen); setIsExportMenuOpen(false); }} className="flex items-center justify-center w-9 h-9 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 focus:ring-2 focus:ring-amber-500/50 transition-transform active:scale-95 cursor-pointer shadow-sm shrink-0">
             <User size={16} className="text-amber-950" strokeWidth={2.5} />
           </button>
 

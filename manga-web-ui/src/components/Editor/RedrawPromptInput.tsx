@@ -4,6 +4,7 @@ import { mangaApi } from '../../services/api';
 import toast from 'react-hot-toast';
 import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
 import { useTranslation } from 'react-i18next';
+import { useToolStore } from '../../store/useToolStore';
 
 interface TagOption {
   value: string;
@@ -84,6 +85,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   onSubmit
 }) => {
   const { t } = useTranslation();
+  const isRedrawSessionActive = useToolStore((state) => state.isRedrawSessionActive);
   const [vietnameseText, setVietnameseText] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [mode, setMode] = useState<'manga' | 'webtoon'>('manga');
@@ -174,6 +176,11 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
           </div>
         )}
 
+        {/* Dòng ghi chú nhỏ về phí gọi máy chủ */}
+        <div className="text-[10px] text-gray-400 select-none">
+          {t('redrawInput.redrawDisclaimer')}
+        </div>
+
         <div className="flex items-center gap-2">
           <button
             type="submit"
@@ -185,7 +192,13 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             ) : (
               <Sparkles size={15} />
             )}
-            {isTranslating ? t('redrawInput.translating') : isProcessing ? dynamicLoadingText : t('redrawInput.redrawAi')}
+            {isTranslating 
+              ? t('redrawInput.translating') 
+              : isProcessing 
+                ? dynamicLoadingText 
+                : isRedrawSessionActive 
+                  ? t('redrawInput.redrawButtonSubsequent') 
+                  : t('redrawInput.redrawButtonFirst')}
           </button>
           
           <button

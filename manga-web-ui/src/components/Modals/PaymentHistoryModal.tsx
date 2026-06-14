@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { X, CreditCard, Loader2, RefreshCw, Gem, AlertCircle } from 'lucide-react';
 import { mangaApi } from '../../services/api';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 interface Transaction {
   order_code: number;
@@ -19,6 +20,7 @@ interface PaymentHistoryModalProps {
 }
 
 export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryModalProps) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState('');
@@ -31,8 +33,8 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
       setTransactions(data.transactions || []);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Lỗi khi tải lịch sử giao dịch!');
-      toast.error('Không thể lấy lịch sử giao dịch.');
+      setError(err.message || t('paymentHistory.loadFailed'));
+      toast.error(t('paymentHistory.fetchFailedToast'));
     } finally {
       setLoading(false);
     }
@@ -89,15 +91,15 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
             <CreditCard size={22} />
           </div>
           <div className="flex-1">
-            <h2 className="text-lg font-black tracking-tight uppercase">Lịch sử giao dịch</h2>
-            <p className="text-[11px] text-text-muted mt-0.5">Danh sách các đơn nạp tiền của bạn</p>
+            <h2 className="text-lg font-black tracking-tight uppercase">{t('paymentHistory.title')}</h2>
+            <p className="text-[11px] text-text-muted mt-0.5">{t('paymentHistory.subtitle')}</p>
           </div>
           {/* Refresh Button */}
           <button
             onClick={fetchHistory}
             disabled={loading}
             className="p-2 text-text-muted hover:text-text-main hover:bg-border/40 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-            title="Làm mới lịch sử"
+            title={t('paymentHistory.refreshTooltip')}
           >
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
           </button>
@@ -108,7 +110,7 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
               <Loader2 className="animate-spin text-primary" size={32} />
-              <span className="text-sm font-bold text-text-muted">Đang tải lịch sử giao dịch...</span>
+              <span className="text-sm font-bold text-text-muted">{t('paymentHistory.loadingText')}</span>
             </div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3 px-6 text-center">
@@ -118,7 +120,7 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
                 onClick={fetchHistory}
                 className="px-4 py-2 bg-primary/10 text-primary border border-primary/20 rounded-xl text-xs font-bold hover:bg-primary hover:text-white transition-all cursor-pointer mt-2"
               >
-                Thử lại
+                {t('paymentHistory.retry')}
               </button>
             </div>
           ) : transactions.length === 0 ? (
@@ -126,20 +128,20 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
               <div className="p-4 rounded-full bg-border/20 text-text-muted/40 mb-2">
                 <CreditCard size={44} />
               </div>
-              <span className="text-sm font-bold text-text-muted">Chưa có giao dịch nào</span>
-              <span className="text-xs text-text-muted/60">Bạn chưa thực hiện bất kỳ giao dịch nạp tiền nào.</span>
+              <span className="text-sm font-bold text-text-muted">{t('paymentHistory.emptyTitle')}</span>
+              <span className="text-xs text-text-muted/60">{t('paymentHistory.emptyDesc')}</span>
             </div>
           ) : (
             <div className="flex-1 overflow-x-auto">
               <table className="w-full text-left text-xs font-medium border-collapse">
                 <thead>
                   <tr className="border-b border-border text-text-muted uppercase tracking-wider text-[10px] font-black">
-                    <th className="py-3 px-2">Mã GD</th>
-                    <th className="py-3 px-2">Gói nạp</th>
-                    <th className="py-3 px-2 text-right">Số tiền</th>
-                    <th className="py-3 px-2 text-right">Credits</th>
-                    <th className="py-3 px-2 text-center">Trạng thái</th>
-                    <th className="py-3 px-2 text-right">Ngày nạp</th>
+                    <th className="py-3 px-2">{t('paymentHistory.colId')}</th>
+                    <th className="py-3 px-2">{t('paymentHistory.colPackage')}</th>
+                    <th className="py-3 px-2 text-right">{t('paymentHistory.colAmount')}</th>
+                    <th className="py-3 px-2 text-right">{t('paymentHistory.colCredits')}</th>
+                    <th className="py-3 px-2 text-center">{t('paymentHistory.colStatus')}</th>
+                    <th className="py-3 px-2 text-right">{t('paymentHistory.colDate')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -178,7 +180,7 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
                                   : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
                               }`}
                             >
-                              {isPaid ? 'Thành công' : isPending ? 'Chờ thanh toán' : 'Đã hủy'}
+                              {isPaid ? t('paymentHistory.statusSuccess') : isPending ? t('paymentHistory.statusPending') : t('paymentHistory.statusCancelled')}
                             </span>
                             {isPending && txn.checkout_url && (
                               <a
@@ -187,7 +189,7 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
                                 rel="noopener noreferrer"
                                 className="text-[10px] text-primary hover:underline font-bold mt-0.5 block transition-colors"
                               >
-                                Thanh toán tiếp ➔
+                                {t('paymentHistory.payNext')}
                               </a>
                             )}
                           </div>

@@ -1327,6 +1327,7 @@ class RedrawRequest(BaseModel):
     prompt: str
     negative_prompt: Optional[str] = None
     page_id: Optional[str] = None
+    original_image_hash: Optional[str] = None
 
 
 # Hàm helper bóc tách URL thành đường dẫn vật lý trên RunPod
@@ -1408,12 +1409,37 @@ async def redraw_image(
     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
     redraw_start = time.time()
+    charged_amount = 0
     if req.page_id:
         # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
         await check_page_ownership(req.page_id, user_id, db)
 
-    # Khóa và trừ 1 Xu phí vẽ lại AI
-    await check_and_deduct_credits(db, user_id, 1, "Vẽ lại bằng AI (Redraw)")
+    # 🚀 XÁC ĐỊNH PHÍ COLD START DỰA TRÊN CONSTANT ID
+    target_key = req.page_id if req.page_id else req.original_image_hash
+    if not target_key:
+        target_key = hashlib.md5(req.image_url.encode('utf-8')).hexdigest()
+
+    from datetime import datetime, timezone, timedelta
+    time_limit = datetime.now(timezone.utc) - timedelta(minutes=15)
+
+    # Kiểm tra giao dịch Cold Start trong vòng 15 phút qua
+    stmt = select(UserTransaction).where(
+        UserTransaction.user_id == user_id,
+        UserTransaction.description.like(f"%Target: {target_key}%"),
+        UserTransaction.created_at >= time_limit
+    )
+    res = await db.execute(stmt)
+    recent_txn = res.scalars().first()
+
+    if recent_txn:
+        charged_amount = 1
+        description = f"Vẽ lại bằng AI (Redraw) - Target: {target_key}"
+    else:
+        charged_amount = 4
+        description = f"Vẽ lại bằng AI (Redraw + Phí Cold Start) - Target: {target_key}"
+
+    # Khóa và trừ Xu
+    await check_and_deduct_credits(db, user_id, charged_amount, description)
     await db.commit() # Commit ngay để tránh khóa dòng User lâu khi gọi API RunPod (tốn 10-30s)
 
     try:
@@ -1546,11 +1572,18 @@ async def redraw_image(
         # Queue flush in background to prevent data loss in scale-to-zero serverless environments
         background_tasks.add_task(flush_telemetry)
 
-        return {"status": "success", "new_url": new_url}
+        # Lấy thông tin số dư xu mới nhất để trả về cho Client
+        stmt = select(User).where(User.id == user_id)
+        res = await db.execute(stmt)
+        updated_user = res.scalar_one_or_none()
+        current_credits = updated_user.credits if updated_user else 0
+
+        return {"status": "success", "new_url": new_url, "credits": current_credits}
 
     except Exception as e:
         # Hoàn Xu khi gặp lỗi vẽ lại AI
-        await refund_credits(db, user_id, 1, f"Hoàn 1 Xu: Vẽ lại thất bại (Lỗi: {str(e)[:100]})")
+        if charged_amount > 0:
+            await refund_credits(db, user_id, charged_amount, f"Hoàn {charged_amount} Xu: Vẽ lại thất bại (Lỗi: {str(e)[:100]})")
 
         # Capture error/OOM in Sentry with extra context
         with sentry_sdk.push_scope() as scope:
@@ -2602,6 +2635,18 @@ async def activate_redraw_tool(
 # ==========================================
 # API 1: TẠO MÃ QR/LINK THANH TOÁN CHO NGƯỜI DÙNG
 # ==========================================
+def calculate_credits(amount_vnd: int) -> int:
+    base_xu = amount_vnd // 100
+    if amount_vnd >= 200000:
+        bonus = int(base_xu * 0.20)
+    elif amount_vnd >= 100000:
+        bonus = int(base_xu * 0.10)
+    elif amount_vnd >= 50000:
+        bonus = int(base_xu * 0.05)
+    else:
+        bonus = 0
+    return base_xu + bonus
+
 class CreatePaymentLinkPayload(BaseModel):
     amount: int
 
@@ -2617,8 +2662,8 @@ async def create_payment_link(
     if amount < 20000:
         raise HTTPException(status_code=400, detail="Số tiền nạp tối thiểu là 20.000 VNĐ")
 
-    # Quy đổi: 20.000 VNĐ = 200 Xu (100 VNĐ = 1 Xu)
-    credits_to_add = amount // 100
+    # Quy đổi kèm bonus
+    credits_to_add = calculate_credits(amount)
 
     email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
     await ensure_user_exists(db, user_id, email)
@@ -2726,7 +2771,7 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             user = user_res.scalar_one_or_none()
             
             if user:
-                credits_to_add = amount_paid // 100
+                credits_to_add = txn.credits_added if (txn and txn.credits_added) else calculate_credits(amount_paid)
                 user.credits += credits_to_add
                 
                 # Ghi lịch sử biến động số dư

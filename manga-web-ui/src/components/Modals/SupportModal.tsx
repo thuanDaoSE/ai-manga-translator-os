@@ -3,6 +3,7 @@ import { X, HelpCircle, Loader2 } from "lucide-react";
 import { useAuthStore } from "../../store/useAuthStore";
 import toast from "react-hot-toast";
 import emailjs from "@emailjs/browser";
+import { useTranslation, Trans } from "react-i18next";
 
 interface SupportModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface SupportModalProps {
 }
 
 export default function SupportModal({ isOpen, onClose }: SupportModalProps) {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,11 +21,11 @@ export default function SupportModal({ isOpen, onClose }: SupportModalProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) {
-      return toast.error("Vui lòng nhập mô tả lỗi!");
+      return toast.error(t('supportModal.emptyMessageError'));
     }
 
     setLoading(true);
-    const loadId = toast.loading("Đang gửi báo cáo...");
+    const loadId = toast.loading(t('supportModal.sendingReport'));
 
     // Auto-capture Diagnostics
     let webglStatus = "Lỗi/Mất context";
@@ -57,12 +59,12 @@ export default function SupportModal({ isOpen, onClose }: SupportModalProps) {
 
     try {
       await emailjs.send(serviceId, templateId, templateParams, publicKey);
-      toast.success("Gửi báo lỗi thành công!", { id: loadId });
+      toast.success(t('supportModal.sendSuccess'), { id: loadId });
       setMessage("");
       onClose();
     } catch (error: any) {
       console.error("Lỗi EmailJS:", error);
-      toast.error(error?.text || "Không thể gửi báo cáo lỗi. Vui lòng thử lại!", { id: loadId });
+      toast.error(error?.text || t('supportModal.sendFailed'), { id: loadId });
     } finally {
       setLoading(false);
     }
@@ -92,25 +94,27 @@ export default function SupportModal({ isOpen, onClose }: SupportModalProps) {
             <HelpCircle size={22} />
           </div>
           <div className="flex-1">
-            <h2 className="text-lg font-black tracking-tight uppercase">Gửi báo lỗi / Hỗ trợ</h2>
-            <p className="text-[11px] text-text-muted mt-0.5">Chúng tôi sẽ tự động thu thập thông tin chẩn đoán hệ thống</p>
+            <h2 className="text-lg font-black tracking-tight uppercase">{t('supportModal.title')}</h2>
+            <p className="text-[11px] text-text-muted mt-0.5">{t('supportModal.subtitle')}</p>
           </div>
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-bold text-text-muted uppercase tracking-wider">Mô tả vấn đề</label>
+            <label className="text-[11px] font-bold text-text-muted uppercase tracking-wider">{t('supportModal.labelDesc')}</label>
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Mô tả vấn đề bạn gặp phải..."
+              placeholder={t('supportModal.placeholder')}
               disabled={loading}
               rows={5}
               className="w-full bg-background border border-border rounded-xl p-3.5 text-xs text-text-main placeholder-text-muted/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none disabled:opacity-50"
             />
             <p className="text-[11px] text-text-muted/80 leading-relaxed mt-1">
-              💡 <span className="font-bold text-primary">Mẹo:</span> Hãy mô tả ngắn gọn. Admin sẽ phản hồi qua email của bạn và bạn có thể đính kèm ảnh chụp màn hình tại đó.
+              <Trans i18nKey="supportModal.tip">
+                💡 <span className="font-bold text-primary">Mẹo:</span> Hãy mô tả ngắn gọn. Admin sẽ phản hồi qua email của bạn và bạn có thể đính kèm ảnh chụp màn hình tại đó.
+              </Trans>
             </p>
           </div>
 
@@ -121,7 +125,7 @@ export default function SupportModal({ isOpen, onClose }: SupportModalProps) {
               disabled={loading}
               className="px-4 py-2 border border-border hover:bg-border/40 text-text-muted hover:text-text-main rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
             >
-              Hủy
+              {t('supportModal.cancel')}
             </button>
             <button
               type="submit"
@@ -129,7 +133,7 @@ export default function SupportModal({ isOpen, onClose }: SupportModalProps) {
               className="px-5 py-2 bg-primary hover:bg-primary-hover text-white rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 shadow-md flex items-center gap-1.5"
             >
               {loading && <Loader2 size={14} className="animate-spin" />}
-              {loading ? "Đang gửi..." : "Gửi báo lỗi"}
+              {loading ? t('supportModal.sending') : t('supportModal.submit')}
             </button>
           </div>
         </form>
