@@ -57,7 +57,8 @@ function SortableItem({
           isSelected ? 'bg-primary/15 border-primary/50 shadow-md ring-1 ring-primary/50' :
             isActive ? 'bg-primary/10 border-primary/40 shadow-lg' :
               status === 'error' ? 'bg-danger/5 border-danger/30 hover:bg-danger/10' :
-                'bg-panel/40 border-transparent hover:border-border hover:bg-panel/60'
+                status === 'waiting' ? 'bg-amber-500/5 border-amber-500/20 hover:border-amber-500/40 hover:bg-amber-500/10' :
+                  'bg-panel/40 border-transparent hover:border-border hover:bg-panel/60'
           }`}
       >
         {/* DRAG HANDLE */}
@@ -99,6 +100,7 @@ function SortableItem({
           </span>
           
           {status === 'unprocessed' && <span className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold uppercase truncate"><Clock size={12} /> Đợi dịch</span>}
+          {status === 'waiting' && <span className="flex items-center gap-1.5 text-[10px] text-amber-500 font-bold uppercase truncate animate-pulse"><Clock size={12} /> Đang chờ...</span>}
           
           {status === 'processing' && (
             <div className="flex flex-col gap-1.5 mt-0.5 w-full">
@@ -165,9 +167,9 @@ function SortableItem({
         )}
 
         {/* NÚT DỪNG (To hơn: w-8 h-8, icon 14) */}
-        {!isSelectionMode && status === 'processing' && (
+        {!isSelectionMode && (status === 'processing' || status === 'waiting') && (
           <div className="absolute right-2.5 top-1/2 -translate-y-1/2 z-20" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onCancel(); }}>
-            <button className="flex items-center justify-center w-8 h-8 bg-background/90 backdrop-blur-md hover:bg-danger text-danger hover:text-white border border-danger/30 hover:border-danger rounded-lg shadow-sm transition-all cursor-pointer group" title="Dừng xử lý">
+            <button className="flex items-center justify-center w-8 h-8 bg-background/90 backdrop-blur-md hover:bg-danger text-danger hover:text-white border border-danger/30 hover:border-danger rounded-lg shadow-sm transition-all cursor-pointer group" title={status === 'waiting' ? "Hủy hàng đợi" : "Dừng xử lý"}>
               <Square size={14} className="fill-current group-hover:scale-90 transition-transform" />
             </button>
           </div>
@@ -711,6 +713,7 @@ export default function Sidebar() {
   const processingPages = visibleFiles.filter(({ index }) => pageStatuses[index] === 'processing').length;
   const progressPercent = totalPages === 0 ? 0 : ((completedPages + errorPages) / totalPages) * 100;
   const hasUnprocessed = visibleFiles.some(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'error');
+  const isAnyProcessingOrWaiting = visibleFiles.some(({ index }) => pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting');
 
   const handleTranslateAll = async () => {
     if (visibleFiles.length === 0) return;
@@ -722,6 +725,11 @@ export default function Sidebar() {
 
     if (pendingIndexes.length === 0) return;
 
+    // Đánh dấu tất cả trang chờ là "Đang chờ..."
+    pendingIndexes.forEach(index => {
+      projectStore.setPageStatus(index, "waiting");
+    });
+
     // Chạy với giới hạn đồng thời tối đa là 3 trang để tránh nghẽn browser connection pool (limit 6)
     const limit = 3;
     let nextIdx = 0;
@@ -729,6 +737,13 @@ export default function Sidebar() {
     const runNext = async () => {
       if (nextIdx >= pendingIndexes.length) return;
       const index = pendingIndexes[nextIdx++];
+
+      // Nếu trang đã bị hủy khỏi hàng đợi (không còn là 'waiting'), bỏ qua và chạy tiếp trang tiếp theo
+      if (useProjectStore.getState().pageStatuses[index] !== 'waiting') {
+        runNext();
+        return;
+      }
+
       try {
         await processSinglePage(index);
       } catch (err) {
@@ -880,14 +895,26 @@ export default function Sidebar() {
         <div className={`absolute bottom-0 left-0 w-full p-3 bg-sidebar/95 backdrop-blur-md border-t border-border z-30 transition-transform duration-300 ${isSelectionMode ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
           <button
             onClick={handleTranslateAll}
-            disabled={!hasUnprocessed}
-            className={`w-full justify-center py-2.5 text-sm transition-all shadow-lg ${hasUnprocessed
+            disabled={!hasUnprocessed || isAnyProcessingOrWaiting}
+            className={`w-full justify-center py-2.5 text-sm transition-all shadow-lg ${(hasUnprocessed && !isAnyProcessingOrWaiting)
               ? 'btn-primary shadow-primary/20 hover:scale-[1.02]'
               : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 rounded-md font-medium flex items-center gap-2'
               }`}
           >
-            {errorPages > 0 ? <RefreshCw size={16} /> : <Sparkles size={16} />}
-            {errorPages > 0 ? `Dịch Lại ${errorPages} Lỗi` : hasUnprocessed ? "Dịch Tất Cả (Batch)" : "Đã dịch xong"}
+            {isAnyProcessingOrWaiting ? (
+              <Loader2 className="animate-spin" size={16} />
+            ) : errorPages > 0 ? (
+              <RefreshCw size={16} />
+            ) : (
+              <Sparkles size={16} />
+            )}
+            {isAnyProcessingOrWaiting
+              ? "Đang dịch hàng loạt..."
+              : errorPages > 0
+                ? `Dịch Lại ${errorPages} Lỗi`
+                : hasUnprocessed
+                  ? "Dịch Tất Cả (Batch)"
+                  : "Đã dịch xong"}
           </button>
         </div>
       </div>

@@ -3,8 +3,8 @@ import { mangaApi } from "../services/api"; // 🚀 Đã đổi sang dùng API t
 import toast from 'react-hot-toast';
 
 // 🚀 1. THÊM "cleaned" VÀO ĐÂY:
-// 🚀 Thêm "translating" và "completed" vào danh sách
-export type PageStatus = "unprocessed" | "processing" | "cleaned" | "translating" | "completed" | "error" | "trash";
+// 🚀 Thêm "translating", "completed" và "waiting" vào danh sách
+export type PageStatus = "unprocessed" | "processing" | "cleaned" | "translating" | "completed" | "error" | "trash" | "waiting";
 
 export interface ProgressData {
   percent: number;
