@@ -71,6 +71,38 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
+
+import sentry_sdk
+import posthog
+
+# Initialize Sentry for error & performance tracking
+SENTRY_DSN = os.getenv("SENTRY_DSN")
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        traces_sample_rate=1.0,
+    )
+    print("🚀 [TELEMETRY] Sentry initialized successfully.")
+
+# Initialize PostHog for product analytics
+POSTHOG_API_KEY = os.getenv("POSTHOG_PROJECT_API_KEY")
+POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://app.posthog.com")
+if POSTHOG_API_KEY:
+    posthog.project_api_key = POSTHOG_API_KEY
+    posthog.host = POSTHOG_HOST
+    print("🚀 [TELEMETRY] PostHog client initialized successfully.")
+
+# Safe flushing utility for Serverless/RunPod scale-to-zero environments
+def flush_telemetry():
+    try:
+        posthog.flush()
+    except Exception as pe:
+        print("⚠️ [TELEMETRY] PostHog flush failed:", pe)
+    try:
+        sentry_sdk.flush()
+    except Exception as se:
+        print("⚠️ [TELEMETRY] Sentry flush failed:", se)
+
 deepseek_client = OpenAI(
     api_key=os.environ.get("DEEPSEEK_API_KEY"), 
     base_url="https://api.deepseek.com"
@@ -1344,9 +1376,11 @@ class TranslateConfig(BaseModel):
 async def redraw_image(
     req: RedrawRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
+    redraw_start = time.time()
     try:
         if req.page_id:
             # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
@@ -1462,9 +1496,45 @@ async def redraw_image(
             os.remove(mask_temp_path)
 
         new_url = f"{str(request.base_url).rstrip('/')}/{clean_path}?t={int(time.time())}"
+
+        # Capture telemetry event in PostHog upon successful redraw completion
+        inference_time_ms = int((time.time() - redraw_start) * 1000)
+        posthog.capture(
+            distinct_id=user_id,
+            event="redraw_completed",
+            properties={
+                "inference_time_ms": inference_time_ms,
+                "user_id": user_id,
+                "credit_cost": 2, # Cost of redraw
+                "image_url": req.image_url,
+                "page_id": req.page_id
+            }
+        )
+
+        # Queue flush in background to prevent data loss in scale-to-zero serverless environments
+        background_tasks.add_task(flush_telemetry)
+
         return {"status": "success", "new_url": new_url}
 
     except Exception as e:
+        # Capture error/OOM in Sentry with extra context
+        with sentry_sdk.push_scope() as scope:
+            scope.set_extra("user_prompt", req.prompt)
+            scope.set_extra("image_url", req.image_url)
+            scope.set_extra("page_id", req.page_id)
+            if 'img_path' in locals() and os.path.exists(img_path):
+                try:
+                    img = cv2.imread(img_path)
+                    if img is not None:
+                        h, w = img.shape[:2]
+                        scope.set_extra("image_dimensions", f"{w}x{h}")
+                except Exception:
+                    pass
+            sentry_sdk.capture_exception(e)
+
+        # Queue flush in background to prevent data loss in scale-to-zero serverless environments
+        flush_telemetry()
+
         print("Lỗi Redraw:", str(e))
         if 'mask_temp_path' in locals() and os.path.exists(mask_temp_path):
             os.remove(mask_temp_path)
