@@ -3,6 +3,7 @@ import { X, Sparkles, ChevronDown, Check } from 'lucide-react';
 import { mangaApi } from '../../services/api';
 import toast from 'react-hot-toast';
 import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
+import { useTranslation } from 'react-i18next';
 
 interface TagOption {
   value: string;
@@ -82,6 +83,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   onCancel,
   onSubmit
 }) => {
+  const { t } = useTranslation();
   const [vietnameseText, setVietnameseText] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [mode, setMode] = useState<'manga' | 'webtoon'>('manga');
@@ -109,11 +111,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   };
 
   const getTagLabel = (tagValue: string) => {
-    for (const cat of CATEGORIES) {
-      const found = cat.tags.find(t => t.value === tagValue);
-      if (found) return found.label;
-    }
-    return tagValue;
+    return t('redrawInput.tag_' + tagValue.replace(/\s+/g, '_'));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -129,7 +127,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
       });
     } catch (err: any) {
       console.error(err);
-      toast.error(err.message || "Không thể dịch prompt vẽ lại. Vui lòng thử lại!");
+      toast.error(err.message || t('redrawInput.failedToTranslate'));
     } finally {
       setIsTranslating(false);
     }
@@ -149,7 +147,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
           <textarea
             value={vietnameseText}
             onChange={(e) => setVietnameseText(e.target.value)}
-            placeholder={PLACEHOLDERS[placeholderIndex]}
+            placeholder={t('redrawInput.placeholder' + placeholderIndex)}
             className="w-full h-16 px-3 py-2 text-xs bg-neutral-900/80 border border-white/10 rounded-xl focus:outline-none focus:border-indigo-500/80 text-white placeholder-neutral-500 transition-all shadow-inner resize-none"
             disabled={isTranslating || isProcessing}
             autoFocus
@@ -187,7 +185,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             ) : (
               <Sparkles size={15} />
             )}
-            {isTranslating ? "Đang dịch..." : isProcessing ? dynamicLoadingText : "Vẽ lại AI"}
+            {isTranslating ? t('redrawInput.translating') : isProcessing ? dynamicLoadingText : t('redrawInput.redrawAi')}
           </button>
           
           <button
@@ -196,7 +194,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             disabled={isTranslating || isProcessing}
             className="px-4 py-3 bg-neutral-950 border border-white/5 hover:border-white/10 hover:bg-neutral-900 text-neutral-400 hover:text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
           >
-            Hủy
+            {t('redrawInput.cancel')}
           </button>
         </div>
       </form>
@@ -207,7 +205,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
           onClick={() => setIsOpenFlyout(!isOpenFlyout)}
           className="flex items-center justify-between w-full px-3 py-2 bg-neutral-900/30 hover:bg-neutral-900/60 border border-white/5 hover:border-white/10 rounded-xl text-[10px] font-extrabold text-neutral-400 hover:text-neutral-200 transition-all cursor-pointer uppercase tracking-wider"
         >
-          <span className="flex items-center gap-1.5">🪄 Cấu hình vẽ nâng cao (Tags)</span>
+          <span className="flex items-center gap-1.5">{t('redrawInput.advancedConfig')}</span>
           <ChevronDown size={12} className={`transition-transform duration-200 ${isOpenFlyout ? 'rotate-180 text-white' : ''}`} />
         </button>
 
@@ -215,7 +213,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
           <div className="mt-3 z-50 bg-[#141414] border border-white/10 shadow-2xl rounded-xl p-3 flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
             
             <div className="flex items-center justify-between border-b border-white/5 pb-2">
-              <span className="text-[10px] font-bold text-neutral-500 uppercase">Bộ lọc phong cách</span>
+              <span className="text-[10px] font-bold text-neutral-500 uppercase">{t('redrawInput.styleFilter')}</span>
               <div className="flex bg-neutral-950 border border-white/5 p-0.5 rounded-lg text-[9px] font-extrabold">
                 <button
                   type="button"
@@ -226,7 +224,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
                       : 'text-neutral-400 hover:text-neutral-200'
                   }`}
                 >
-                  Manga (Trắng Đen)
+                  {t('redrawInput.mangaMode')}
                 </button>
                 <button
                   type="button"
@@ -237,7 +235,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
                       : 'text-neutral-400 hover:text-neutral-200'
                   }`}
                 >
-                  Webtoon (Màu)
+                  {t('redrawInput.webtoonMode')}
                 </button>
               </div>
             </div>
@@ -245,7 +243,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             {filteredCategories.map(category => (
               <div key={category.name} className="flex flex-col gap-1.5">
                 <span className="text-[9px] font-extrabold uppercase tracking-wider text-neutral-500">
-                  {category.name}
+                  {t('redrawInput.category_' + category.id)}
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {category.tags.map(tagObj => {
@@ -262,7 +260,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
                         }`}
                       >
                         {isSelected && <Check size={10} />}
-                        <span>{tagObj.label}</span>
+                        <span>{t('redrawInput.tag_' + tagObj.value.replace(/\s+/g, '_'))}</span>
                       </button>
                     );
                   })}

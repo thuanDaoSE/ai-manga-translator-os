@@ -22,8 +22,10 @@ import { useMangaEditorStore } from '../../store/useMangaEditorStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useDeviceDetect } from '../../hooks/useDeviceDetect';
 import { Smartphone, ArrowLeft } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export default function Workspace() {
+  const { t } = useTranslation();
   const isMobileOrTouch = useDeviceDetect();
   const { signOut } = useAuthStore();
   const [showPaywall, setShowPaywall] = useState(false);
@@ -648,10 +650,10 @@ export default function Workspace() {
 
           <div className="space-y-3">
             <h2 className="text-base font-extrabold text-white tracking-tight uppercase flex items-center justify-center gap-2">
-              🚫 Trải nghiệm chưa tối ưu trên điện thoại
+              {t('workspace.mobileBlockTitle')}
             </h2>
             <p className="text-xs text-gray-300 leading-relaxed text-left bg-neutral-900/60 p-4 rounded-xl border border-white/5 font-medium">
-              Công cụ xử lý ảnh và vẽ Mask đòi hỏi độ chính xác cao. Để đảm bảo chất lượng nét vẽ và hình ảnh xuất ra tốt nhất, vui lòng lưu lại trang web này và truy cập bằng Máy tính (PC/Laptop).
+              {t('workspace.mobileBlockDesc')}
             </p>
           </div>
 
@@ -661,7 +663,7 @@ export default function Workspace() {
             className="w-full flex items-center justify-center gap-2 py-3.5 px-6 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-indigo-600/20 active:scale-[0.98] transition-all cursor-pointer border border-white/10"
           >
             <ArrowLeft size={14} strokeWidth={2.5} />
-            Quay lại Trang chủ
+            {t('workspace.backToHome')}
           </button>
         </div>
       </div>
@@ -724,7 +726,7 @@ export default function Workspace() {
         <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center z-10 bg-[#121212]">
           <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin shadow-[0_0_15px_rgba(99,102,241,0.5)]"></div>
           <p className="text-text-muted text-[13px] mt-4 font-semibold tracking-widest uppercase animate-pulse">
-            Đang tải ảnh...
+            {t('sidebar.loadingImage')}
           </p>
         </div>
       )}
@@ -789,10 +791,10 @@ export default function Workspace() {
           <div className="relative w-full max-w-sm bg-[#1a1a1a] border border-gray-800 text-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200 z-10">
             <div className="flex items-center gap-3 border-b border-gray-800/60 pb-3">
               <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse" />
-              <h3 className="text-base font-bold tracking-tight uppercase">Kích hoạt vẽ lại AI (SDXL)</h3>
+              <h3 className="text-base font-bold tracking-tight uppercase">{t('workspace.redrawConfirmTitle')}</h3>
             </div>
             <p className="text-xs text-text-muted leading-relaxed">
-              Tính năng Vẽ lại sử dụng GPU đồ họa cao cấp và Model SDXL chuyên dụng để tái tạo nét vẽ vùng chọn. Phí kích hoạt cho trang truyện hiện tại là <strong className="text-yellow-400">2 Xu</strong>.
+              {t('workspace.redrawConfirmDesc')}
             </p>
             <div className="flex gap-3 pt-2">
               <button
@@ -805,14 +807,14 @@ export default function Workspace() {
                 ) : (
                   <Check size={14} strokeWidth={2.5} />
                 )}
-                Đồng ý (2 Xu)
+                {t('workspace.agreeCredits')}
               </button>
               <button
                 disabled={isActivatingRedraw}
                 onClick={() => setShowRedrawConfirm(false)}
                 className="px-5 py-3 bg-neutral-900 hover:bg-neutral-800 disabled:opacity-50 text-neutral-400 hover:text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-colors cursor-pointer"
               >
-                Hủy
+                {t('workspace.cancel')}
               </button>
             </div>
           </div>

@@ -3,6 +3,7 @@ import { X, Check, Copy, AlertCircle, Sparkles, CreditCard, ArrowLeft, ExternalL
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../store/useAuthStore';
 import { mangaApi } from '../../services/api';
+import { useTranslation } from 'react-i18next';
 
 interface PaywallDrawerProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface PaywallDrawerProps {
 }
 
 export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose }) => {
+  const { t } = useTranslation();
   const user = useAuthStore((state) => state.user);
   const fetchProfile = useAuthStore((state) => state.fetchProfile);
   const [selectedAmount, setSelectedAmount] = useState<number>(50000); // 50,000 VNĐ default
@@ -57,20 +59,20 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
 
   const handleGeneratePayment = async () => {
     if (finalAmount < 20000) {
-      return toast.error("Số tiền nạp tối thiểu là 20.000 VNĐ!");
+      return toast.error(t('paywall.minAmountError'));
     }
     if (!isDisclaimerChecked) {
-      return toast.error("Vui lòng đồng ý với cam kết sử dụng dịch vụ!");
+      return toast.error(t('paywall.disclaimerError'));
     }
 
     setIsLoading(true);
-    const toastId = toast.loading("Đang khởi tạo liên kết thanh toán PayOS...");
+    const toastId = toast.loading(t('paywall.initializingLink'));
     try {
       const data = await mangaApi.createPaymentLink(finalAmount);
       if (data.checkoutUrl && data.orderCode) {
         setCheckoutUrl(data.checkoutUrl);
         setOrderCode(data.orderCode);
-        toast.success("Khởi tạo mã QR thành công!", { id: toastId });
+        toast.success(t('paywall.qrSuccess'), { id: toastId });
         
         // Bắt đầu Polling trạng thái thanh toán mỗi 2 giây
         stopPolling();
@@ -79,7 +81,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
             const statusData = await mangaApi.getPaymentStatus(data.orderCode);
             if (statusData.status === "PAID") {
               stopPolling();
-              toast.success("🎉 Nạp Xu thành công! Cảm ơn sếp đã ủng hộ.");
+              toast.success(t('paywall.topupSuccess'));
               await fetchProfile();
               onClose();
             }
@@ -92,7 +94,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
       }
     } catch (err: any) {
       console.error(err);
-      toast.error(err.message || "Tạo liên kết thanh toán thất bại!", { id: toastId });
+      toast.error(err.message || t('paywall.topupFailed'), { id: toastId });
     } finally {
       setIsLoading(false);
     }
@@ -113,7 +115,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800/60 bg-black/20">
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-indigo-400" />
-            <h2 className="text-lg font-bold tracking-tight">Nạp Xu dịch truyện Manga</h2>
+            <h2 className="text-lg font-bold tracking-tight">{t('paywall.title')}</h2>
           </div>
           <button 
             onClick={onClose} 
@@ -132,7 +134,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
               {/* Pricing Cards */}
               <div className="space-y-3">
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block">
-                  Chọn gói nạp nhanh:
+                  {t('paywall.quickSelect')}
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   {predefinedAmounts.map((pkg) => (
@@ -149,7 +151,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                           : 'border-gray-800 bg-neutral-900/50 hover:bg-neutral-800/80 hover:border-gray-700'
                       }`}
                     >
-                      <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">Nhận {pkg.xu} Xu</span>
+                      <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">{t('paywall.receiveCreditsShort', { count: pkg.xu })}</span>
                       <span className="text-lg font-black text-white mt-1">{pkg.label}</span>
                     </button>
                   ))}
@@ -159,7 +161,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
               {/* Nhập số tiền tùy chỉnh */}
               <div className="space-y-2">
                 <label htmlFor="custom-amount-input" className="text-xs font-bold text-gray-400 uppercase tracking-wider block">
-                  Số tiền nạp tùy chỉnh (VNĐ):
+                  {t('paywall.customAmountLabel')}
                 </label>
                 <div className="relative">
                   <input
@@ -170,7 +172,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                       setCustomAmount(e.target.value);
                       setSelectedAmount(0);
                     }}
-                    placeholder="Ví dụ: 30000"
+                    placeholder={t('paywall.customAmountInputPlaceholder')}
                     min="20000"
                     className="w-full px-4 py-3.5 bg-neutral-900 border border-gray-800 rounded-xl focus:outline-none focus:border-indigo-500 text-sm font-semibold text-white placeholder-gray-600 transition-all"
                   />
@@ -180,12 +182,12 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                 </div>
                 {finalAmount > 0 && (
                   <div className="text-[11px] text-yellow-500 font-bold flex items-center gap-1.5 px-1">
-                    👉 Sẽ nhận được: <span className="text-sm font-black">{equivalentXu} Xu</span> (Tỷ lệ: 100 VNĐ = 1 Xu)
+                    {t('paywall.willReceive', { count: equivalentXu })} {t('paywall.rateNotice')}
                   </div>
                 )}
                 {finalAmount < 20000 && finalAmount > 0 && (
                   <div className="text-[11px] text-red-400 font-bold flex items-center gap-1.5 px-1">
-                    ⚠️ Số tiền nạp tối thiểu là 20.000 VNĐ!
+                    {t('paywall.minRechargeWarning')}
                   </div>
                 )}
               </div>
@@ -200,10 +202,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                   className="mt-1 shrink-0 cursor-pointer accent-indigo-500 rounded border-gray-700 bg-neutral-900 w-4 h-4" 
                 />
                 <label htmlFor="legal-disclaimer-checkbox" className="leading-relaxed cursor-pointer select-none">
-                  Tôi cam kết và đồng ý rằng: 
-                  <strong> (1)</strong> Mọi hình ảnh/nội dung tôi tải lên hoặc dịch thuật đều thuộc quyền sở hữu/sử dụng hợp pháp của tôi; 
-                  <strong> (2)</strong> Tôi hoàn toàn tự chịu 100% trách nhiệm trước pháp luật Việt Nam (bao gồm các quy định về truyền bá văn hóa phẩm đồi trụy - <strong>Điều 326 Bộ luật Hình sự</strong>, nội dung kích động, phản động); 
-                  <strong> (3)</strong> Nghiêm cấm sử dụng công cụ để xử lý tranh ảnh, truyện đồi trụy (18+/Hentai/Doujinshi), vi phạm thuần phong mỹ tục. Hệ thống tự động xóa bỏ hoàn toàn dữ liệu sau 6 giờ để bảo vệ quyền riêng tư.
+                  {t('paywall.disclaimer')}
                 </label>
               </div>
             </>
@@ -211,10 +210,10 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
             // BƯỚC 2: HIỂN THỊ VIETQR VÀ MÃ THANH TOÁN
             <div className="flex flex-col items-center justify-center space-y-5 py-2">
               <div className="text-center space-y-1">
-                <h3 className="text-sm text-gray-400 font-semibold uppercase tracking-wider">Tổng số tiền cần thanh toán</h3>
+                <h3 className="text-sm text-gray-400 font-semibold uppercase tracking-wider">{t('paywall.totalAmountToPay')}</h3>
                 <p className="text-2xl font-black text-white">{finalAmount.toLocaleString('vi-VN')} VNĐ</p>
                 <div className="inline-block px-3 py-1 bg-yellow-400/10 border border-yellow-400/20 rounded-full text-yellow-400 text-[11px] font-black mt-1">
-                  Nhận ngay: {equivalentXu} Xu
+                  {t('paywall.receiveCredits', { count: equivalentXu })}
                 </div>
               </div>
 
@@ -234,7 +233,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                   rel="noopener noreferrer"
                   className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-[0.98] shadow-md shadow-indigo-600/10"
                 >
-                  <ExternalLink size={14} /> Mở trang thanh toán trực tiếp
+                  <ExternalLink size={14} /> {t('paywall.openPaymentDirect')}
                 </a>
                 
                 <button
@@ -246,20 +245,20 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                   }}
                   className="w-full py-3.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white font-bold text-xs uppercase tracking-wider rounded-xl border border-gray-800 transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  <ArrowLeft size={14} /> Quay lại chọn số tiền khác
+                  <ArrowLeft size={14} /> {t('paywall.backToAmountSelect')}
                 </button>
               </div>
 
               {/* Status Polling indicator */}
               <div className="flex items-center justify-center gap-2 bg-indigo-500/5 border border-indigo-500/10 px-4 py-2.5 rounded-xl w-full text-[11px] text-indigo-400 font-bold uppercase tracking-wider">
                 <span className="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
-                <span>Hệ thống đang chờ thanh toán tự động...</span>
+                <span>{t('paywall.waitingPayment')}</span>
               </div>
 
               {/* Lời khuyên an tâm */}
               <div className="flex gap-2 bg-neutral-900/50 border border-gray-800/80 p-3.5 rounded-xl text-[10px] leading-relaxed text-gray-400">
                 <AlertCircle size={14} className="shrink-0 text-gray-500 mt-0.5" />
-                <p>Xu sẽ được cộng tự động ngay lập tức sau khi giao dịch chuyển khoản thành công. Không cần đóng khung này thủ công.</p>
+                <p>{t('paywall.pollingNotice')}</p>
               </div>
             </div>
           )}
@@ -276,11 +275,11 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
             >
               {isLoading ? (
                 <>
-                  <span className="animate-spin">⏳</span> Đang tạo mã QR...
+                  <span className="animate-spin">⏳</span> {t('paywall.generatingQr')}
                 </>
               ) : (
                 <>
-                  <CreditCard size={14} /> Tạo mã thanh toán QR
+                  <CreditCard size={14} /> {t('paywall.createPaymentQr')}
                 </>
               )}
             </button>

@@ -10,6 +10,7 @@ import { useConfigStore } from "../../store/useConfigStore";
 import TranslationConfigModal from "../Modals/TranslationConfigModal";
 import PaymentHistoryModal from "../Modals/PaymentHistoryModal";
 import { saveAs } from 'file-saver';
+import { useTranslation } from "react-i18next";
 
 // Import Stores & API
 import { useToolStore } from "../../store/useToolStore";
@@ -23,6 +24,7 @@ import SupportModal from "../Modals/SupportModal";
 import DeepKomaLogo from "../ui/DeepKomaLogo";
 
 export default function Topbar() {
+  const { t, i18n } = useTranslation();
   const { isComparing, setIsComparing } = useToolStore();
   const { user, signOut } = useAuthStore();
   const projectStore = useProjectStore();
@@ -137,11 +139,11 @@ export default function Topbar() {
             value={localProjectName}
             onChange={(e) => setLocalProjectName(e.target.value)}
             className="bg-transparent font-bold text-[13px] text-text-main focus:outline-none focus:border-b border-[#8A2BE2] w-full truncate transition-all placeholder-text-muted/50"
-            placeholder="Dự án chưa đặt tên..."
+            placeholder={t('topbar.projectNamePlaceholder')}
           />
           <div className="flex items-center text-[10px] text-text-muted font-medium mt-0.5">
             <CloudCheck size={12} className="mr-1 text-[#06B6D4]" />
-            <span>Đã đồng bộ tự động</span>
+            <span>{t('topbar.synced')}</span>
           </div>
         </div>
       </div>
@@ -149,8 +151,8 @@ export default function Topbar() {
       {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa) */}
       <div className="flex items-center justify-center flex-1">
         <div className="flex items-center bg-background p-1 rounded-lg border border-border shadow-inner">
-          <button onClick={() => setIsComparing(false)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${!isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>Bản dịch AI</button>
-          <button onClick={() => setIsComparing(true)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>Ảnh gốc (Raw)</button>
+          <button onClick={() => setIsComparing(false)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${!isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeAi')}</button>
+          <button onClick={() => setIsComparing(true)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeRaw')}</button>
         </div>
       </div>
 
@@ -164,7 +166,7 @@ export default function Topbar() {
           title="Cài đặt từ điển & Xưng hô AI"
         >
           <Languages size={14} className="text-primary group-hover:scale-110 transition-transform" />
-          <span className="text-[12px] font-bold">Cấu hình dịch</span>
+          <span className="text-[12px] font-bold">{t('topbar.configBtn')}</span>
         </button>
 
         <div className="w-px h-5 bg-border mx-1" />
@@ -172,8 +174,8 @@ export default function Topbar() {
         {/* Nút Credits */}
         <button onClick={() => setIsPaywallOpen(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group cursor-pointer shadow-sm ${user?.isPro ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' : 'bg-background hover:bg-border/40 border-border'}`}>
           <Diamond size={14} className={user?.isPro ? "text-indigo-400 animate-pulse" : "text-amber-500 group-hover:scale-110 transition-transform"} />
-          <span className={`text-[12px] font-bold ${user?.isPro ? 'text-indigo-400' : 'text-text-main'}`}>{user?.isPro ? "GÓI PRO" : (user?.credits || 0).toLocaleString()}</span>
-          {!user?.isPro && <span className="text-[9px] font-black uppercase text-amber-500/80 ml-1 hidden sm:inline">Nạp</span>}
+          <span className={`text-[12px] font-bold ${user?.isPro ? 'text-indigo-400' : 'text-text-main'}`}>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span>
+          {!user?.isPro && <span className="text-[9px] font-black uppercase text-amber-500/80 ml-1 hidden sm:inline">{t('topbar.recharge')}</span>}
         </button>
 
         {/* Menu Export */}
@@ -184,12 +186,38 @@ export default function Topbar() {
 
           {isExportMenuOpen && (
             <div className="absolute top-[calc(100%+8px)] right-0 w-52 bg-panel border border-border rounded-xl shadow-2xl overflow-hidden py-1 animate-in fade-in slide-in-from-top-2" style={{ zIndex: 99999 }}>
-              <button onClick={handleExportImage} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors cursor-pointer"><ImageDown size={14} className="text-emerald-500" /> Xuất ảnh JPG</button>
-              <button onClick={handleExportPSD} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors border-y border-border/50 cursor-pointer"><Palette size={14} className="text-indigo-500" /> Xuất file PSD</button>
-              <button onClick={handleExportText} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors border-b border-border/50 cursor-pointer"><FileText size={14} className="text-amber-500" /> Xuất file Text (.txt)</button>
-              <button onClick={handleExportManga} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-muted hover:text-text-main hover:bg-background transition-colors cursor-pointer"><Save size={14} /> Lưu Backup (.manga)</button>
+              <button onClick={handleExportImage} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors cursor-pointer"><ImageDown size={14} className="text-emerald-500" /> {t('sidebar.exportJpg')}</button>
+              <button onClick={handleExportPSD} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors border-y border-border/50 cursor-pointer"><Palette size={14} className="text-indigo-500" /> {t('sidebar.exportPsd')}</button>
+              <button onClick={handleExportText} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors border-b border-border/50 cursor-pointer"><FileText size={14} className="text-amber-500" /> {t('sidebar.exportText')}</button>
+              <button onClick={handleExportManga} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-muted hover:text-text-main hover:bg-background transition-colors cursor-pointer"><Save size={14} /> {t('sidebar.saveBackup')}</button>
             </div>
           )}
+        </div>
+
+        {/* UI Language Switcher (VN / EN Toggle) */}
+        <div className="flex items-center bg-background border border-border p-0.5 rounded-lg select-none shrink-0">
+          <button
+            onClick={() => {
+              i18n.changeLanguage('vi');
+              localStorage.setItem('ui_language', 'vi');
+            }}
+            className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all cursor-pointer ${
+              i18n.language === 'vi' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'
+            }`}
+          >
+            VN
+          </button>
+          <button
+            onClick={() => {
+              i18n.changeLanguage('en');
+              localStorage.setItem('ui_language', 'en');
+            }}
+            className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md transition-all cursor-pointer ${
+              i18n.language.startsWith('en') ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'
+            }`}
+          >
+            EN
+          </button>
         </div>
 
         {/* Menu Account */}
@@ -201,29 +229,29 @@ export default function Topbar() {
           {isAccountMenuOpen && (
             <div className="absolute top-[calc(100%+12px)] right-0 w-64 bg-panel border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 origin-top-right" style={{ zIndex: 99999 }}>
               <div className="px-4 py-3 border-b border-border bg-background/50">
-                <p className="text-[13px] font-bold text-text-main truncate">Xin chào, Dịch giả!</p>
+                <p className="text-[13px] font-bold text-text-main truncate">{t('topbar.welcomeUser')}</p>
                 <p className="text-[11px] text-text-muted truncate mt-0.5">{user?.email || "Chưa đăng nhập"}</p>
               </div>
               <div className="px-2 py-2 border-b border-border">
                 <div className="flex items-center justify-between px-3 py-2.5 mb-1 bg-background rounded-lg border border-border/50">
-                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><Diamond size={14} className="text-amber-500" /><span>{user?.isPro ? "GÓI PRO" : `${(user?.credits || 0).toLocaleString()} Credits`}</span></div>
-                  <button onClick={() => { setIsAccountMenuOpen(false); setIsPaywallOpen(true); }} className="text-[10px] font-black uppercase text-primary hover:text-primary-hover transition-colors cursor-pointer">Nạp thêm</button>
+                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><Diamond size={14} className="text-amber-500" /><span>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} Credits`}</span></div>
+                  <button onClick={() => { setIsAccountMenuOpen(false); setIsPaywallOpen(true); }} className="text-[10px] font-black uppercase text-primary hover:text-primary-hover transition-colors cursor-pointer">{t('topbar.rechargeMore')}</button>
                 </div>
                 <button
                   onClick={() => { setIsAccountMenuOpen(false); setIsHistoryOpen(true); }}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer"
                 >
-                  <CreditCard size={14} /> Lịch sử giao dịch
+                  <CreditCard size={14} /> {t('topbar.transactionHistory')}
                 </button>
                 <button
                   onClick={() => { setIsSupportOpen(true); setIsAccountMenuOpen(false); }}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer mt-0.5"
                 >
-                  <HelpCircle size={14} /> Gửi yêu cầu hỗ trợ (Báo lỗi)
+                  <HelpCircle size={14} /> {t('topbar.supportRequest')}
                 </button>
               </div>
               <div className="px-2 py-2 bg-background/30">
-                <button onClick={signOut} className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-bold text-danger/80 hover:bg-danger/10 hover:text-danger rounded-md transition-colors cursor-pointer"><LogOut size={14} strokeWidth={2.5} /> Đăng xuất</button>
+                <button onClick={signOut} className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-bold text-danger/80 hover:bg-danger/10 hover:text-danger rounded-md transition-colors cursor-pointer"><LogOut size={14} strokeWidth={2.5} /> {t('topbar.logout')}</button>
               </div>
             </div>
           )}

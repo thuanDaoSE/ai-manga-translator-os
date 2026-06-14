@@ -8,52 +8,19 @@ import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore } from '../../store/useConfigStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useTranslation } from 'react-i18next';
 
 import toast from 'react-hot-toast';
 import { mangaApi } from '../../services/api';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 
-const getTranslateButtonLabel = (lang: string) => {
-  switch (lang) {
-    case 'Tiếng Việt':
-      return '✨ Dịch sang Tiếng Việt';
-    case 'English':
-      return '✨ Translate to English';
-    case 'Français (French)':
-      return '✨ Traduire en Français';
-    case 'Español (Spanish)':
-      return '✨ Traducir al Español';
-    case 'Bahasa Indonesia':
-      return '✨ Terjemahkan ke Indonesia';
-    case 'ภาษาไทย (Thai)':
-      return '✨ แปลเป็นภาษาไทย';
-    case 'Русский (Russian)':
-      return '✨ Перевести на Русский';
-    default:
-      return `✨ Dịch sang ${lang}`;
-  }
+const getTranslateButtonLabel = (lang: string, t: any) => {
+  return t(`targetLanguageActions.${lang}`, `✨ Dịch sang ${lang}`);
 };
 
-const getBatchTranslateLabel = (lang: string) => {
-  switch (lang) {
-    case 'Tiếng Việt':
-      return '✨ Dịch tất cả sang Tiếng Việt';
-    case 'English':
-      return '✨ Translate all to English';
-    case 'Français (French)':
-      return '✨ Traduire tout en Français';
-    case 'Español (Spanish)':
-      return '✨ Traducir todo al Español';
-    case 'Bahasa Indonesia':
-      return '✨ Terjemahkan tất cả sang Indonesia';
-    case 'ภาษาไทย (Thai)':
-      return '✨ แปลทั้งหมดเป็นภาษาไทย';
-    case 'Русский (Russian)':
-      return '✨ Перевести все на Русский';
-    default:
-      return `✨ Dịch tất cả sang ${lang}`;
-  }
+const getBatchTranslateLabel = (lang: string, t: any) => {
+  return t(`targetLanguageBatchActions.${lang}`, `✨ Dịch tất cả sang ${lang}`);
 };
 
 // =========================================
@@ -80,6 +47,7 @@ function SortableItem({
   });
 
   const targetLanguage = useConfigStore(state => state.targetLanguage);
+  const { t } = useTranslation();
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -144,14 +112,14 @@ function SortableItem({
             {file.name}
           </span>
           
-          {status === 'unprocessed' && <span className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold uppercase truncate"><Clock size={12} /> Đợi dịch</span>}
-          {status === 'waiting' && <span className="flex items-center gap-1.5 text-[10px] text-amber-500 font-bold uppercase truncate animate-pulse"><Clock size={12} /> Đang chờ...</span>}
+          {status === 'unprocessed' && <span className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold uppercase truncate"><Clock size={12} /> {t('sidebar.waiting')}</span>}
+          {status === 'waiting' && <span className="flex items-center gap-1.5 text-[10px] text-amber-500 font-bold uppercase truncate animate-pulse"><Clock size={12} /> {t('sidebar.waitingQueue')}</span>}
           
           {status === 'processing' && (
             <div className="flex flex-col gap-1.5 mt-0.5 w-full">
               {/* 🚀 FIX 1: Bỏ truncate, dùng line-clamp-2 để chữ được phép rớt 2 dòng mà không bị cắt cụt */}
               <span className="text-[9.5px] text-amber-400 font-bold uppercase line-clamp-2 leading-snug w-full tracking-wide">
-                {progress ? `${Math.round(progress.percent)}% - ${progress.message}` : "Đang khởi động AI..."}
+                {progress ? `${Math.round(progress.percent)}% - ${progress.message}` : t('sidebar.startingAi')}
               </span>
               
               {/* 🚀 FIX 2: Thanh tiến trình được làm nổi bật với hiệu ứng 3D và Gradient */}
@@ -166,8 +134,8 @@ function SortableItem({
             </div>
           )}
           
-          {status === 'completed' && <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-black uppercase truncate"><CheckCircle2 size={12} /> Hoàn tất</span>}
-          {status === 'error' && <span className="flex items-center gap-1.5 text-[10px] text-danger font-black uppercase truncate"><AlertTriangle size={12} /> {hasCleanUrl ? 'Lỗi Chữ' : 'Lỗi Dịch'}</span>}
+          {status === 'completed' && <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-black uppercase truncate"><CheckCircle2 size={12} /> {t('sidebar.completed')}</span>}
+          {status === 'error' && <span className="flex items-center gap-1.5 text-[10px] text-danger font-black uppercase truncate"><AlertTriangle size={12} /> {hasCleanUrl ? t('sidebar.textError') : t('sidebar.transError')}</span>}
         </div>
 
         {/* ============================================================== */}
@@ -181,7 +149,7 @@ function SortableItem({
             <button 
               onClick={(e) => { e.stopPropagation(); onDelete(); }} 
               className="p-2 text-text-muted hover:bg-danger hover:text-white rounded-lg transition-colors bg-background/80 backdrop-blur-md border border-border/50 shadow-sm cursor-pointer" 
-              title="Xóa trang"
+              title={t('sidebar.deletePage')}
             >
               <Trash2 size={14} />
             </button>
@@ -193,7 +161,7 @@ function SortableItem({
                 onClick={(e) => { e.stopPropagation(); onTranslate(); }}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
               >
-                {getTranslateButtonLabel(targetLanguage)}
+                {getTranslateButtonLabel(targetLanguage, t)}
               </button>
             )}
 
@@ -203,7 +171,7 @@ function SortableItem({
                 onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
               >
-                <RefreshCw size={12} /> Thử lại
+                <RefreshCw size={12} /> {t('sidebar.retrySingle')}
               </button>
             )}
 
@@ -212,9 +180,9 @@ function SortableItem({
                 disabled={disabled}
                 onClick={(e) => { e.stopPropagation(); onRetry(); }} 
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`} 
-                title="Dịch lại văn bản"
+                title={t('sidebar.retranslate')}
               >
-                <RefreshCw size={12} /> Dịch lại
+                <RefreshCw size={12} /> {t('sidebar.retranslateSingle')}
               </button>
             )}
           </div>
@@ -223,7 +191,7 @@ function SortableItem({
         {/* NÚT DỪNG (To hơn: w-8 h-8, icon 14) */}
         {!isSelectionMode && (status === 'processing' || status === 'waiting') && (
           <div className="absolute right-2.5 top-1/2 -translate-y-1/2 z-20" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onCancel(); }}>
-            <button className="flex items-center justify-center w-8 h-8 bg-background/90 backdrop-blur-md hover:bg-danger text-danger hover:text-white border border-danger/30 hover:border-danger rounded-lg shadow-sm transition-all cursor-pointer group" title={status === 'waiting' ? "Hủy hàng đợi" : "Dừng xử lý"}>
+            <button className="flex items-center justify-center w-8 h-8 bg-background/90 backdrop-blur-md hover:bg-danger text-danger hover:text-white border border-danger/30 hover:border-danger rounded-lg shadow-sm transition-all cursor-pointer group" title={status === 'waiting' ? t('sidebar.cancelQueue') : t('sidebar.stop')}>
               <Square size={14} className="fill-current group-hover:scale-90 transition-transform" />
             </button>
           </div>
@@ -243,6 +211,7 @@ export default function Sidebar() {
   const { fileQueue, currentIndex, setCurrentIndex, pageStatuses, processedUrls, uploadProjectFiles, reorderFiles, progresses } = projectStore;
   const isProcessing = useToolStore((state) => state.isProcessing);
   const targetLanguage = useConfigStore((state) => state.targetLanguage);
+  const { t } = useTranslation();
 
   const [previews, setPreviews] = useState<Record<number, string>>({});
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -992,12 +961,12 @@ export default function Sidebar() {
               <Sparkles size={16} />
             )}
             {isAnyProcessingOrWaiting
-              ? "Đang dịch hàng loạt..."
+              ? t('sidebar.batchTranslating')
               : errorPages > 0
-                ? `Dịch Lại ${errorPages} Lỗi`
+                ? t('sidebar.retryError', { count: errorPages })
                 : hasUnprocessed
-                  ? getBatchTranslateLabel(targetLanguage)
-                  : "Đã dịch xong"}
+                  ? getBatchTranslateLabel(targetLanguage, t)
+                  : t('sidebar.completedAll')}
           </button>
         </div>
       </div>
@@ -1018,7 +987,7 @@ export default function Sidebar() {
           <div className="flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-primary/20 text-primary text-xs font-bold transition-all">
             <span>{selectedPages.size}</span>
           </div>
-          <span className="text-sm font-semibold text-text-main select-none">Trang đã chọn</span>
+          <span className="text-sm font-semibold text-text-main select-none">{t('sidebar.selectedPages')}</span>
         </div>
 
         <div className="w-px h-6 bg-border mx-1" />
@@ -1026,7 +995,7 @@ export default function Sidebar() {
         <button
           onClick={clearSelection}
           className="p-2 rounded-xl text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
-          title="Hủy chọn"
+          title={t('sidebar.cancelSelection')}
         >
           <X size={18} strokeWidth={2.5} />
         </button>
@@ -1038,7 +1007,7 @@ export default function Sidebar() {
             className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl shadow-lg shadow-primary/20 transition-all"
           >
             <Download size={16} strokeWidth={2.5} />
-            Tải Xuống...
+            {t('sidebar.downloadDropdown')}
           </button>
 
           {/* DROPDOWN MENU TẢI XUỐNG (Thả xuống dưới) */}
@@ -1049,7 +1018,7 @@ export default function Sidebar() {
           >
             <div className="px-3 pt-2.5 pb-2 mb-1 border-b border-border">
               <span className="text-[11px] font-bold text-text-muted uppercase tracking-widest">
-                Chọn Định Dạng Xuất
+                {t('sidebar.exportFormat')}
               </span>
             </div>
 
@@ -1059,7 +1028,7 @@ export default function Sidebar() {
               </div>
               <div className="flex flex-col">
                 <span className="font-bold">File PSD (Photoshop)</span>
-                <span className="text-[11px] text-text-muted font-medium">Bản dịch được tách lớp Layer</span>
+                <span className="text-[11px] text-text-muted font-medium">{t('sidebar.layeredTrans')}</span>
               </div>
             </button>
 
@@ -1068,7 +1037,7 @@ export default function Sidebar() {
                 <ImageIcon size={18} className="text-emerald-500" />
               </div>
               <div className="flex flex-col">
-                <span className="font-bold">Ảnh Đã Dịch (JPG)</span>
+                <span className="font-bold">{t('sidebar.transJpg')}</span>
                 <span className="text-[11px] text-text-muted font-medium">Ảnh đã xóa nền và ghép chữ</span>
               </div>
             </button>

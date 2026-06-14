@@ -6,12 +6,14 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
+import { useTranslation } from 'react-i18next';
 
 interface GlossaryItem { id: string; source: string; target: string; }
 interface RelationItem { id: string; speaker: string; listener: string; self_ref: string; target_ref: string; }
 
 // --- COMPONENT CON THUẬT NGỮ (GLOSSARY) ---
 const GlossaryRow = memo(({ item, index, onUpdate, onRemove }: { item: GlossaryItem, index: number, onUpdate: (item: GlossaryItem) => void, onRemove: (id: string) => void }) => {
+  const { t } = useTranslation();
   const [source, setSource] = useState(item.source);
   const [target, setTarget] = useState(item.target);
   const handleBlur = () => { if (source !== item.source || target !== item.target) onUpdate({ ...item, source, target }); };
@@ -24,7 +26,7 @@ const GlossaryRow = memo(({ item, index, onUpdate, onRemove }: { item: GlossaryI
           value={source} 
           onChange={(e) => setSource(e.target.value)} 
           onBlur={handleBlur} 
-          placeholder="Tiếng Nhật gốc (VD: 螺旋丸)" 
+          placeholder={t('configModal.sourceJapanesePlaceholder')} 
           className="w-full bg-background/50 border border-border rounded-lg text-xs font-semibold text-text-main px-3 py-2 focus:border-primary/50 focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
         />
       </div>
@@ -35,7 +37,7 @@ const GlossaryRow = memo(({ item, index, onUpdate, onRemove }: { item: GlossaryI
           value={target} 
           onChange={(e) => setTarget(e.target.value)} 
           onBlur={handleBlur} 
-          placeholder="Tiếng Việt dịch (VD: Rasengan)" 
+          placeholder={t('configModal.targetVietnamesePlaceholder')} 
           className="w-full bg-background/50 border border-border rounded-lg text-xs font-semibold text-text-main px-3 py-2 focus:border-primary/50 focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
         />
       </div>
@@ -43,7 +45,7 @@ const GlossaryRow = memo(({ item, index, onUpdate, onRemove }: { item: GlossaryI
         type="button"
         onClick={() => onRemove(item.id)} 
         className="p-2 text-text-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-all cursor-pointer"
-        title="Xóa dòng này"
+        title={t('configModal.deleteRow')}
       >
         <Trash2 size={15} />
       </button>
@@ -53,6 +55,7 @@ const GlossaryRow = memo(({ item, index, onUpdate, onRemove }: { item: GlossaryI
 
 // --- COMPONENT CON XƯNG HÔ (RELATIONS) ---
 const RelationRow = memo(({ item, index, onUpdate, onRemove }: { item: RelationItem, index: number, onUpdate: (item: RelationItem) => void, onRemove: (id: string) => void }) => {
+  const { t } = useTranslation();
   const [speaker, setSpeaker] = useState(item.speaker);
   const [listener, setListener] = useState(item.listener);
   const [selfRef, setSelfRef] = useState(item.self_ref);
@@ -70,7 +73,7 @@ const RelationRow = memo(({ item, index, onUpdate, onRemove }: { item: RelationI
           value={speaker} 
           onChange={e => setSpeaker(e.target.value)} 
           onBlur={handleBlur} 
-          placeholder="Nhân vật A (VD: Naruto)" 
+          placeholder={t('configModal.charAPlaceholder')} 
           className="w-full bg-background/50 border border-border rounded-lg text-xs font-semibold text-text-main px-3 py-2 focus:border-primary/50 focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
         />
         <div className="flex items-center justify-center text-text-muted select-none"><ArrowRight size={13} /></div>
@@ -79,7 +82,7 @@ const RelationRow = memo(({ item, index, onUpdate, onRemove }: { item: RelationI
           value={listener} 
           onChange={e => setListener(e.target.value)} 
           onBlur={handleBlur} 
-          placeholder="Nhân vật B (VD: Sasuke)" 
+          placeholder={t('configModal.charBPlaceholder')} 
           className="w-full bg-background/50 border border-border rounded-lg text-xs font-semibold text-text-main px-3 py-2 focus:border-primary/50 focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
         />
       </div>
@@ -94,7 +97,7 @@ const RelationRow = memo(({ item, index, onUpdate, onRemove }: { item: RelationI
             value={selfRef} 
             onChange={e => setSelfRef(e.target.value)} 
             onBlur={handleBlur} 
-            placeholder="A tự xưng (VD: Tớ)" 
+            placeholder={t('configModal.selfRefPlaceholder')} 
             className="w-full bg-background/50 border border-border rounded-lg text-xs font-bold text-primary px-3 py-2 focus:border-primary focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
           />
         </div>
@@ -104,7 +107,7 @@ const RelationRow = memo(({ item, index, onUpdate, onRemove }: { item: RelationI
             value={targetRef} 
             onChange={e => setTargetRef(e.target.value)} 
             onBlur={handleBlur} 
-            placeholder="A gọi B (VD: Cậu)" 
+            placeholder={t('configModal.targetRefPlaceholder')} 
             className="w-full bg-background/50 border border-border rounded-lg text-xs font-bold text-primary px-3 py-2 focus:border-primary focus:bg-background focus:ring-1 focus:ring-primary/20 outline-none transition-all placeholder-text-muted/30" 
           />
         </div>
@@ -116,7 +119,7 @@ const RelationRow = memo(({ item, index, onUpdate, onRemove }: { item: RelationI
           type="button"
           onClick={() => onRemove(item.id)} 
           className="p-2 text-text-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-all cursor-pointer w-full md:w-auto flex justify-center border border-border/30 md:border-none"
-          title="Xóa dòng này"
+          title={t('configModal.deleteRow')}
         >
           <Trash2 size={15} />
         </button>
@@ -126,6 +129,7 @@ const RelationRow = memo(({ item, index, onUpdate, onRemove }: { item: RelationI
 });
 
 export default function TranslationConfigModal() {
+  const { t } = useTranslation();
   const config = useConfigStore();
   const [activeTab, setActiveTab] = useState<'glossary' | 'relations'>('glossary');
   
@@ -168,15 +172,15 @@ export default function TranslationConfigModal() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { toast.error(`File quá lớn!`); e.target.value = ''; return; }
+    if (file.size > 2 * 1024 * 1024) { toast.error(t('configModal.fileTooLargeError')); e.target.value = ''; return; }
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
         if (parsed.terminology) setGlossaryList(prev => [...prev, ...parsed.terminology.map((t: any) => ({ ...t, id: uuidv4() }))]);
         if (parsed.relational_matrix) setRelationList(prev => [...prev, ...parsed.relational_matrix.map((r: any) => ({ ...r, id: uuidv4() }))]);
-        toast.success("Đã nạp dữ liệu JSON thành công!");
-      } catch (error) { toast.error("Lỗi đọc file JSON."); }
+        toast.success(t('configModal.importJsonSuccess'));
+      } catch (error) { toast.error(t('configModal.importJsonError')); }
     };
     reader.readAsText(file); e.target.value = ''; 
   };
@@ -197,19 +201,19 @@ export default function TranslationConfigModal() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    toast.success("Đã xuất file JSON thành công!");
+    toast.success(t('configModal.exportJsonSuccess'));
   };
 
   const executeAIExtract = () => {
-    if (!aiInputText.trim()) { toast.error("Vui lòng dán văn bản tiếng Nhật trước khi phân tích!"); return; }
+    if (!aiInputText.trim()) { toast.error(t('configModal.aiInputEmptyError')); return; }
     setIsAIExtracting(true);
-    const toastId = toast.loading("AI đang phân tích văn bản...");
+    const toastId = toast.loading(t('configModal.aiExtractingLoading'));
     setTimeout(() => {
       setGlossaryList(prev => [{ id: uuidv4(), source: "新技", target: "Chiêu mới" }, ...prev]);
       setIsAIExtracting(false);
       setShowAIInput(false);
       setAiInputText("");
-      toast.success("Đã hoàn tất trích xuất dữ liệu.", { id: toastId });
+      toast.success(t('configModal.aiExtractSuccess'), { id: toastId });
     }, 2000);
   };
 
@@ -219,7 +223,7 @@ export default function TranslationConfigModal() {
     const exportString = JSON.stringify({ terminology: cleanGlossary, relational_matrix: cleanRelations }, null, 2);
     config.setConfig('glossary', exportString);
     config.saveToLocal();
-    toast.success("Đã đồng bộ Cơ sở dữ liệu!", { icon: '💾' });
+    toast.success(t('configModal.saveConfigSuccess'), { icon: '💾' });
     config.setModalOpen(false);
   };
 
@@ -235,13 +239,13 @@ export default function TranslationConfigModal() {
                 <Database className="w-5 h-5 text-primary" />
               </div>
               <div className="flex flex-col">
-                <h2 className="text-[14px] font-black uppercase tracking-wider text-text-main">Hệ thống Quản trị Từ điển</h2>
-                <p className="text-[11px] text-text-muted">Cấu trúc hóa dữ liệu thuật ngữ & vai vế dịch thuật của Manga</p>
+                <h2 className="text-[14px] font-black uppercase tracking-wider text-text-main">{t('configModal.title')}</h2>
+                <p className="text-[11px] text-text-muted">{t('configModal.subtitle')}</p>
               </div>
             </div>
             {/* NGÔN NGỮ ĐÍCH SELECT */}
             <div className="flex items-center gap-2 ml-auto mr-4">
-              <span className="text-[11px] font-bold text-text-muted whitespace-nowrap">Ngôn ngữ dịch:</span>
+              <span className="text-[11px] font-bold text-text-muted whitespace-nowrap">{t('configModal.targetLanguageLabel')}</span>
               <div className="relative">
                 <select 
                   value={config.targetLanguage || 'Tiếng Việt'}
@@ -262,20 +266,20 @@ export default function TranslationConfigModal() {
           <div className="flex items-center justify-between px-6 bg-background border-t border-border/50">
             <div className="flex gap-4">
               <button onClick={() => setActiveTab('glossary')} className={`flex items-center gap-1.5 py-3 text-[11px] font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer ${activeTab === 'glossary' ? 'border-primary text-primary font-black' : 'border-transparent text-text-muted hover:text-text-main'}`}>
-                <FileJson size={14} /> Thuật ngữ ({glossaryList.length})
+                <FileJson size={14} /> {t('configModal.glossaryTab', { count: glossaryList.length })}
               </button>
               <button onClick={() => setActiveTab('relations')} className={`flex items-center gap-1.5 py-3 text-[11px] font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer ${activeTab === 'relations' ? 'border-primary text-primary font-black' : 'border-transparent text-text-muted hover:text-text-main'}`}>
-                <Users size={14} /> Xưng hô ({relationList.length})
+                <Users size={14} /> {t('configModal.relationsTab', { count: relationList.length })}
               </button>
             </div>
 
             <div className="flex items-center gap-2">
               <input type="file" accept=".json" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
               <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-1.5 bg-panel border border-border hover:bg-border/60 hover:text-text-main text-text-muted rounded-xl text-[11px] font-semibold transition-all cursor-pointer">
-                <UploadCloud size={13} /> Nhập JSON
+                <UploadCloud size={13} /> {t('configModal.importJson')}
               </button>
               <button onClick={handleExportJSON} className="flex items-center gap-1.5 px-3 py-1.5 bg-panel border border-border hover:bg-border/60 hover:text-text-main text-text-muted rounded-xl text-[11px] font-semibold transition-all cursor-pointer">
-                <Download size={13} /> Xuất JSON
+                <Download size={13} /> {t('configModal.exportJson')}
               </button>
               <div className="w-px h-3 bg-border mx-1"></div>
               
@@ -283,7 +287,7 @@ export default function TranslationConfigModal() {
                 onClick={() => setShowAIInput(!showAIInput)} 
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border cursor-pointer ${showAIInput ? 'bg-primary text-white border-primary shadow-sm shadow-primary/20' : 'bg-primary/10 border-primary/20 text-primary hover:bg-primary/20'}`}
               >
-                <Wand2 size={13} /> {showAIInput ? 'Đóng AI' : 'AI Phân tích'}
+                <Wand2 size={13} /> {showAIInput ? t('configModal.closeAi') : t('configModal.aiAnalysis')}
               </button>
             </div>
           </div>
@@ -295,19 +299,19 @@ export default function TranslationConfigModal() {
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1">
                 <label className="block text-[11px] font-bold text-primary uppercase tracking-widest mb-2 flex items-center gap-1">
-                  <Sparkles size={12} /> Dán văn bản tiếng Nhật cần phân tích
+                  <Sparkles size={12} /> {t('configModal.aiInputTitle')}
                 </label>
                 <textarea 
                   value={aiInputText}
                   onChange={(e) => setAiInputText(e.target.value)}
-                  placeholder="Dán toàn bộ chữ tiếng Nhật của 1 chapter vào đây. AI sẽ tự động đọc, nhặt ra các Danh từ riêng, Địa danh, Tên chiêu thức và điền vào bảng bên dưới..."
+                  placeholder={t('configModal.aiJapanesePlaceholder')}
                   className="w-full h-24 bg-background border border-border rounded-xl p-3.5 text-xs text-text-main resize-none focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all placeholder-text-muted/40 custom-scrollbar font-medium"
                 />
               </div>
               <div className="w-full md:w-52 flex flex-col justify-end">
                 <p className="text-[10px] text-text-muted mb-3 leading-relaxed">
-                  * Hệ thống sẽ phân tích văn bản để tìm ra từ ngữ chuyên môn, danh từ riêng.<br/>
-                  * Độ dài tối đa: 10,000 ký tự.
+                  {t('configModal.aiInputDesc1')}<br/>
+                  {t('configModal.aiInputDesc2')}
                 </p>
                 <button 
                   onClick={executeAIExtract}
@@ -315,7 +319,7 @@ export default function TranslationConfigModal() {
                   className="flex items-center justify-center gap-2 w-full py-2.5 bg-primary text-white rounded-xl text-[12px] font-bold hover:bg-primary/95 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-primary/20 cursor-pointer"
                 >
                   {isAIExtracting ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />} 
-                  {isAIExtracting ? 'Đang chạy AI...' : 'Bắt đầu quét'}
+                  {isAIExtracting ? t('configModal.runningAi') : t('configModal.startScan')}
                 </button>
               </div>
             </div>
@@ -331,9 +335,9 @@ export default function TranslationConfigModal() {
                   <div className="w-14 h-14 rounded-2xl bg-panel border border-border flex items-center justify-center text-text-muted/50 mb-4 shadow-inner">
                     <FileJson size={24} className="text-primary" />
                   </div>
-                  <h3 className="text-xs font-bold text-text-main uppercase tracking-wider">Từ điển chưa có thuật ngữ</h3>
+                  <h3 className="text-xs font-bold text-text-main uppercase tracking-wider">{t('configModal.emptyGlossaryTitle')}</h3>
                   <p className="text-[11px] text-text-muted mt-1.5 max-w-[320px] leading-relaxed">
-                    Sếp có thể tự thêm thuật ngữ mới hoặc sử dụng tính năng <strong>"AI Phân tích"</strong> để tự động quét từ ngữ manga từ ảnh truyện.
+                    {t('configModal.emptyGlossaryDesc')}
                   </p>
                 </div>
               ) : (
@@ -345,7 +349,7 @@ export default function TranslationConfigModal() {
               )}
               
               <button onClick={() => setGlossaryList([...glossaryList, { id: uuidv4(), source: '', target: '' }])} className="w-full py-3.5 border border-dashed border-border hover:border-primary/50 bg-panel/10 hover:bg-panel/30 text-text-muted hover:text-primary rounded-xl flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer">
-                <Plus size={14} /> Thêm dòng mới
+                <Plus size={14} /> {t('configModal.addNewRow')}
               </button>
             </div>
           )}
@@ -357,16 +361,16 @@ export default function TranslationConfigModal() {
                   <div className="w-14 h-14 rounded-2xl bg-panel border border-border flex items-center justify-center text-text-muted/50 mb-4 shadow-inner">
                     <Users size={24} className="text-primary" />
                   </div>
-                  <h3 className="text-xs font-bold text-text-main uppercase tracking-wider">Chưa cấu hình quan hệ xưng hô</h3>
+                  <h3 className="text-xs font-bold text-text-main uppercase tracking-wider">{t('configModal.emptyRelationsTitle')}</h3>
                   <p className="text-[11px] text-text-muted mt-1.5 max-w-[320px] leading-relaxed">
-                    Cài đặt quan hệ xưng hô giữa các nhân vật (tớ-cậu, anh-em...) giúp AI dịch manga tự nhiên, đúng vai vế và ngữ cảnh.
+                    {t('configModal.emptyRelationsDesc')}
                   </p>
                 </div>
               ) : (
                 <div className="flex flex-col gap-3 mb-4">
                   {/* Bảng chỉ dẫn xưng hô nhân vật */}
                   <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 text-[11px] text-primary leading-relaxed font-semibold">
-                    💡 <strong>Hướng dẫn thiết lập:</strong> Khi <strong>Nhân vật A</strong> nói chuyện với <strong>Nhân vật B</strong>, quy định cách A xưng mình là <strong>[A Tự xưng]</strong> và gọi B là <strong>[A Gọi B]</strong>.
+                    <strong>{t('configModal.guideTitle')}</strong> {t('configModal.guideDesc')}
                   </div>
                   
                   {relationList.map((item, index) => (
@@ -376,7 +380,7 @@ export default function TranslationConfigModal() {
               )}
               
               <button onClick={() => setRelationList([...relationList, { id: uuidv4(), speaker: '', listener: '', self_ref: '', target_ref: '' }])} className="w-full py-3.5 border border-dashed border-border hover:border-primary/50 bg-panel/10 hover:bg-panel/30 text-text-muted hover:text-primary rounded-xl flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer">
-                <Plus size={14} /> Thêm quy tắc mới
+                <Plus size={14} /> {t('configModal.addNewRule')}
               </button>
             </div>
           )}
@@ -389,9 +393,9 @@ export default function TranslationConfigModal() {
             <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">PostgreSQL Synced</span>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => config.setModalOpen(false)} className="px-4 py-2 rounded-xl text-[11px] font-bold text-text-muted hover:text-text-main hover:bg-border/60 transition-colors cursor-pointer">Hủy</button>
+            <button onClick={() => config.setModalOpen(false)} className="px-4 py-2 rounded-xl text-[11px] font-bold text-text-muted hover:text-text-main hover:bg-border/60 transition-colors cursor-pointer">{t('configModal.cancel')}</button>
             <button onClick={handleSave} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-[11px] font-bold text-white bg-primary hover:bg-primary/95 shadow-md shadow-primary/20 transition-all active:scale-95 cursor-pointer">
-              <Save size={14} /> Lưu Cấu Hình
+              <Save size={14} /> {t('configModal.saveConfig')}
             </button>
           </div>
         </div>
