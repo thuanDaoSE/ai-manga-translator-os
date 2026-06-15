@@ -3,7 +3,7 @@ name: Tự động Deploy lên VPS (Production)
 on:
   push:
     branches:
-      - main  # 🚨 CHÚ Ý: Robot chỉ chạy khi có code đẩy lên nhánh 'main'
+      - main  # Robot chạy khi có code đẩy lên nhánh 'main'
 
 jobs:
   deploy:
@@ -13,28 +13,59 @@ jobs:
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.VPS_IP }}
-          username: deepkoma  # (Hoặc root, tùy user VPS của sếp)
+          username: deepkoma
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             # 1. Đi vào thư mục dự án
-            cd /home/deepkoma/deepkoma
+            cd /home/deepkoma/deepkoma || { echo "Không tìm thấy thư mục dự án!"; exit 1; }
             
             # 2. Kéo code mới nhất từ nhánh main
             git pull origin main
             
-            # 3. Bơm nội dung từ GitHub Secrets vào file .env của Frontend
-            cat << 'EOF' > manga-web-ui/.env
-            ${{ secrets.ENV_FE }}
-            EOF
+            # 3. Tạo file .env cho Frontend (🚨 Bắt buộc KHÔNG được viết thụt đầu dòng heredoc EOF)
+cat << 'EOF' > manga-web-ui/.env
+${{ secrets.ENV_FE }}
+EOF
             
-            # 4. Bơm nội dung từ GitHub Secrets vào file .env của Backend
-            cat << 'EOF' > manga-backend/.env
-            ${{ secrets.ENV_BE }}
-            EOF
+            # 4. Tạo file .env cho Backend (🚨 Bắt buộc KHÔNG được viết thụt đầu dòng heredoc EOF)
+cat << 'EOF' > manga-backend/.env
+${{ secrets.ENV_BE }}
+EOF
             
-            # 5. Tắt Docker cũ, Build lại code mới và chạy ngầm (-d)
-            docker compose down
-            docker compose up -d --build
+            # 5. Kiểm tra lệnh Docker Compose (hỗ trợ cả docker-compose cũ và docker compose mới)
+            if command -v docker-compose &> /dev/null; then
+              DOCKER_COMPOSE_CMD="docker-compose"
+            else
+              DOCKER_COMPOSE_CMD="docker compose"
+            fi
             
-            # 6. Dọn dẹp rác Docker để tránh đầy ổ cứng VPS
-            docker image prune -f
+            # Kiểm tra quyền chạy docker để tự động thêm sudo nếu cần
+            if ! docker info &> /dev/null; then
+              DOCKER_COMPOSE_CMD="sudo $DOCKER_COMPOSE_CMD"
+              DOCKER_CMD="sudo docker"
+            else
+              DOCKER_CMD="docker"
+            fi
+            
+            # 6. Tắt Docker cũ, Build lại code mới và chạy ngầm
+            $DOCKER_COMPOSE_CMD down
+            $DOCKER_COMPOSE_CMD up -d --build
+            
+            # 7. Dọn dẹp các image rác để tránh đầy dung lượng đĩa cứng VPS
+            $DOCKER_CMD image prune -f
+            
+            # 8. Khởi động lại các service bổ sung (FastAPI, Celery) chạy ngoài Docker qua PM2 hoặc Systemd (nếu có)
+            if command -v pm2 &> /dev/null; then
+              echo "Phát hiện PM2, đang khởi động lại các tiến trình..."
+              pm2 restart all || true
+            fi
+            
+            if systemctl is-active --quiet celery &> /dev/null; then
+              echo "Phát hiện dịch vụ Celery systemd, đang khởi động lại..."
+              sudo systemctl restart celery || true
+            fi
+            
+            if systemctl is-active --quiet fastapi &> /dev/null; then
+              echo "Phát hiện dịch vụ FastAPI systemd, đang khởi động lại..."
+              sudo systemctl restart fastapi || true
+            fi
