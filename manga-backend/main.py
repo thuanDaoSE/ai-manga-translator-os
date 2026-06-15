@@ -758,6 +758,7 @@ if not RUNPOD_API_KEY or not RUNPOD_REDRAW_ENDPOINT_ID:
 
 RUNPOD_ENDPOINT_ID = RUNPOD_TRANSLATE_ENDPOINT_ID
 
+import redis
 import redis.asyncio as aioredis
 redis_host = os.getenv("REDIS_HOST", "localhost")
 redis_port = int(os.getenv("REDIS_PORT", 6379))
