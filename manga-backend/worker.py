@@ -278,7 +278,7 @@ def process_manga_page(self, page_id: str, config: dict):
             print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước cuộc gọi RunPod API. Dừng!")
             return {"status": "cancelled", "message": "Task was cancelled before RunPod call"}
 
-        broadcast_progress(task_id, 25, "Đang gửi ảnh sang GPU RunPod...")
+        broadcast_progress(task_id, 25, "Đang khởi tạo dịch vụ xử lý...")
         
         runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/run"
         headers = {
@@ -302,7 +302,7 @@ def process_manga_page(self, page_id: str, config: dict):
         runpod_job_id = res.json()["id"]
         
         # 3. Server-side Polling để cập nhật tiến độ
-        broadcast_progress(task_id, 40, "Đang chờ GPU xử lý OCR & Dọn nền...")
+        broadcast_progress(task_id, 40, "Đang nhận diện chữ và tách nền...")
         status_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{runpod_job_id}"
         
         runpod_result = None
@@ -323,9 +323,9 @@ def process_manga_page(self, page_id: str, config: dict):
             elif status in ["FAILED", "CANCELLED"]:
                 raise Exception(f"RunPod job failed or cancelled: {status_data}")
             elif status == "IN_PROGRESS":
-                broadcast_progress(task_id, 60, "GPU đang chạy tẩy nền và đọc chữ...")
+                broadcast_progress(task_id, 60, "Đang tiến hành tẩy nền và đọc chữ...")
             elif status == "IN_QUEUE":
-                broadcast_progress(task_id, 45, "Đang xếp hàng chờ GPU trống...")
+                broadcast_progress(task_id, 45, "Đang xếp hàng chờ máy chủ xử lý...")
                 
         # 4. Trích xuất kết quả RunPod
         clean_b64 = runpod_result.get("clean_image_base64")
@@ -338,7 +338,7 @@ def process_manga_page(self, page_id: str, config: dict):
 
         # Dịch bằng DeepSeek trên VPS
         if extracted_data:
-            broadcast_progress(task_id, 80, "Đang gửi nội dung sang Deepseek dịch nghĩa...")
+            broadcast_progress(task_id, 80, "Đang tiến hành dịch thuật ngữ cảnh...")
             try:
                 ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
                 # Tinh chỉnh prompt động theo target_language

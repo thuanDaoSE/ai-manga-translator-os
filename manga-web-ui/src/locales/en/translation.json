@@ -215,7 +215,7 @@
     "sec2Title": "2. Copyright & Legal Responsibility",
     "sec2Desc": "Users are fully responsible for the copyright and legality of the images and manga uploaded to the platform. We only provide tools (AI technology, OCR, Typesetting) and do not hold copyrights or distribute any user works.<br/><br/>Strictly prohibited to upload, process, or translate obscene material (18+ manga, hentai, adult doujinshi), reactionary, or violence-inducing content. Users bear 100% criminal responsibility under Vietnamese law (including <strong>Article 326 of the Penal Code</strong> on transmitting obscene materials) for any violations.",
     "sec3Title": "3. Abuse of AI System",
-    "sec3Desc": "Strictly prohibited to use automated tools (Bots), send spam requests, or exploit API vulnerabilities (DeepSeek/ComfyUI) to exhaust server resources. Any violating accounts will be permanently banned without prior notice.",
+    "sec3Desc": "Strictly prohibited to use automated tools (Bots), send spam requests, or exploit system API vulnerabilities to exhaust server resources. Any violating accounts will be permanently banned without prior notice.",
     "sec4Title": "4. Disclaimer",
     "sec4Desc": "The service is provided \"as-is\". Although our AI is optimized for comic translation, we do not guarantee translations will be 100% perfect. Users are responsible for reviewing and editing translations before publishing."
   },
@@ -314,7 +314,7 @@
     "aiSuggestionShorten": "Shorten sentence",
     "aiSuggestionKanji": "Explain Kanji",
     "aiInputPlaceholder": "Custom instruction for AI...",
-    "aiDiscussing": "Discussing with DeepSeek...",
+    "aiDiscussing": "Analyzing translation context...",
     "aiApplyBtn": "Apply",
     "aiError": "❌ AI connection error!",
     "tabDesign": "Design",

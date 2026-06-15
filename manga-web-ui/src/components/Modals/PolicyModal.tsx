@@ -56,7 +56,7 @@ export default function PolicyModal({ isOpen, onClose }: Props) {
           <h3 className="text-white font-bold uppercase tracking-wider text-xs">{t('policyModal.sec3Title')}</h3>
           <p>
             <Trans i18nKey="policyModal.sec3Desc">
-              Nghiêm cấm các hành vi sử dụng Tool tự động (Bot), gửi request rác hoặc cố tình khai thác lỗ hổng API (DeepSeek/ComfyUI) để làm cạn kiệt tài nguyên máy chủ. Bất kỳ tài khoản nào vi phạm sẽ bị khóa vĩnh viễn mà không cần báo trước.
+              Nghiêm cấm các hành vi sử dụng Tool tự động (Bot), gửi request rác hoặc cố tình khai thác lỗ hổng API hệ thống để làm cạn kiệt tài nguyên máy chủ. Bất kỳ tài khoản nào vi phạm sẽ bị khóa vĩnh viễn mà không cần báo trước.
             </Trans>
           </p>
 

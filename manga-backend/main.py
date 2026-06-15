@@ -774,7 +774,7 @@ def broadcast_progress(task_id, progress, message, state="PROCESSING"):
 async def runpod_translation_task(task_id: str, raw_path: str, clean_path: str, payload_data: dict, base_url: str):
     try:
         # Cập nhật tiến trình cho Frontend biết
-        broadcast_progress(task_id, 10, "Đang khởi động AI Serverless (Cold Start)...")
+        broadcast_progress(task_id, 10, "Đang khởi động dịch vụ xử lý...")
         
         # 1. Đọc ảnh và nén thành JPEG chất lượng 90 để giảm dung lượng dưới 10MiB
         import cv2
@@ -813,7 +813,7 @@ async def runpod_translation_task(task_id: str, raw_path: str, clean_path: str, 
             job_data = res.json()
             runpod_job_id = job_data.get("id")
             
-            broadcast_progress(task_id, 30, "AI đang xóa nền và dịch...")
+            broadcast_progress(task_id, 30, "Đang tiến hành tách nền và dịch thuật...")
 
             # 3. Vòng lặp Polling hỏi thăm sức khỏe (Cách nhau 3 giây để không bị limit)
             while True:
@@ -822,7 +822,7 @@ async def runpod_translation_task(task_id: str, raw_path: str, clean_path: str, 
                 status = status_data.get("status")
 
                 if status == "COMPLETED":
-                    broadcast_progress(task_id, 90, "Đang tải ảnh sạch về máy...")
+                    broadcast_progress(task_id, 90, "Đang chuẩn bị lưu kết quả...")
                     
                     output = status_data.get("output", {})
                     clean_b64 = output.get("clean_image_base64")
@@ -846,14 +846,14 @@ async def runpod_translation_task(task_id: str, raw_path: str, clean_path: str, 
                     break
 
                 elif status == "FAILED":
-                    broadcast_progress(task_id, 0, "Lỗi từ Runpod!", state="FAILURE")
+                    broadcast_progress(task_id, 0, "Lỗi kết nối máy chủ xử lý!", state="FAILURE")
                     break
                 
                 # Chờ 3s rồi hỏi tiếp
                 await asyncio.sleep(3)
 
     except Exception as e:
-        broadcast_progress(task_id, 0, f"Lỗi VPS: {str(e)}", state="FAILURE")
+        broadcast_progress(task_id, 0, f"Lỗi hệ thống: {str(e)[:100]}", state="FAILURE")
 
 # ==========================================
 # CÁC API CŨ (Tạm thời giữ nguyên để không làm gãy tính năng cũ)

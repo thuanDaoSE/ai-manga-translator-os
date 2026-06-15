@@ -56,7 +56,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
       icon: Cpu,
       step: '02',
       title: 'AI Xử Lý Tự Động',
-      desc: 'YOLO định vị khung thoại, OCR đọc chữ Nhật, DeepSeek-V3 dịch ngữ cảnh, LaMa GPU tẩy nền sạch tinh tươm.',
+      desc: 'Nhận diện định vị bong bóng thoại, đọc chữ Nhật cổ và hiện đại, phân tích dịch thuật ngữ cảnh nâng cao, tẩy nền sạch tinh tươm bằng AI.',
       color: 'purple',
     },
     {
@@ -95,16 +95,16 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
     {
       icon: ScanText,
       color: 'indigo',
-      tag: 'OCR + LLM',
-      title: 'Nhận Diện OCR & Dịch Thuật DeepSeek',
-      desc: 'Mô hình YOLO-Nano tùy chỉnh định vị bong bóng thoại siêu tốc. DeepSeek-V3 dịch sát nghĩa ngữ cảnh, giữ nguyên đại từ nhân xưng và phong cách truyện.',
+      tag: 'AI Vision',
+      title: 'Nhận Diện Chữ & Dịch Thuật AI',
+      desc: 'Mô hình AI tùy chỉnh định vị bong bóng thoại siêu tốc. Công nghệ dịch máy thế hệ mới dịch sát nghĩa ngữ cảnh, giữ nguyên đại từ nhân xưng và phong cách truyện.',
     },
     {
       icon: Wand2,
       color: 'purple',
-      tag: 'LaMa GPU',
-      title: 'Tẩy Nền Inpainting Hoàn Hảo',
-      desc: 'Thuật toán LaMa Inpainting trên cụm GPU Runpod hiệu năng cao tự động vẽ lại chi tiết tranh bị chữ gốc đè lên. Sản phẩm sạch tuyệt đối, không tì vết.',
+      tag: 'AI Redraw',
+      title: 'Tẩy Nền Thông Minh Hoàn Hảo',
+      desc: 'Hệ thống tự động vẽ lại chi tiết tranh bị chữ gốc đè lên bằng công nghệ vẽ lại (inpainting) hiệu năng cao. Sản phẩm sạch tuyệt đối, không tì vết.',
     },
     {
       icon: Layers,
@@ -245,7 +245,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
               ))}
               <div className="flex items-center gap-1.5 px-2 py-1.5 mt-1 border-t border-white/[0.05]">
                 <span className="text-neutral-600 text-[9px]">🖼️</span>
-                <span className="text-neutral-500">Background (Cleaned · LaMa AI)</span>
+                <span className="text-neutral-500">Background (Cleaned · AI Redraw)</span>
               </div>
             </div>
           </motion.div>
@@ -315,7 +315,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
               className="inline-flex items-center gap-2 px-4 py-[6px] rounded-full mb-8 text-[12px] font-semibold text-indigo-300 bg-indigo-500/[0.08] border border-indigo-500/20 backdrop-blur select-none cursor-default"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse" />
-              YOLO-Nano OCR · DeepSeek-V3 · LaMa Inpainting — Đang Hoạt Động
+              Định Vị Bong Bóng · Dịch Thuật Đa Ngữ Cảnh · Tẩy Nền Thông Minh — Đang Hoạt Động
             </motion.div>
 
             {/* H1 */}
@@ -342,8 +342,8 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
             >
               Mệt mỏi với <span className="text-neutral-200 font-medium">Redraw thủ công</span> và copy-paste từng dòng thoại vào Photoshop?{' '}
               DeepKoma tẩy chữ bằng{' '}
-              <span className="text-pink-300 font-medium">LaMa GPU</span>, dịch ngữ cảnh bằng{' '}
-              <span className="text-indigo-300 font-medium">DeepSeek-V3</span> và xuất thẳng{' '}
+              <span className="text-pink-300 font-medium">AI chuyên sâu</span>, dịch ngữ cảnh bằng{' '}
+              <span className="text-indigo-300 font-medium">Trí tuệ nhân tạo</span> và xuất thẳng{' '}
               <span className="text-violet-300 font-medium">PSD layer chữ chỉnh sửa được</span>.
             </motion.p>
 
@@ -364,7 +364,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
               {[
                 'Tẩy hội thoại đè tranh tự động',
                 'Xuất PSD đầy đủ layer text',
-                'Dịch ngữ cảnh DeepSeek-V3',
+                'Dịch ngữ cảnh AI thông minh',
               ].map((item, i) => (
                 <span key={i} className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />

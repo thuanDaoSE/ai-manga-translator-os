@@ -256,7 +256,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       else if (data.state === "FAILURE") {
         eventSource.close();
         set((state) => ({ pageStatuses: { ...state.pageStatuses, [index]: "error" } }));
-        toast.error(`Trang ${index + 1} xử lý thất bại: ${data.message || "Lỗi API DeepSeek!"}`, { duration: 5000 });
+        toast.error(`Trang ${index + 1} xử lý thất bại: ${data.message || "Lỗi hệ thống dịch thuật!"}`, { duration: 5000 });
       }
     };
 

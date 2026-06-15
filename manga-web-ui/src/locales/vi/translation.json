@@ -215,7 +215,7 @@
     "sec2Title": "2. Trách nhiệm bản quyền & Pháp lý",
     "sec2Desc": "Người dùng tự chịu hoàn toàn trách nhiệm về bản quyền và tính pháp lý của các hình ảnh, truyện tranh tải lên nền tảng. Chúng tôi chỉ cung cấp công cụ (Công nghệ AI, OCR, Typesetting) và không giữ bản quyền hay phân phối bất kỳ tác phẩm nào của người dùng.<br/><br/>Nghiêm cấm tuyệt đối việc sử dụng công cụ để tải lên, xử lý hoặc dịch thuật các ấn phẩm đồi trụy (truyện tranh 18+, hentai, doujinshi người lớn), phản động hoặc kích động bạo lực. Người dùng hoàn toàn tự chịu 100% trách nhiệm hình sự trước pháp luật Việt Nam (bao gồm <strong>Điều 326 Bộ luật Hình sự</strong> về tội truyền bá văn hóa phẩm đồi trụy) đối với bất kỳ hành vi vi phạm nào.",
     "sec3Title": "3. Lạm dụng hệ thống AI",
-    "sec3Desc": "Nghiêm cấm các hành vi sử dụng Tool tự động (Bot), gửi request rác hoặc cố tình khai thác lỗ hổng API (DeepSeek/ComfyUI) để làm cạn kiệt tài nguyên máy chủ. Bất kỳ tài khoản nào vi phạm sẽ bị khóa vĩnh viễn mà không cần báo trước.",
+    "sec3Desc": "Nghiêm cấm các hành vi sử dụng Tool tự động (Bot), gửi request rác hoặc cố tình khai thác lỗ hổng API hệ thống để làm cạn kiệt tài nguyên máy chủ. Bất kỳ tài khoản nào vi phạm sẽ bị khóa vĩnh viễn mà không cần báo trước.",
     "sec4Title": "4. Tuyên bố từ chối trách nhiệm",
     "sec4Desc": "Dịch vụ được cung cấp \"nguyên trạng\". Mặc dù AI của chúng tôi được tối ưu cho truyện tranh, chúng tôi không đảm bảo bản dịch sẽ hoàn hảo 100%. Người dùng có trách nhiệm kiểm tra và chỉnh sửa lại bản dịch trước khi xuất bản."
   },
@@ -314,7 +314,7 @@
     "aiSuggestionShorten": "Rút gọn câu",
     "aiSuggestionKanji": "Giải nghĩa Kanji",
     "aiInputPlaceholder": "Chỉ thị riêng cho AI...",
-    "aiDiscussing": "Đang thảo luận với DeepSeek...",
+    "aiDiscussing": "Đang phân tích ngữ cảnh dịch...",
     "aiApplyBtn": "Áp dụng",
     "aiError": "❌ Lỗi kết nối AI!",
     "tabDesign": "Design",

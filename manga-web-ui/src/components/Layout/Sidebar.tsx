@@ -412,7 +412,7 @@ export default function Sidebar() {
               // Ép thanh tiến trình đứng ở 90% và báo đang gọi DeepSeek
               projectStore.setPageStatus(pageIndex, "processing");
               useProjectStore.setState((state: any) => ({
-                progresses: { ...state.progresses, [pageIndex]: { percent: 90, message: "Đang nhờ DeepSeek dịch..." } }
+                progresses: { ...state.progresses, [pageIndex]: { percent: 90, message: "Đang dịch thuật..." } }
               }));
 
               let taskData = null;
@@ -471,7 +471,7 @@ export default function Sidebar() {
 
                 if (hasTranslationError) {
                   projectStore.setPageStatus(pageIndex, "error"); // Đánh thẻ Đỏ
-                  toast.error(`Trang ${pageIndex + 1} bị nghẽn mạng DeepSeek!`);
+                  toast.error(`Trang ${pageIndex + 1} gặp lỗi xử lý dịch thuật!`);
                 } else {
                   projectStore.setPageStatus(pageIndex, "completed"); // Xanh tuyệt đối!
                 }
@@ -537,7 +537,7 @@ export default function Sidebar() {
     // Đánh dấu trang đang xử lý để ẩn nút bấm
     projectStore.setPageStatus(pageIndex, "processing");
     useProjectStore.setState((s: any) => ({
-      progresses: { ...s.progresses, [pageIndex]: { percent: 50, message: "Đang nhờ DeepSeek dịch lại..." } }
+      progresses: { ...s.progresses, [pageIndex]: { percent: 50, message: "Đang dịch lại..." } }
     }));
 
     // 1. Kiểm tra xem trang này đã qua bàn tay Runpod (có ảnh xóa nền) chưa?
@@ -545,7 +545,7 @@ export default function Sidebar() {
 
     if (hasCleanUrl) {
       // 🟢 LUỒNG 1: CÓ ẢNH SẠCH RỒI -> TUYỆT ĐỐI CHỈ GỌI DEEPSEEK
-      const loadId = toast.loading("Đang nhờ DeepSeek dịch lại...");
+      const loadId = toast.loading("Đang dịch lại...");
       try {
         const result = await mangaApi.retryTextTranslation(pageId);
 
