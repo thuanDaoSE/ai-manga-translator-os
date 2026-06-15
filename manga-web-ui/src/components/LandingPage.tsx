@@ -404,7 +404,31 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
             variants={staggerContainer}
             className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
           >
-            {featureCards.map((card, i) =>      {/* ════════════════════════════════
+            {featureCards.map((card, i) => {
+              const c = colorMap[card.color];
+              const Icon = card.icon;
+              return (
+                <motion.div key={i} variants={fadeInUp} className="h-full">
+                  <SpotlightCard>
+                    <div className="flex items-start justify-between mb-5">
+                      <div className={cn('w-12 h-12 rounded-xl flex items-center justify-center border', c.bg, c.border)}>
+                        <Icon className={cn('w-6 h-6', c.icon)} />
+                      </div>
+                      <span className={cn('text-[10px] font-black tracking-widest uppercase px-2 py-1 rounded-lg border', c.tag)}>
+                        {card.tag}
+                      </span>
+                    </div>
+                    <h3 className="text-[15px] font-bold text-white mb-2.5 leading-snug">{card.title}</h3>
+                    <p className="text-neutral-500 leading-relaxed text-sm">{card.desc}</p>
+                  </SpotlightCard>
+                </motion.div>
+              );
+            })}
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ════════════════════════════════
           HOW IT WORKS
       ════════════════════════════════ */}
       <section id="how-it-works" className="relative z-10 py-28 px-6 border-t border-white/[0.06] overflow-hidden">
@@ -623,9 +647,6 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
                 GitHub
               </a>
             </div>
-          </div>
-        </div>
-      </footer>
           </div>
         </div>
       </footer>
