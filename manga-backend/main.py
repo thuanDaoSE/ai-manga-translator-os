@@ -754,8 +754,6 @@ if not RUNPOD_API_KEY or not RUNPOD_REDRAW_ENDPOINT_ID:
 
 RUNPOD_ENDPOINT_ID = RUNPOD_TRANSLATE_ENDPOINT_ID
 
-# 🚀 THÊM DÒNG NÀY VÀO ĐẦU FILE (Dưới các dòng import)
-import redis
 import redis.asyncio as aioredis
 redis_host = os.getenv("REDIS_HOST", "localhost")
 redis_port = int(os.getenv("REDIS_PORT", 6379))
@@ -1282,7 +1280,7 @@ async def erase_mask(
                 page.status = "cleaned" 
                 await db.commit()
 
-        new_url = f"{str(request.base_url).rstrip('/')}/{clean_path}" 
+        new_url = f"{str(request.base_url).rstrip('/')}/{clean_path}"
         return {"status": "success", "new_url": new_url}
         
     except Exception as e:

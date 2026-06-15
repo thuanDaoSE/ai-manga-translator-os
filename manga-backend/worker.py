@@ -210,6 +210,12 @@ def is_task_cancelled(task_id: str) -> bool:
         print(f"⚠️ [WORKER] Lỗi kiểm tra cờ hủy từ Redis: {e}")
         return False
 
+def get_base_url():
+    pod_id = os.getenv("RUNPOD_POD_ID")
+    if pod_id:
+        return f"https://{pod_id}-8000.proxy.runpod.net"
+    return os.getenv("BACKEND_BASE_URL", "http://localhost:8000")
+
 def sync_update_page_db(page_id, clean_url, bubbles):
     import db_models as models
     with SessionLocal() as db:

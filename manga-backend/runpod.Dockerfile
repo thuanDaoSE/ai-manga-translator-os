@@ -11,9 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Cài đặt thư viện Python AI
-COPY requirements-serverless.txt .
+COPY requirements_serverless.txt .
 RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir -r requirements-serverless.txt
+RUN pip install --no-cache-dir -r requirements_serverless.txt
+
+# Cài bản ONNX GPU xịn nhất cho CUDA 12 giống sếp đã làm
+RUN pip uninstall -y onnxruntime onnxruntime-gpu && \
+    pip install --no-cache-dir onnxruntime-gpu==1.19.2
 
 # Copy bộ não AI vào Docker
 COPY handler.py /app/handler.py

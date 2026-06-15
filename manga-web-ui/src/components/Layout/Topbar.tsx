@@ -173,12 +173,7 @@ export default function Topbar() {
 
       {/* 1. LEFT ZONE: LOGO & PROJECT */}
       <div className="flex items-center gap-4 flex-1">
-
-        {/* ========================================= */}
-        {/* 🚀 LOGO DEEPKOMA CHUẨN CHIẾN LƯỢC SAAS */}
-        {/* ========================================= */}
         <DeepKomaLogo onClick={handleLogoClick} className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
-
         <div className="w-px h-8 bg-border mx-2 hidden sm:block" />
 
         <div className="flex flex-col justify-center min-w-0 max-w-[300px]">
