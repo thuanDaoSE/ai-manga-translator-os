@@ -132,15 +132,9 @@ function SortableItem({
           )}
           
           {status === 'completed' && <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-black uppercase truncate"><CheckCircle2 size={12} /> {t('sidebar.completed')}</span>}
-          {status === 'error' && <span className="flex items-center gap-1.5 text-[10px] text-danger font-black uppercase truncate"><AlertTriangle size={12} /> {hasCleanUrl ? t('sidebar.textError') : t('sidebar.transError')}</span>}
-          {status === 'completed' && retryCount >= 3 && (
-            <span className="text-[9px] text-orange-400 font-semibold leading-relaxed mt-1 block whitespace-normal animate-pulse">
-              ⚠️ AI đã đạt giới hạn dịch tự động cho đoạn này. Vui lòng chỉnh sửa bản dịch thủ công để có kết quả tốt nhất.
-            </span>
-          )}
-          {status === 'error' && hasCleanUrl && retryCount >= 3 && (
-            <span className="text-[9px] text-orange-400 font-semibold leading-relaxed mt-1 block whitespace-normal animate-pulse">
-              ⚠️ AI đã đạt giới hạn dịch tự động cho đoạn này. Vui lòng chỉnh sửa bản dịch thủ công để có kết quả tốt nhất.
+          {retryCount >= 3 && (
+            <span className="flex items-center gap-1 text-[9.5px] text-orange-400 font-bold uppercase truncate mt-0.5" title="AI đã đạt giới hạn dịch tự động cho đoạn này. Vui lòng chỉnh sửa bản dịch thủ công để có kết quả tốt nhất.">
+              <AlertTriangle size={11} className="shrink-0 text-orange-400 animate-pulse" /> Đạt giới hạn AI
             </span>
           )}
         </div>
