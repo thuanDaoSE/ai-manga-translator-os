@@ -2761,55 +2761,63 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     status = webhook_data.status
     amount_paid = webhook_data.amount
     
-    # Lớp 2: Kiểm tra Idempotency chống cộng đúp
-    stmt_check = select(UserTransaction).where(
-        UserTransaction.order_code == order_code,
-        UserTransaction.type == "TOPUP"
-    )
-    res_check = await db.execute(stmt_check)
-    existing_txn = res_check.scalar_one_or_none()
-    if existing_txn:
-        print(f"⚠️ [WEBHOOK] Giao dịch {order_code} đã được xử lý thành công trước đó. Bỏ qua.")
-        return {"success": True, "message": "Already processed"}
+    try:
+        # Lớp 2: Kiểm tra Idempotency chống cộng đúp
+        stmt_check = select(UserTransaction).where(
+            UserTransaction.order_code == order_code,
+            UserTransaction.type == "TOPUP"
+        )
+        res_check = await db.execute(stmt_check)
+        existing_txn = res_check.scalar_one_or_none()
+        if existing_txn:
+            print(f"⚠️ [WEBHOOK] Giao dịch {order_code} đã được xử lý thành công trước đó. Bỏ qua.")
+            return {"success": True, "message": "Already processed"}
 
-    # Tìm giao dịch gốc
-    stmt_legacy = select(Transaction).where(Transaction.order_code == order_code)
-    res_legacy = await db.execute(stmt_legacy)
-    txn = res_legacy.scalar_one_or_none()
-    
-    if txn and txn.status == "PENDING":
-        if status == "CANCELLED":
-            txn.status = "CANCELLED"
-            await db.commit()
-            print(f"❌ Giao dịch {order_code} đã bị HỦY từ cổng PayOS")
-        elif status == "PAID":
-            txn.status = "PAID"
-            
-            # Khóa dòng User để cộng tiền an toàn
-            stmt_user = select(User).where(User.id == txn.user_id).with_for_update()
-            user_res = await db.execute(stmt_user)
-            user = user_res.scalar_one_or_none()
-            
-            if user:
-                credits_to_add = txn.credits_added if (txn and txn.credits_added) else calculate_credits(amount_paid)
-                user.credits += credits_to_add
+        # Tìm giao dịch gốc và KHÓA DÒNG bằng with_for_update() để chống tranh chấp (ACID Isolation)
+        stmt_legacy = select(Transaction).where(Transaction.order_code == order_code).with_for_update()
+        res_legacy = await db.execute(stmt_legacy)
+        txn = res_legacy.scalar_one_or_none()
+        
+        if txn and txn.status == "PENDING":
+            if status == "CANCELLED":
+                txn.status = "CANCELLED"
+                await db.commit()
+                print(f"❌ Giao dịch {order_code} đã bị HỦY từ cổng PayOS")
+            elif status == "PAID":
+                txn.status = "PAID"
                 
-                # Ghi lịch sử biến động số dư
-                new_hist = UserTransaction(
-                    user_id=user.id,
-                    amount=credits_to_add,
-                    type="TOPUP",
-                    description=f"Nạp {credits_to_add} Xu qua cổng PayOS (Số tiền: {amount_paid:,}đ)",
-                    order_code=order_code
-                )
-                db.add(new_hist)
-                await db.commit()
-                print(f"💰 TING TING! Đã cộng {credits_to_add} Xu cho user {user.id} (Order: {order_code})")
-            else:
-                await db.commit()
-                print(f"⚠️ Không tìm thấy user {txn.user_id} để cộng tiền")
+                # Khóa dòng User để cộng tiền an toàn
+                stmt_user = select(User).where(User.id == txn.user_id).with_for_update()
+                user_res = await db.execute(stmt_user)
+                user = user_res.scalar_one_or_none()
+                
+                if user:
+                    credits_to_add = txn.credits_added if (txn and txn.credits_added) else calculate_credits(amount_paid)
+                    user.credits += credits_to_add
+                    
+                    # Ghi lịch sử biến động số dư
+                    new_hist = UserTransaction(
+                        user_id=user.id,
+                        amount=credits_to_add,
+                        type="TOPUP",
+                        description=f"Nạp {credits_to_add} Xu qua cổng PayOS (Số tiền: {amount_paid:,}đ)",
+                        order_code=order_code
+                    )
+                    db.add(new_hist)
+                    await db.commit()
+                    print(f"💰 TING TING! Đã cộng {credits_to_add} Xu cho user {user.id} (Order: {order_code})")
+                else:
+                    await db.commit()
+                    print(f"⚠️ Không tìm thấy user {txn.user_id} để cộng tiền")
 
-    return {"success": True}
+        return {"success": True}
+
+    except Exception as db_err:
+        await db.rollback()
+        print(f"❌ [WEBHOOK ERROR] Lỗi hệ thống khi xử lý webhook giao dịch {order_code}: {db_err}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Lỗi hệ thống khi xử lý giao dịch")
 
 # ==========================================
 # API 3: LẤY LỊCH SỬ GIAO DỊCH CỦA USER
