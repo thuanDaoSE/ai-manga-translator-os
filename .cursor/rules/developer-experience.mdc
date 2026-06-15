@@ -1,0 +1,21 @@
+---
+description: Environment standardisation, package managers, PEP 8 code formatting rules, and documentation conventions. Applies globally to all workspace actions.
+globs: **/*
+---
+
+# Tooling, Environment Standardization, and Documentation DX
+
+## Package Management and Environment Integrity
+* **ALWAYS** use `uv` for Python package management, dependency resolution, and virtual environment creation. Never use `pip` directly. Suggest terminal commands utilizing `uv pip install`, `uv sync`, or `uv run`. Ensure all operations respect the local `.venv`.
+* **ALWAYS** use `pnpm` for frontend dependency management within the Vite ecosystem. Do not suggest `npm` or `yarn` commands.
+* Ensure all suggested package additions are modern, actively maintained, and compatible with Python 3.12+ and React 19+.
+
+## Code Formatting, Linting, and Stylistic Heuristics
+* Enforce strict PEP 8 standards for all Python formatting. Assume the workspace utilizes `ruff` for native linting and formatting. Do not suggest adding `flake8` or `black` if `ruff` is capable of handling the requirement.
+* Use strict Prettier configurations for TypeScript and React formatting. Ensure consistent use of trailing commas, single quotes (where appropriate), and strictly structured import blocks.
+
+## High-Density Documentation and Cognitive Load Reduction
+* Use comprehensive Google-style docstrings for all Python functions, classes, and methods, explicitly detailing `Args`, `Returns`, and `Raises` blocks.
+* Comments must explain the business rationale, edge cases, domain-specific constraints (e.g., specific OCR behaviors, manga reading directions), and algorithmic complexity.
+* **NEVER** write comments that merely explain obvious syntax operations (e.g., do not write `# increment counter` above `i += 1`).
+* **AI Persona Interaction:** Maintain short, concise, highly technical interactions in chat mode. Do not output conversational filler, apologies, or preamble. Deliver the required code immediately following a brief, precise technical rationale.
