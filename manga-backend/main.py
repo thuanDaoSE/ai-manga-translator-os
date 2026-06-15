@@ -1079,10 +1079,17 @@ async def erase_mask(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
+    charged_amount = 0
     try:
         if payload.page_id:
             # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
             await check_page_ownership(payload.page_id, user_id, db)
+        
+        # 🚀 TRỪ XU (1 credit)
+        charged_amount = 1
+        description = f"Xóa nền thông minh (Erase Mask) - Page: {payload.page_id or 'Freehand'}"
+        await check_and_deduct_credits(db, user_id, charged_amount, description)
+        await db.commit() # Commit ngay để tránh khóa dòng User lâu khi gọi API RunPod (tốn 10-30s)
         
         # Fetch raw image directly to RAM (local disk read if local, otherwise HTTP fetch)
         img_raw = payload.image_url
@@ -1285,13 +1292,23 @@ async def erase_mask(
                 page.status = "cleaned" 
                 await db.commit()
 
+        # Lấy số dư hiện tại của user để trả về
+        stmt_user = select(models.User).where(models.User.id == user_id)
+        res_user = await db.execute(stmt_user)
+        user_obj = res_user.scalar_one_or_none()
+        current_credits = user_obj.credits if user_obj else 0
+
         new_url = f"{str(request.base_url).rstrip('/')}/{clean_path}"
-        return {"status": "success", "new_url": new_url}
+        return {"status": "success", "new_url": new_url, "credits": current_credits}
         
     except Exception as e:
+        if charged_amount > 0:
+            await refund_credits(db, user_id, charged_amount, f"Hoàn {charged_amount} Xu: Xóa nền thất bại (Lỗi: {str(e)[:100]})")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))    
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e)[:500])    
 # ==========================================
 # API UPLOAD NGẦM CHO TÍNH NĂNG CŨ
 # ==========================================
