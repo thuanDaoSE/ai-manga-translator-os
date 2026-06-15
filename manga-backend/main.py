@@ -387,7 +387,11 @@ origins = [
     "http://localhost:5173",  # Để sếp test trên máy tính
     "http://localhost:4173",  # Để sếp preview trên máy tính
     "http://103.77.243.60",   # 🚨 THÊM DÒNG NÀY (IP thật không có cổng)
-    "http://103.77.243.60:80" # 🚨 THÊM DÒNG NÀY (Phòng hờ)
+    "http://103.77.243.60:80", # 🚨 THÊM DÒNG NÀY (Phòng hờ)
+    "https://deepkoma.pro",    # Tên miền website chính thức
+    "http://deepkoma.pro",
+    "https://www.deepkoma.pro",
+    "http://www.deepkoma.pro"
 ]
 
 app.add_middleware(
