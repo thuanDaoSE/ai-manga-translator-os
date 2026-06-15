@@ -243,23 +243,6 @@ export default function TranslationConfigModal() {
                 <p className="text-[11px] text-text-muted">{t('configModal.subtitle')}</p>
               </div>
             </div>
-            {/* NGÔN NGỮ ĐÍCH SELECT */}
-            <div className="flex items-center gap-2 ml-auto mr-4">
-              <span className="text-[11px] font-bold text-text-muted whitespace-nowrap">{t('configModal.targetLanguageLabel')}</span>
-              <div className="relative">
-                <select 
-                  value={config.targetLanguage || 'Tiếng Việt'}
-                  onChange={(e) => config.setConfig('targetLanguage', e.target.value)}
-                  className="appearance-none bg-background border border-border rounded-xl py-1.5 pl-3 pr-8 text-[11px] font-bold text-text-main focus:outline-none focus:border-primary transition-all cursor-pointer shadow-sm"
-                >
-                  {VALID_LANGUAGES.map((lang) => (
-                    <option key={lang} value={lang}>{lang}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" />
-              </div>
-            </div>
-
             <button onClick={() => config.setModalOpen(false)} className="p-2 text-text-muted hover:text-text-main hover:bg-border/50 rounded-xl transition-colors cursor-pointer"><X size={18} /></button>
           </div>
 

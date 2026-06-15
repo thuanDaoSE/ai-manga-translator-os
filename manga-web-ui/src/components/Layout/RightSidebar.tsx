@@ -241,11 +241,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
     const loadId = toast.loading(t('rightSidebar.translatingSingleLoading'));
     try {
       const payload = { text: bubble.text || "", japanese: bubble.japanese || "", action: "natural", custom_prompt: "" };
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/copilot/chat`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-      });
-      if (!response.ok) throw new Error("Lỗi API");
-      const data = await response.json();
+      const data = await mangaApi.copilotChat(payload);
       updateBubble(bubble.id, { text: data.result });
       toast.success(t('rightSidebar.translatingSingleSuccess'), { id: loadId });
     } catch (err) { toast.error(t('rightSidebar.translatingSingleError'), { id: loadId }); }
@@ -958,11 +954,7 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
     setAiLoading(true); setAiResult('');
     try {
       const payload = { text: bubble.text || "", japanese: bubble.japanese || "", action: type, custom_prompt: type === 'custom' ? instruction : "" };
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/copilot/chat`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-      });
-      if (!response.ok) throw new Error(t('rightSidebar.aiError'));
-      const data = await response.json();
+      const data = await mangaApi.copilotChat(payload);
       setAiResult(data.result);
       if (type === 'custom') setInstruction('');
     } catch (error) { setAiResult(t('rightSidebar.aiError')); }

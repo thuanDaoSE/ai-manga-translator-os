@@ -12,7 +12,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     
     # Chiến lược Pay-as-you-go
-    credits = Column(Integer, default=10) # Tặng 10 credits dùng thử khi tạo nick mới
+    credits = Column(Integer, default=10000) # Tặng 10000 credits dùng thử khi tạo nick mới
     
     # Chiến lược Subscription (Thuê bao tháng)
     is_pro = Column(Boolean, default=False)

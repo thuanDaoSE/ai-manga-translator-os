@@ -15,23 +15,7 @@ import { mangaApi } from '../../services/api';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 
-const LANGUAGE_SHORT_CODES: Record<string, string> = {
-  'Tiếng Việt': 'VN',
-  'English': 'EN',
-  'Bahasa Indonesia': 'ID',
-  'ภาษาไทย (Thai)': 'TH',
-  'Français (French)': 'FR',
-  'Español (Spanish)': 'ES',
-  'Русский (Russian)': 'RU'
-};
 
-const getTranslateButtonLabel = (lang: string, t: any) => {
-  return t(`targetLanguageActions.${lang}`, `✨ Dịch sang ${lang}`);
-};
-
-const getBatchTranslateLabel = (lang: string, t: any) => {
-  return t(`targetLanguageBatchActions.${lang}`, `✨ Dịch tất cả sang ${lang}`);
-};
 
 // =========================================
 // 1. COMPONENT CON: THẺ TRANG TRUYỆN (UI NÂNG CẤP)
@@ -40,7 +24,7 @@ function SortableItem({
   id, file, isActive, status, displayImg, progress,
   onClick, onTranslate, onDelete, onCancel, onRetry,
   isSelected, isSelectionMode, onToggleSelection, hasCleanUrl,
-  isProcessing, disabled
+  isProcessing, disabled, retryCount
 }: any) {
 
   const {
@@ -56,22 +40,7 @@ function SortableItem({
     disabled: isSelectionMode
   });
 
-  const targetLanguage = useConfigStore(state => state.targetLanguage);
   const { t } = useTranslation();
-
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isDropdownOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isDropdownOpen]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -164,13 +133,23 @@ function SortableItem({
           
           {status === 'completed' && <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-black uppercase truncate"><CheckCircle2 size={12} /> {t('sidebar.completed')}</span>}
           {status === 'error' && <span className="flex items-center gap-1.5 text-[10px] text-danger font-black uppercase truncate"><AlertTriangle size={12} /> {hasCleanUrl ? t('sidebar.textError') : t('sidebar.transError')}</span>}
+          {status === 'completed' && retryCount >= 3 && (
+            <span className="text-[9px] text-orange-400 font-semibold leading-relaxed mt-1 block whitespace-normal animate-pulse">
+              ⚠️ AI đã đạt giới hạn dịch tự động cho đoạn này. Vui lòng chỉnh sửa bản dịch thủ công để có kết quả tốt nhất.
+            </span>
+          )}
+          {status === 'error' && hasCleanUrl && retryCount >= 3 && (
+            <span className="text-[9px] text-orange-400 font-semibold leading-relaxed mt-1 block whitespace-normal animate-pulse">
+              ⚠️ AI đã đạt giới hạn dịch tự động cho đoạn này. Vui lòng chỉnh sửa bản dịch thủ công để có kết quả tốt nhất.
+            </span>
+          )}
         </div>
 
         {/* ============================================================== */}
         {/* 🚀 BẢN VÁ UI 3: TĂNG KÍCH THƯỚC CÁC NÚT BẤM DỄ THAO TÁC HƠN */}
         {/* ============================================================== */}
         {!isSelectionMode && status !== 'processing' && (
-          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex flex-row items-center gap-1.5 
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex flex-col items-end gap-2 
             opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20"
           >
             {/* NÚT XÓA (To hơn một chút: p-2, icon 14) */}
@@ -185,72 +164,45 @@ function SortableItem({
 
             {/* CÁC NÚT HÀNH ĐỘNG (Padding lớn hơn, chữ to hơn: text-[11px]) */}
             {status === 'unprocessed' && (
-              <div ref={dropdownRef} className="relative inline-flex rounded-lg shadow-sm shrink-0">
-                {/* Phần 1: Nút hành động chính (Dịch) */}
-                <button
-                  disabled={disabled}
-                  onClick={(e) => { e.stopPropagation(); onTranslate(); }}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-l-lg text-[11px] font-bold transition-colors cursor-pointer border-r border-indigo-500/30 shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                >
-                  <Wand2 size={11} className="shrink-0" />
-                  <span>{t('canvas.translateAction', 'Dịch')}</span>
-                </button>
-                {/* Phần 2: Nút chọn ngôn ngữ */}
-                <button
-                  disabled={disabled}
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    setIsDropdownOpen(!isDropdownOpen); 
-                  }}
-                  className={`flex items-center gap-0.5 px-1.5 py-1.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-r-lg text-[10px] font-bold transition-colors cursor-pointer shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                >
-                  <span>{LANGUAGE_SHORT_CODES[targetLanguage] || 'VN'}</span>
-                  <ChevronDown size={10} className="shrink-0" />
-                </button>
-
-                {/* Dropdown chọn nhanh ngôn ngữ */}
-                {isDropdownOpen && (
-                  <div className="absolute right-0 bottom-full mb-1 bg-neutral-900 border border-border/80 rounded-xl shadow-xl z-50 py-1 min-w-[130px] animate-in fade-in slide-in-from-bottom-1 duration-200">
-                    {VALID_LANGUAGES.map((lang) => (
-                      <button
-                        key={lang}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          useConfigStore.getState().setConfig('targetLanguage', lang);
-                          useConfigStore.getState().saveToLocal();
-                          setIsDropdownOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-1.5 text-[10px] font-bold flex items-center justify-between transition-colors hover:bg-neutral-800 ${
-                          targetLanguage === lang ? 'text-primary' : 'text-text-muted hover:text-text-main'
-                        }`}
-                      >
-                        <span>{lang}</span>
-                        {targetLanguage === lang && <Check size={10} className="text-primary shrink-0" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <button
+                disabled={disabled}
+                onClick={(e) => { e.stopPropagation(); onTranslate(); }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+              >
+                <Wand2 size={11} className="shrink-0" />
+                <span>{t('canvas.translateAction', 'Dịch')}</span>
+              </button>
             )}
 
             {status === 'error' && (
               <button
-                disabled={disabled}
+                disabled={disabled || (hasCleanUrl && retryCount >= 3)}
                 onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer shrink-0 ${(disabled || (hasCleanUrl && retryCount >= 3)) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`}
               >
-                <RefreshCw size={12} /> {t('sidebar.retrySingle')}
+                {hasCleanUrl ? (
+                  <>
+                    <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
+                    <span>Dịch lại AI</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={12} />
+                    <span>{t('sidebar.retrySingle')}</span>
+                  </>
+                )}
               </button>
             )}
 
             {status === 'completed' && (
               <button 
-                disabled={disabled}
+                disabled={disabled || retryCount >= 3}
                 onClick={(e) => { e.stopPropagation(); onRetry(); }} 
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`} 
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer shrink-0 ${(disabled || retryCount >= 3) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`} 
                 title={t('sidebar.retranslate')}
               >
-                <RefreshCw size={12} /> {t('sidebar.retranslateSingle')}
+                <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
+                <span>Dịch lại AI</span>
               </button>
             )}
           </div>
@@ -276,7 +228,7 @@ function SortableItem({
 // ==========================================
 export default function Sidebar() {
   const projectStore = useProjectStore();
-  const { fileQueue, currentIndex, setCurrentIndex, pageStatuses, processedUrls, uploadProjectFiles, reorderFiles, progresses } = projectStore;
+  const { fileQueue, currentIndex, setCurrentIndex, pageStatuses, processedUrls, uploadProjectFiles, reorderFiles, progresses, retryCounts } = projectStore;
   const isProcessing = useToolStore((state) => state.isProcessing);
   const targetLanguage = useConfigStore((state) => state.targetLanguage);
   const { t } = useTranslation();
@@ -285,7 +237,7 @@ export default function Sidebar() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const activeTasksRef = useRef<Record<number, { taskId: string, eventSource: EventSource }>>({});
-  const deleteTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const deleteTimeoutsRef = useRef<Record<string, any>>({});
   const importMangaRef = useRef<HTMLInputElement>(null);
   const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
 
@@ -580,6 +532,14 @@ export default function Sidebar() {
     const pageId = state.pageIds[pageIndex];
     if (!pageId) return;
 
+    const currentRetryCount = state.retryCounts[pageIndex] || 0;
+    if (currentRetryCount >= 3) {
+      toast.error("AI đã đạt giới hạn dịch tự động cho trang này!");
+      return;
+    }
+
+    const prevStatus = state.pageStatuses[pageIndex] || 'completed';
+
     // Đánh dấu trang đang xử lý để ẩn nút bấm
     projectStore.setPageStatus(pageIndex, "processing");
     useProjectStore.setState((s: any) => ({
@@ -657,6 +617,10 @@ export default function Sidebar() {
         toast.success("Dịch lại thành công!", { id: loadId });
         projectStore.clearProgress(pageIndex);
 
+        // Cập nhật retry count từ kết quả trả về của API hoặc tăng cục bộ
+        const apiRetryCount = result.retry_count !== undefined ? result.retry_count : (currentRetryCount + 1);
+        projectStore.setRetryCount(pageIndex, apiRetryCount);
+
         // Cập nhật thẻ Xanh/Đỏ
         const hasTranslationError = updatedBubbles.some((b: any) => (b.text || "").toLowerCase().includes("lỗi"));
         if (hasTranslationError) {
@@ -667,7 +631,11 @@ export default function Sidebar() {
       } catch (err: any) {
         toast.error(err.message, { id: loadId });
         projectStore.clearProgress(pageIndex);
-        useProjectStore.getState().setPageStatus(pageIndex, "error");
+        useProjectStore.getState().setPageStatus(pageIndex, prevStatus);
+        
+        if (err.message && (err.message.includes("giới hạn") || err.message.includes("limit"))) {
+          projectStore.setRetryCount(pageIndex, 3);
+        }
       }
     } else {
       // 🔴 LUỒNG 2: CHƯA CÓ ẢNH SẠCH -> Buộc phải gọi Runpod cày lại từ đầu
@@ -692,6 +660,8 @@ export default function Sidebar() {
       projectStore.setCurrentIndex(nextIndex !== -1 ? nextIndex : -1);
     }
 
+    const wasActive = index === projectStore.currentIndex;
+
     setPendingDeletes(prev => new Set(prev).add(uniqueId));
 
     toast((t) => (
@@ -707,6 +677,17 @@ export default function Sidebar() {
               next.delete(uniqueId);
               return next;
             });
+
+            // Định vị lại index thực tế của trang sau khi hoàn tác để tránh bị lệch do kéo thả (reorder)
+            const state = useProjectStore.getState();
+            const realIndex = state.fileQueue.findIndex((f, i) => {
+              const uid = state.pageIds[i] || `temp-${i}-${f.name}`;
+              return uid === uniqueId;
+            });
+
+            if (realIndex !== -1 && (wasActive || state.currentIndex === -1)) {
+              projectStore.setCurrentIndex(realIndex);
+            }
 
             toast.dismiss(t.id);
             toast.success("Đã hoàn tác! Giữ lại trang.");
@@ -1003,6 +984,7 @@ export default function Sidebar() {
                       hasCleanUrl={!!processedUrls[index]} // 🚀 Dùng ID an toàn
                       isProcessing={index === currentIndex && isProcessing}
                       disabled={isAnyProcessingOrWaiting || isProcessing}
+                      retryCount={retryCounts[index] || 0} // 🚀 Truyền số lần dịch lại
                     />
                   );
                 })}
@@ -1033,7 +1015,7 @@ export default function Sidebar() {
               : errorPages > 0
                 ? t('sidebar.retryError', { count: errorPages })
                 : hasUnprocessed
-                  ? getBatchTranslateLabel(targetLanguage, t)
+                  ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
                   : t('sidebar.completedAll')}
           </button>
         </div>

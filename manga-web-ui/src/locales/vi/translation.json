@@ -163,6 +163,7 @@
     "redrawAi": "Vẽ lại AI",
     "cancel": "Hủy",
     "redrawDisclaimer": "ℹ️ Phí gọi máy chủ (lần đầu): 3 Xu. Mỗi lần vẽ: 1 Xu.",
+    "redrawBetaWarning": "⚠️ Lưu ý (BETA): Tính năng đang thử nghiệm. AI có thể làm mịn hoặc mất các chi tiết vân lưới (screentone) của bản gốc.",
     "redrawButtonFirst": "✨ Vẽ lại (4 Xu)",
     "redrawButtonSubsequent": "✨ Vẽ lại (1 Xu)",
     "advancedConfig": "🪄 Cấu hình vẽ nâng cao (Tags)",

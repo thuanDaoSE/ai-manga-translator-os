@@ -174,7 +174,17 @@ export const mangaApi = {
       body: JSON.stringify({ image_url: imageUrl, mask_base64: maskBase64, page_id: pageId })
     });
     await handleApiError(response, "Lỗi xóa nền");
-    return (await response.json()).new_url;
+    const data = await response.json();
+    if (data.status !== "success") throw new Error(data.message || "Xóa nền thất bại");
+
+    if (data.credits !== undefined) {
+      useAuthStore.setState((state) => ({
+        user: state.user ? { ...state.user, credits: data.credits } : null
+      }));
+    }
+
+    const cleanUrl = data.new_url.split('?')[0];
+    return `${cleanUrl}?t=${Date.now()}`;
   },
 
   redrawMask: async (imageUrl: string, maskBase64: string, prompt: string, pageId?: string, negativePrompt?: string, originalImageHash?: string) => {
@@ -222,6 +232,16 @@ export const mangaApi = {
       body: JSON.stringify(payload),
     });
     await handleApiError(response, "Lỗi Server Lens Dịch");
+    return await response.json();
+  },
+
+  copilotChat: async (payload: any) => {
+    const response = await fetch(`${API_URL}/copilot/chat`, {
+      method: "POST",
+      headers: await getAuthHeaders(),
+      body: JSON.stringify(payload)
+    });
+    await handleApiError(response, "Lỗi Server Trợ Lý AI");
     return await response.json();
   },
 

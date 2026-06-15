@@ -163,6 +163,7 @@
     "redrawAi": "Redraw AI",
     "cancel": "Cancel",
     "redrawDisclaimer": "ℹ️ Server call fee (first time): 3 Credits. Each draw: 1 Credit.",
+    "redrawBetaWarning": "⚠️ Note (BETA): Experimental feature. AI may smooth out or lose original manga screentone details.",
     "redrawButtonFirst": "✨ Redraw (4 Credits)",
     "redrawButtonSubsequent": "✨ Redraw (1 Credit)",
     "advancedConfig": "🪄 Advanced Redraw Settings (Tags)",

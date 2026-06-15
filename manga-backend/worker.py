@@ -342,13 +342,20 @@ def process_manga_page(self, page_id: str, config: dict):
             try:
                 ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
                 # Tinh chỉnh prompt động theo target_language
+                lang_instruction = ""
+                if target_language == "Tiếng Việt":
+                    lang_instruction = "Bạn BẮT BUỘC phải dịch hoàn toàn sang Tiếng Việt. Giữ cấu trúc kính ngữ phù hợp của Tiếng Việt."
+                elif target_language == "English":
+                    lang_instruction = "Bạn BẮT BUỘC phải dịch hoàn toàn sang tiếng Anh. Dùng tiếng lóng (slang) tự nhiên của tiếng Anh."
+                else:
+                    lang_instruction = f"Bạn BẮT BUỘC phải dịch hoàn toàn sang {target_language}."
+
                 prompt = (
-                    f"Nhiệm vụ của bạn là dịch đoạn thoại truyện tranh sau sang {target_language}. "
-                    f"Thể loại: {config.get('genre', '')}. Xưng hô: {config.get('pronouns', '')}. Văn phong: {config.get('tone', '')}. "
-                    f"Yêu cầu: Giữ nguyên văn phong truyện tranh tự nhiên. "
-                    f"Nếu {target_language} là tiếng Anh, hãy dùng tiếng lóng (slang) tự nhiên. "
-                    f"Nếu {target_language} là Tiếng Việt, giữ cấu trúc kính ngữ phù hợp. "
-                    f"Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"translation\\\": \\\"bản dịch\\\"}}]}}. "
+                    f"Nhiệm vụ của bạn là dịch đoạn thoại truyện tranh sau sang {target_language}.\n"
+                    f"{lang_instruction} Không được dịch sang bất kỳ ngôn ngữ nào khác (như chữ Trung Quốc hay giữ nguyên tiếng Nhật).\n"
+                    f"Thể loại: {config.get('genre', '')}. Xưng hô: {config.get('pronouns', '')}. Văn phong: {config.get('tone', '')}.\n"
+                    f"Yêu cầu: Giữ nguyên văn phong truyện tranh tự nhiên.\n"
+                    f"Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"translation\\\": \\\"bản dịch\\\"}}]}}.\n"
                     f"Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
                 )
                 if config.get("glossary"):
@@ -361,7 +368,15 @@ def process_manga_page(self, page_id: str, config: dict):
                         response = deepseek_client.chat.completions.create(
                             model="deepseek-chat",
                             messages=[
-                                {"role": "system", "content": "You output strict JSON containing a 'translations' array of dicts with 'id' and 'translation'."},
+                                {
+                                    "role": "system", 
+                                    "content": (
+                                        "You are a professional manga translator. "
+                                        f"You must translate the text strictly and fully to {target_language}. "
+                                        "Do not output Chinese, Japanese, or any other language. "
+                                        "You output strict JSON containing a 'translations' array of dicts with 'id' and 'translation'."
+                                    )
+                                },
                                 {"role": "user", "content": prompt}
                             ],
                             response_format={'type': 'json_object'}

@@ -531,7 +531,6 @@ export default function Workspace() {
     isRedrawProcessingRef.current = true;
     setIsProcessing(true);
     setActionPosition(null);
-    const toastId = toast.loading("Bắt đầu vẽ lại vùng chọn bằng AI...");
     
     // Trực tiếp trừ xu cục bộ trước dựa trên trạng thái phiên hoạt động
     const amountToDeduct = isRedrawSessionActive ? 1 : 4;
@@ -559,7 +558,7 @@ export default function Workspace() {
       projectStore.setProcessedUrl(currentIndex, newUrl);
 
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-      toast.success("Vẽ lại vùng chọn bằng AI thành công!", { id: toastId });
+      toast.success("Vẽ lại vùng chọn bằng AI thành công!");
       setActiveMode("none");
       setRedrawPrompt("");
       // Lưu lại trạng thái vẽ lại hoạt động vào localStorage
@@ -567,7 +566,7 @@ export default function Workspace() {
       // Đồng bộ ví từ server
       await useAuthStore.getState().fetchProfile();
     } catch (e: any) {
-      toast.error(e.message || "Vẽ lại bằng AI thất bại!", { id: toastId });
+      toast.error(e.message || "Vẽ lại bằng AI thất bại!");
       // Hoàn lại xu hoặc đồng bộ lại ví chính xác từ server
       await useAuthStore.getState().fetchProfile();
     } finally {

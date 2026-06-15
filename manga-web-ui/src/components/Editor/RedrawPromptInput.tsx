@@ -144,6 +144,13 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   return (
     <div className="flex flex-col gap-3.5 p-4 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.7)] rounded-2xl w-[380px] animate-in slide-in-from-bottom-5 fade-in duration-300 pointer-events-auto text-white">
       
+      {/* Header with BETA Badge */}
+      <div className="flex items-center gap-1.5 border-b border-white/5 pb-2 select-none">
+        <Sparkles size={14} className="text-indigo-400" />
+        <span className="text-xs font-bold text-neutral-200">{t('redrawInput.redrawAi')}</span>
+        <span className="bg-blue-500/20 text-blue-400 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ml-2">BETA</span>
+      </div>
+
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <div className="relative">
           <textarea
@@ -176,9 +183,14 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
           </div>
         )}
 
-        {/* Dòng ghi chú nhỏ về phí gọi máy chủ */}
-        <div className="text-[10px] text-gray-400 select-none">
-          {t('redrawInput.redrawDisclaimer')}
+        {/* Dòng ghi chú nhỏ về phí gọi máy chủ và cảnh báo BETA */}
+        <div className="flex flex-col gap-1 select-none">
+          <div className="text-[10px] text-gray-400">
+            {t('redrawInput.redrawDisclaimer')}
+          </div>
+          <div className="text-amber-500/80 text-[11px] mt-1 leading-tight font-medium">
+            {t('redrawInput.redrawBetaWarning')}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">

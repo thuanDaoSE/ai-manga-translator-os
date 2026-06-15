@@ -191,26 +191,35 @@ export default function Topbar() {
         </div>
       </div>
 
-      {/* 2. CENTER ZONE (Empty spacer to align Right Zone) */}
-      <div className="flex-1" />
-
-      {/* 3. RIGHT ZONE: GROUPED BY SYSTEM & PROJECT CONTROLS */}
-      <div className="flex items-center justify-end gap-3 flex-1 relative">
-
-        {/* --- CỤM CÔNG CỤ DỰ ÁN --- */}
-        <div className="h-9 flex items-center bg-background p-0.5 rounded-lg border border-border shadow-inner shrink-0">
-          <button onClick={() => setIsComparing(false)} className={`h-full px-5 text-sm font-medium rounded-md transition-all cursor-pointer ${!isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeAi')}</button>
-          <button onClick={() => setIsComparing(true)} className={`h-full px-5 text-sm font-medium rounded-md transition-all cursor-pointer ${isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeRaw')}</button>
+      {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa) */}
+      <div className="flex items-center justify-center flex-1">
+        <div className="flex items-center bg-background p-1 rounded-lg border border-border shadow-inner">
+          <button onClick={() => setIsComparing(false)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${!isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeAi')}</button>
+          <button onClick={() => setIsComparing(true)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeRaw')}</button>
         </div>
+      </div>
+
+      {/* 3. RIGHT ZONE: CONFIG, CREDITS, EXPORT, ACCOUNT */}
+      <div className="flex items-center justify-end gap-3 flex-1 relative">
 
         {/* Nút Cài đặt dự án chung (Cấu hình dịch) */}
         <button
           onClick={() => setModalOpen(true)}
-          className="h-9 flex items-center gap-1.5 px-3 rounded-lg border border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm group whitespace-nowrap shrink-0 text-sm font-medium"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm group whitespace-nowrap shrink-0 text-[12px] font-bold"
           title="Cài đặt từ điển & Xưng hô AI"
         >
           <Languages size={14} className="text-primary group-hover:scale-110 transition-transform" />
           <span>{t('topbar.configBtn')}</span>
+        </button>
+
+        {/* ĐƯỜNG PHÂN CÁCH DỌC */}
+        <div className="w-px h-5 bg-border mx-1 shrink-0" />
+
+        {/* Nút Credits */}
+        <button onClick={() => setIsPaywallOpen(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-[12px] font-bold ${user?.isPro ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' : 'bg-background hover:bg-border/40 border-border'}`}>
+          <Diamond size={14} className={user?.isPro ? "text-indigo-400 animate-pulse" : "text-amber-500 group-hover:scale-110 transition-transform"} />
+          <span className={user?.isPro ? 'text-indigo-400' : 'text-text-main'}>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span>
+          {!user?.isPro && <span className="text-[9px] font-black uppercase text-amber-500/80 ml-1 hidden sm:inline">{t('topbar.recharge')}</span>}
         </button>
 
         {/* Menu Export */}
@@ -222,7 +231,7 @@ export default function Topbar() {
               setIsExportMenuOpen(!isExportMenuOpen); 
               setIsAccountMenuOpen(false); 
             }} 
-            className={`h-9 flex items-center gap-1.5 bg-primary hover:bg-primary-hover px-3 rounded-lg text-sm font-medium text-white shadow-md transition-colors active:scale-95 shrink-0 ${isExporting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            className={`flex items-center gap-1.5 bg-primary hover:bg-primary-hover px-4 py-1.5 rounded-lg text-[12px] font-bold text-white shadow-md transition-colors active:scale-95 shrink-0 ${isExporting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
           >
             {isExporting ? (
               <>
@@ -249,20 +258,9 @@ export default function Topbar() {
           )}
         </div>
 
-        {/* ĐƯỜNG PHÂN CÁCH DỌC */}
-        <div className="w-px h-5 bg-border mx-1 shrink-0" />
-
-        {/* --- CỤM TÀI KHOẢN & HỆ THỐNG --- */}
-        {/* Nút Credits */}
-        <button onClick={() => setIsPaywallOpen(true)} className={`h-9 flex items-center gap-1.5 px-3 rounded-lg border transition-colors group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-sm font-medium ${user?.isPro ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' : 'bg-background hover:bg-border/40 border-border'}`}>
-          <Diamond size={14} className={user?.isPro ? "text-indigo-400 animate-pulse" : "text-amber-500 group-hover:scale-110 transition-transform"} />
-          <span>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span>
-          {!user?.isPro && <span className="text-[10px] font-bold uppercase text-amber-500/80 ml-1 hidden sm:inline">{t('topbar.recharge')}</span>}
-        </button>
-
         {/* Menu Account */}
         <div className="relative shrink-0" ref={accountMenuRef}>
-          <button onClick={() => { setIsAccountMenuOpen(!isAccountMenuOpen); setIsExportMenuOpen(false); }} className="flex items-center justify-center w-9 h-9 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 focus:ring-2 focus:ring-amber-500/50 transition-transform active:scale-95 cursor-pointer shadow-sm shrink-0">
+          <button onClick={() => { setIsAccountMenuOpen(!isAccountMenuOpen); setIsExportMenuOpen(false); }} className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 focus:ring-2 focus:ring-amber-500/50 transition-transform active:scale-95 cursor-pointer shadow-sm shrink-0">
             <User size={16} className="text-amber-950" strokeWidth={2.5} />
           </button>
 
@@ -290,36 +288,22 @@ export default function Topbar() {
                   <HelpCircle size={14} /> {t('topbar.supportRequest')}
                 </button>
                 {/* Lựa chọn Ngôn ngữ (Language Switcher) */}
-                <div className="w-full flex items-center justify-between px-3 py-2 text-[12px] font-medium text-text-muted rounded-md transition-colors mt-0.5 select-none">
+                <button
+                  onClick={() => {
+                    const nextLang = i18n.language === 'vi' ? 'en' : 'vi';
+                    i18n.changeLanguage(nextLang);
+                    localStorage.setItem('ui_language', nextLang);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer mt-0.5"
+                >
                   <div className="flex items-center gap-2.5">
                     <Globe size={14} className="text-text-muted" />
-                    <span>Language / Ngôn ngữ</span>
+                    <span>{i18n.language === 'vi' ? 'Ngôn ngữ: Tiếng Việt' : 'Language: English'}</span>
                   </div>
-                  <div className="flex items-center bg-background border border-border/50 p-0.5 rounded-md text-[10px]">
-                    <button
-                      onClick={() => {
-                        i18n.changeLanguage('vi');
-                        localStorage.setItem('ui_language', 'vi');
-                      }}
-                      className={`px-1.5 py-0.5 font-bold uppercase rounded transition-all cursor-pointer ${
-                        i18n.language === 'vi' ? 'bg-primary text-white' : 'text-text-muted hover:text-text-main'
-                      }`}
-                    >
-                      VN
-                    </button>
-                    <button
-                      onClick={() => {
-                        i18n.changeLanguage('en');
-                        localStorage.setItem('ui_language', 'en');
-                      }}
-                      className={`px-1.5 py-0.5 font-bold uppercase rounded transition-all cursor-pointer ${
-                        i18n.language.startsWith('en') ? 'bg-primary text-white' : 'text-text-muted hover:text-text-main'
-                      }`}
-                    >
-                      EN
-                    </button>
-                  </div>
-                </div>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-black uppercase">
+                    {i18n.language === 'vi' ? 'VN' : 'EN'}
+                  </span>
+                </button>
               </div>
               <div className="px-2 py-2 bg-background/30">
                 <button onClick={signOut} className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-bold text-danger/80 hover:bg-danger/10 hover:text-danger rounded-md transition-colors cursor-pointer"><LogOut size={14} strokeWidth={2.5} /> {t('topbar.logout')}</button>

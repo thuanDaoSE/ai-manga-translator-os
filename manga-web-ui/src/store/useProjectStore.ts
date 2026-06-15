@@ -21,6 +21,7 @@ interface ProjectState {
   processedUrls: Record<number, string>;
   pageStatuses: Record<number, PageStatus>;
   progresses: Record<number, ProgressData>;
+  retryCounts: Record<number, number>; // 🚀 Thêm dòng này
 
   pastUrls: Record<number, string[]>;
   futureUrls: Record<number, string[]>;
@@ -29,6 +30,7 @@ interface ProjectState {
   setCurrentIndex: (index: number) => void;
   setProcessedUrl: (index: number, url: string) => void;
   setPageStatus: (index: number, status: PageStatus) => void;
+  setRetryCount: (index: number, count: number) => void; // 🚀 Thêm action này
   reorderFiles: (oldIndex: number, newIndex: number) => void;
   startListeningProgress: (index: number, taskId: string) => void;
   clearProgress: (index: number) => void;
@@ -52,6 +54,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   processedUrls: {},
   pageStatuses: {},
   progresses: {},
+  retryCounts: {}, // 🚀 Khởi tạo
   pastUrls: {},
   futureUrls: {},
 
@@ -61,12 +64,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
     set((state) => {
       const newStatuses = { ...state.pageStatuses };
+      const newRetryCounts = { ...state.retryCounts };
       for (let i = 0; i < files.length; i++) {
         newStatuses[startIndex + i] = "processing";
+        newRetryCounts[startIndex + i] = 0;
       }
       return {
         fileQueue: [...state.fileQueue, ...files],
         pageStatuses: newStatuses,
+        retryCounts: newRetryCounts,
         currentIndex: state.currentIndex === -1 ? 0 : state.currentIndex,
       };
     });
@@ -183,7 +189,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((state) => {
       const tempArr = state.fileQueue.map((f, i) => ({
         file: f, url: state.processedUrls[i], status: state.pageStatuses[i],
-        progress: state.progresses[i], pageId: state.pageIds[i], past: state.pastUrls[i], future: state.futureUrls[i]
+        progress: state.progresses[i], pageId: state.pageIds[i], past: state.pastUrls[i], future: state.futureUrls[i],
+        retryCount: state.retryCounts[i]
       }));
 
       tempArr.splice(indexToRemove, 1);
@@ -193,6 +200,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       const newStatuses: Record<number, PageStatus> = {};
       const newProgresses: Record<number, ProgressData> = {};
       const newPageIds: Record<number, string> = {};
+      const newRetryCounts: Record<number, number> = {};
       const newPast: Record<number, string[]> = {};
       const newFuture: Record<number, string[]> = {};
 
@@ -201,6 +209,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
         if (item.status) newStatuses[i] = item.status;
         if (item.progress) newProgresses[i] = item.progress;
         if (item.pageId) newPageIds[i] = item.pageId;
+        if (item.retryCount !== undefined) newRetryCounts[i] = item.retryCount;
         if (item.past) newPast[i] = item.past;
         if (item.future) newFuture[i] = item.future;
       });
@@ -214,13 +223,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
       toast.success("Đã xóa trang và giải phóng bộ nhớ máy chủ!");
       return {
         fileQueue: newQueue, processedUrls: newProcessed, pageStatuses: newStatuses,
-        progresses: newProgresses, pageIds: newPageIds, pastUrls: newPast, futureUrls: newFuture,
+        progresses: newProgresses, pageIds: newPageIds, retryCounts: newRetryCounts, pastUrls: newPast, futureUrls: newFuture,
         currentIndex: newCurrentIndex
       };
     });
   },
 
   setPageStatus: (index, status) => set((state) => ({ pageStatuses: { ...state.pageStatuses, [index]: status } })),
+  setRetryCount: (index, count) => set((state) => ({ retryCounts: { ...state.retryCounts, [index]: count } })),
   clearProgress: (index) => set((state) => {
     const newProgresses = { ...state.progresses };
     delete newProgresses[index];
@@ -261,7 +271,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     if (oldIndex === newIndex) return state;
     const tempArr = state.fileQueue.map((f, i) => ({
       file: f, url: state.processedUrls[i], status: state.pageStatuses[i],
-      progress: state.progresses[i], pageId: state.pageIds[i],
+      progress: state.progresses[i], pageId: state.pageIds[i], retryCount: state.retryCounts[i]
     }));
     const [movedItem] = tempArr.splice(oldIndex, 1);
     tempArr.splice(newIndex, 0, movedItem);
@@ -271,12 +281,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
     const newStatuses: Record<number, PageStatus> = {};
     const newProgresses: Record<number, ProgressData> = {};
     const newPageIds: Record<number, string> = {};
+    const newRetryCounts: Record<number, number> = {};
 
     tempArr.forEach((item, i) => {
       if (item.url) newProcessed[i] = item.url;
       if (item.status) newStatuses[i] = item.status;
       if (item.progress) newProgresses[i] = item.progress;
       if (item.pageId) newPageIds[i] = item.pageId;
+      if (item.retryCount !== undefined) newRetryCounts[i] = item.retryCount;
     });
     let newCurrentIndex = state.currentIndex;
     if (state.currentIndex === oldIndex) newCurrentIndex = newIndex;
@@ -285,7 +297,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
     return {
       fileQueue: newQueue, processedUrls: newProcessed, pageStatuses: newStatuses,
-      progresses: newProgresses, pageIds: newPageIds, currentIndex: newCurrentIndex,
+      progresses: newProgresses, pageIds: newPageIds, retryCounts: newRetryCounts, currentIndex: newCurrentIndex,
     };
   }),
   undoUrl: () => set((state) => {
@@ -329,6 +341,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     const newPageIds: Record<number, string> = {};
     const newPageStatuses: Record<number, PageStatus> = {};
     const newProcessedUrls: Record<number, string> = {};
+    const newRetryCounts: Record<number, number> = {};
     const newQueue: File[] = [];
 
     pages.forEach((page, index) => {
@@ -338,6 +351,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       // Nếu server có gửi status thì dùng, không thì tự suy luận: có ảnh sạch -> cleaned, chưa có -> unprocessed
       // 🚀 Tôn trọng Status thực tế từ DB
       newPageStatuses[index] = page.status || (page.clean_url ? "cleaned" : "unprocessed");
+      newRetryCounts[index] = page.retry_count || 0; // 🚀 Trích xuất retry_count từ Server
 
       if (page.clean_url) {
         newProcessedUrls[index] = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${page.clean_url}?t=${Date.now()}`;
@@ -350,6 +364,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       pageIds: newPageIds,
       pageStatuses: newPageStatuses,
       processedUrls: newProcessedUrls,
+      retryCounts: newRetryCounts,
       fileQueue: newQueue,
       currentIndex: pages.length > 0 ? 0 : -1
     });
