@@ -22,7 +22,7 @@ RUN npm run build
 # Stage 2: Serve the static files using Nginx
 FROM nginx:alpine
 
-# Inject a custom Nginx server block to support HTML5 Push State routing (React Router)
+# Inject a custom Nginx server block to support HTML5 Push State routing (React Router) and proxy backend requests
 RUN printf '%s\n' \
     'server {' \
     '    listen 80;' \
@@ -31,6 +31,21 @@ RUN printf '%s\n' \
     '        root /usr/share/nginx/html;' \
     '        index index.html index.htm;' \
     '        try_files $uri $uri/ /index.html;' \
+    '    }' \
+    '    location /api/ {' \
+    '        proxy_pass http://backend:8000/api/;' \
+    '        proxy_set_header Host $host;' \
+    '        proxy_set_header X-Real-IP $remote_addr;' \
+    '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' \
+    '        proxy_set_header X-Forwarded-Proto $scheme;' \
+    '        client_max_body_size 50M;' \
+    '    }' \
+    '    location /workspace/ {' \
+    '        proxy_pass http://backend:8000/workspace/;' \
+    '        proxy_set_header Host $host;' \
+    '        proxy_set_header X-Real-IP $remote_addr;' \
+    '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' \
+    '        proxy_set_header X-Forwarded-Proto $scheme;' \
     '    }' \
     '    error_page 500 502 503 504 /50x.html;' \
     '    location = /50x.html {' \
