@@ -11,10 +11,14 @@ jobs:
     steps:
       - name: Kết nối VPS, Bơm biến môi trường & Build Docker
         uses: appleboy/ssh-action@master
+        env:
+          ENV_FE: ${{ secrets.ENV_FE }}
+          ENV_BE: ${{ secrets.ENV_BE }}
         with:
           host: ${{ secrets.VPS_IP }}
           username: deepkoma
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: ENV_FE,ENV_BE
           script: |
             # 1. Đi vào thư mục dự án
             cd /home/deepkoma/deepkoma || { echo "Không tìm thấy thư mục dự án!"; exit 1; }
@@ -22,15 +26,11 @@ jobs:
             # 2. Kéo code mới nhất từ nhánh main
             git pull origin main
             
-            # 3. Tạo file .env cho Frontend (🚨 Bắt buộc KHÔNG được viết thụt đầu dòng heredoc EOF)
-cat << 'EOF' > manga-web-ui/.env
-${{ secrets.ENV_FE }}
-EOF
+            # 3. Tạo file .env cho Frontend
+            echo "$ENV_FE" > manga-web-ui/.env
             
-            # 4. Tạo file .env cho Backend (🚨 Bắt buộc KHÔNG được viết thụt đầu dòng heredoc EOF)
-cat << 'EOF' > manga-backend/.env
-${{ secrets.ENV_BE }}
-EOF
+            # 4. Tạo file .env cho Backend
+            echo "$ENV_BE" > manga-backend/.env
             
             # 5. Kiểm tra lệnh Docker Compose (hỗ trợ cả docker-compose cũ và docker compose mới)
             if command -v docker-compose &> /dev/null; then
