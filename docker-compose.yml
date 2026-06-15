@@ -61,6 +61,30 @@ services:
       redis:
         condition: service_healthy
 
+  # Celery Worker Service: Task Orchestration (built from same backend image)
+  celery_worker:
+    build:
+      context: ./manga-backend
+      dockerfile: Dockerfile
+    container_name: manga-celery-worker
+    command: celery -A worker.celery_app worker --loglevel=info
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://deepkoma:secretpassword@db:5432/manga_studio
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    env_file:
+      - ./manga-backend/.env
+    volumes:
+      - ./manga-backend/workspace:/app/workspace
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
   # Frontend Service: React (Vite + Nginx Alpine)
   frontend:
     build:
