@@ -35,8 +35,31 @@ export default function App() {
   // }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setUser(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setUser(session));
+    const cleanTrailingHash = () => {
+      if (window.location.href.includes('#')) {
+        const hash = window.location.hash;
+        // Only strip the hash if it is empty or just '#' (i.e. Supabase has finished processing the token)
+        if (hash === '' || hash === '#') {
+          const cleanUrl = window.location.href.split('#')[0];
+          window.history.replaceState(null, document.title, cleanUrl);
+        }
+      }
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session);
+      cleanTrailingHash();
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session);
+      // Wait a moment for Supabase client to finish parsing and clearing its hash params before we strip the remaining '#'
+      setTimeout(cleanTrailingHash, 300);
+    });
+
+    // Run clean up immediately on mount
+    cleanTrailingHash();
+
     return () => subscription.unsubscribe();
   }, [setUser]);
 

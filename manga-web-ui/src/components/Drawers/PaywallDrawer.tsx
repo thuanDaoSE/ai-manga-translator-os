@@ -320,7 +320,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
             </button>
             <div className="text-center text-[10px] text-gray-500">
               <Trans i18nKey="paywall.termsAgreement">
-                Bằng việc tiếp tục, bạn đồng ý với <a href="#" className="underline hover:text-indigo-400 transition-colors">Điều khoản Dịch vụ</a> của chúng tôi.
+                Bằng việc tiếp tục, bạn đồng ý với <a href="#" onClick={(e) => e.preventDefault()} className="underline hover:text-indigo-400 transition-colors">Điều khoản Dịch vụ</a> của chúng tôi.
               </Trans>
             </div>
           </div>
