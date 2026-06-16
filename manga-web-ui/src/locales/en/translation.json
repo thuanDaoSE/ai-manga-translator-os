@@ -71,7 +71,18 @@
     "redrawConfirmTitle": "Activate AI Redraw (SDXL)",
     "redrawConfirmDesc": "The Redraw tool uses premium GPU infrastructure and a custom SDXL model to reconstruct selected regions. The activation fee for this page is 2 Credits.",
     "agreeCredits": "Agree (2 Credits)",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "executeBetaButton": "✨ Execute ({{credits}} Credits)",
+    "betaTosTitle": "⚠️ Terms & Service Confirmation (BETA)",
+    "betaTosCost": "• Cost: This operation costs {{credits}} Credits.",
+    "betaTosQuality": "• Quality (BETA): To optimize speed, output image is normalized to 2K resolution.",
+    "betaTosNsfw": "• NSFW Policy: Strictly prohibit censoring 18+ content. Violations will result in permanent ACCOUNT BAN with no refund.",
+    "betaTosAgree": "I understand and agree.",
+    "betaTosCancel": "Cancel",
+    "betaTosConfirm": "Agree",
+    "betaTranslateSuccess": "✨ Translated and text removed successfully!",
+    "betaTranslateNsfwError": "🛑 WARNING: Inappropriate 18+ content detected. Service denied!",
+    "betaTranslateNetworkError": "Server is overloaded or network error, please try again later."
   },
   "paywall": {
     "rechargeTitle": "Recharge Credits",

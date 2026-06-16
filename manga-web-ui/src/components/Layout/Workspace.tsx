@@ -21,8 +21,22 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { useMangaEditorStore } from '../../store/useMangaEditorStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useDeviceDetect } from '../../hooks/useDeviceDetect';
-import { Smartphone, ArrowLeft } from 'lucide-react';
+import { Smartphone, ArrowLeft, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+
+// Helper to convert base64/dataURL to Blob
+const dataURLtoBlob = (dataurl: string) => {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/png';
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new Blob([u8arr], { type: mime });
+};
+
 
 export default function Workspace() {
   const { t } = useTranslation();
@@ -35,6 +49,115 @@ export default function Workspace() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isEraseProcessingRef = useRef(false);
   const isRedrawProcessingRef = useRef(false);
+
+  const [showTosModal, setShowTosModal] = useState(false);
+  const [tosChecked, setTosChecked] = useState(false);
+  const [isBetaTranslating, setIsBetaTranslating] = useState(false);
+
+  const startBetaTranslation = async () => {
+    if (isBetaTranslating) return;
+    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
+    if (!drawCanvas) return;
+
+    // Đọc số xu
+    const { user } = useAuthStore.getState();
+    const currentCredits = user?.credits || 0;
+    if (currentCredits < 3) {
+      setShowPaywall(true);
+      toast.error("Tài khoản của bạn không đủ Xu. Vui lòng nạp thêm!");
+      return;
+    }
+
+    setIsBetaTranslating(true);
+    setIsProcessing(true);
+    setActionPosition(null);
+
+    const toastId = toast.loading("Đang thực hiện dịch và xóa chữ...");
+
+    try {
+      // 1. Chuyển mask canvas sang Blob
+      const maskBase64 = drawCanvas.toDataURL("image/png");
+      const maskBlob = dataURLtoBlob(maskBase64);
+
+      // 2. Chuyển ảnh hiện tại trên canvas sang Blob
+      if (!displayUrl) throw new Error("Không tìm thấy ảnh gốc.");
+      const imageResponse = await fetch(displayUrl);
+      const imageBlob = await imageResponse.blob();
+
+      // 3. Gọi API thực thi dịch
+      const cleanImageBlob = await mangaApi.betaTranslate(imageBlob, maskBlob, true);
+
+      // Trừ xu cục bộ trước
+      useAuthStore.getState().deductLocalCredits(3);
+      // Gọi API trừ xu thật trên Database
+      mangaApi.deductCredits(3).catch(e => console.error("Lỗi khấu trừ xu:", e));
+
+      // Tạo URL ảnh mới
+      const newUrl = URL.createObjectURL(cleanImageBlob);
+
+      // Lưu lịch sử trong Editor store
+      useMangaEditorStore.getState().saveHistory();
+      useMangaEditorStore.getState().setImageUrl(newUrl);
+
+      // Đồng bộ URL mới vào projectStore
+      projectStore.setProcessedUrl(currentIndex, newUrl);
+
+      // Xóa vùng chọn vẽ trên mask
+      const ctx = drawCanvas.getContext("2d");
+      if (ctx) ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+
+      toast.success("✨ Dịch và xóa chữ thành công!", { id: toastId });
+      setActiveMode("none");
+    } catch (err: any) {
+      console.error(err);
+      toast.dismiss(toastId);
+
+      const errorMsg = err.message || "";
+      if (
+        errorMsg.includes("Không phù hợp") || 
+        errorMsg.includes("không phù hợp") || 
+        errorMsg.includes("Ảnh chứa nội dung") || 
+        errorMsg.includes("NSFW") || 
+        errorMsg.includes("400")
+      ) {
+        toast.error("🛑 CẢNH BÁO: Phát hiện nội dung 18+ không hợp lệ. Từ chối phục vụ!", { duration: 6000 });
+      } else {
+        toast.error("Máy chủ đang quá tải hoặc lỗi mạng, vui lòng thử lại sau.");
+      }
+
+      // Đồng bộ ví từ server
+      await useAuthStore.getState().fetchProfile();
+    } finally {
+      setIsBetaTranslating(false);
+      setIsProcessing(false);
+    }
+  };
+
+  const handleExecuteBetaTranslate = () => {
+    // 1. Kiểm tra xem đã vẽ khoanh vùng chưa
+    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
+    const ctx = drawCanvas?.getContext("2d");
+    if (!ctx?.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data.some((p, i) => i % 4 === 3 && p > 0)) {
+      return toast.error("Hãy vẽ khoanh vùng đỏ trước khi thực thi!");
+    }
+
+    // 2. Kiểm tra điều khoản
+    const hasAgreed = localStorage.getItem('agreed_nsfw_terms');
+    if (hasAgreed === 'true') {
+      startBetaTranslation();
+    } else {
+      setTosChecked(false);
+      setShowTosModal(true);
+    }
+  };
+
+  const handleAgreeTerms = () => {
+    if (!tosChecked) return;
+    localStorage.setItem('agreed_nsfw_terms', 'true');
+    setShowTosModal(false);
+    startBetaTranslation();
+  };
+
 
   // 1. Lifecycle Garbage Collection (CRITICAL)
   useEffect(() => {
@@ -806,6 +929,97 @@ export default function Workspace() {
         isOpen={showPaywall}
         onClose={() => setShowPaywall(false)}
       />
+
+      {/* 🚀 NÚT THỰC THI (ACTION BUTTON) HÌNH TRÒN Ở GÓC DƯỚI BÊN PHẢI */}
+      {displayUrl && (
+        <div className="absolute bottom-6 right-6 z-[100] pointer-events-auto flex flex-col items-center group">
+          {/* Custom Figma-style Tooltip hiện khi hover */}
+          <div className="absolute -top-12 right-0 opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 px-3 py-2 bg-panel text-white text-[11px] font-bold rounded-lg shadow-xl whitespace-nowrap pointer-events-none border border-border z-[150] flex items-center gap-1.5">
+            <span>{t('workspace.executeBetaButton', { credits: 3 })}</span>
+            <span className="bg-yellow-500/20 text-yellow-400 text-[9px] px-1 py-0.5 rounded uppercase font-bold">BETA</span>
+            <div className="absolute -bottom-1.5 right-6 border-4 border-transparent border-t-border"></div>
+          </div>
+
+          <div className="relative">
+            {/* Nhãn BETA màu vàng/cam nhỏ góc trên đầu */}
+            <span className="absolute -top-1 -right-1 bg-gradient-to-r from-amber-400 to-amber-600 text-neutral-950 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider shadow-[0_2px_10px_rgba(245,158,11,0.4)] border border-amber-300/30 z-50 animate-bounce duration-1000 select-none">
+              BETA
+            </span>
+            
+            <button
+              onClick={handleExecuteBetaTranslate}
+              disabled={isBetaTranslating || isProcessing}
+              className={`w-14 h-14 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-[0_10px_30px_rgba(99,102,241,0.3)] hover:shadow-[0_10px_35px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all cursor-pointer border border-indigo-400/20 flex items-center justify-center select-none
+                ${(isBetaTranslating || isProcessing) ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}
+              `}
+            >
+              {isBetaTranslating ? (
+                <Loader2 className="w-6 h-6 animate-spin text-white" />
+              ) : (
+                <Sparkles className="w-6 h-6 text-white" />
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🚀 MODAL CẢNH BÁO ĐIỀU KHOẢN (TOS MODAL) ĐÃ ÁP DỤNG I18N */}
+      {showTosModal && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-[#0c0c0e]/80 backdrop-blur-md" />
+          <div className="relative max-w-md w-full bg-[#16161a] border border-white/10 rounded-3xl p-7 shadow-[0_25px_60px_rgba(0,0,0,0.8)] flex flex-col gap-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+              <div className="flex items-center justify-center w-10 h-10 bg-amber-500/10 rounded-xl text-amber-500 border border-amber-500/20">
+                <span className="text-xl">⚠️</span>
+              </div>
+              <h3 className="text-base font-extrabold text-white tracking-tight uppercase">
+                {t('workspace.betaTosTitle')}
+              </h3>
+            </div>
+
+            <div className="space-y-3 text-left">
+              <div className="bg-neutral-900/60 p-5 rounded-2xl border border-white/5 space-y-2.5 font-medium text-xs text-gray-300 leading-relaxed">
+                <p>{t('workspace.betaTosCost', { credits: 3 })}</p>
+                <p>{t('workspace.betaTosQuality')}</p>
+                <p className="text-rose-400 font-bold">{t('workspace.betaTosNsfw')}</p>
+              </div>
+            </div>
+
+            <label className="flex items-center gap-3 cursor-pointer select-none text-xs text-gray-300 hover:text-white transition-colors group">
+              <input
+                type="checkbox"
+                checked={tosChecked}
+                onChange={(e) => setTosChecked(e.target.checked)}
+                className="w-4 h-4 bg-neutral-900 border border-white/10 rounded text-primary focus:ring-primary focus:ring-offset-neutral-900 cursor-pointer transition-all"
+              />
+              <span className="font-semibold group-hover:translate-x-0.5 transition-transform duration-200">
+                {t('workspace.betaTosAgree')}
+              </span>
+            </label>
+
+            <div className="flex gap-3 border-t border-white/5 pt-4">
+              <button
+                onClick={() => setShowTosModal(false)}
+                className="flex-1 py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-white/5 text-center active:scale-[0.98]"
+              >
+                {t('workspace.betaTosCancel')}
+              </button>
+              <button
+                onClick={handleAgreeTerms}
+                disabled={!tosChecked}
+                className={`flex-1 py-3 px-4 font-bold text-xs uppercase tracking-wider rounded-xl transition-all text-center select-none border active:scale-[0.98]
+                  ${tosChecked
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white border-indigo-400/20 shadow-md cursor-pointer'
+                    : 'bg-neutral-800 text-neutral-500 border-transparent cursor-not-allowed opacity-50'
+                  }
+                `}
+              >
+                {t('workspace.betaTosConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+}

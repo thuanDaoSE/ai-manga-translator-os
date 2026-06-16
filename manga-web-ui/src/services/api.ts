@@ -183,7 +183,10 @@ export const mangaApi = {
       }));
     }
 
-    const cleanUrl = data.new_url.split('?')[0];
+    let cleanUrl = data.new_url.split('?')[0];
+    if (window.location.protocol === 'https:' && cleanUrl.startsWith('http://')) {
+      cleanUrl = cleanUrl.replace('http://', 'https://');
+    }
     return `${cleanUrl}?t=${Date.now()}`;
   },
 
@@ -211,9 +214,29 @@ export const mangaApi = {
       }));
     }
 
-    const cleanUrl = data.new_url.split('?')[0];
+    let cleanUrl = data.new_url.split('?')[0];
+    if (window.location.protocol === 'https:' && cleanUrl.startsWith('http://')) {
+      cleanUrl = cleanUrl.replace('http://', 'https://');
+    }
     return `${cleanUrl}?t=${Date.now()}`;
   },
+
+  betaTranslate: async (imageBlob: Blob, maskBlob: Blob, tosAgreed: boolean) => {
+    const formData = new FormData();
+    formData.append("image", imageBlob, "image.png");
+    formData.append("mask", maskBlob, "mask.png");
+    formData.append("tos_agreed", String(tosAgreed));
+
+    const response = await fetch(`${BASE_URL}/api/v1/beta-translate`, {
+      method: "POST",
+      headers: await getAuthHeaders(true), // isFormData = true
+      body: formData,
+    });
+    
+    await handleApiError(response, "Lỗi dịch và xóa chữ");
+    return await response.blob();
+  },
+
 
   processRedrawPrompt: async (vietnameseText: string, selectedTags: string[], mode: 'manga' | 'webtoon') => {
     const response = await fetch(`${API_URL}/redraw-prompt`, {

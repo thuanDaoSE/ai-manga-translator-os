@@ -12,14 +12,28 @@ const resources = {
   }
 };
 
-// Check if localStorage has language choice, default to 'vi'
-const savedLang = localStorage.getItem('ui_language') || 'vi';
+const getInitialLanguage = () => {
+  // Ưu tiên 1: Tôn trọng sự lựa chọn (User Preference) lưu trong localStorage với key 'lang' hoặc 'ui_language'
+  const savedLang = localStorage.getItem('lang') || localStorage.getItem('ui_language');
+  if (savedLang === 'vi' || savedLang === 'en') {
+    return savedLang;
+  }
+
+  // Ưu tiên 2: "Đọc vị" Trình duyệt (Browser Language)
+  const browserLang = navigator.language || (navigator.languages && navigator.languages[0]) || '';
+  if (browserLang.toLowerCase().startsWith('vi')) {
+    return 'vi';
+  }
+  return 'en';
+};
+
+const initialLang = getInitialLanguage();
 
 i18n
   .use(initReactI18next)
   .init({
     resources,
-    lng: savedLang,
+    lng: initialLang,
     fallbackLng: 'vi',
     interpolation: {
       escapeValue: false // React already escapes values (prevents XSS)

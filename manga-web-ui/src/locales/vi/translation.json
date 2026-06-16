@@ -71,7 +71,18 @@
     "redrawConfirmTitle": "Kích hoạt vẽ lại AI (SDXL)",
     "redrawConfirmDesc": "Tính năng Vẽ lại sử dụng GPU đồ họa cao cấp và Model SDXL chuyên dụng để tái tạo nét vẽ vùng chọn. Phí kích hoạt cho trang truyện hiện tại là 2 Xu.",
     "agreeCredits": "Đồng ý (2 Xu)",
-    "cancel": "Hủy"
+    "cancel": "Hủy",
+    "executeBetaButton": "✨ Thực thi ({{credits}} Xu)",
+    "betaTosTitle": "⚠️ Xác nhận Dịch vụ & Điều khoản (BETA)",
+    "betaTosCost": "• Chi phí: Thao tác này tiêu tốn {{credits}} Xu.",
+    "betaTosQuality": "• Chất lượng (BETA): Để tối ưu tốc độ, ảnh đầu ra sẽ được chuẩn hóa ở độ phân giải 2K.",
+    "betaTosNsfw": "• Chính sách NSFW: Nghiêm cấm bôi xóa nội dung 18+. Vi phạm sẽ bị KHÓA TÀI KHOẢN vĩnh viễn không hoàn tiền.",
+    "betaTosAgree": "Tôi đã hiểu và đồng ý.",
+    "betaTosCancel": "Hủy",
+    "betaTosConfirm": "Đồng ý",
+    "betaTranslateSuccess": "✨ Dịch và xóa chữ thành công!",
+    "betaTranslateNsfwError": "🛑 CẢNH BÁO: Phát hiện nội dung 18+ không hợp lệ. Từ chối phục vụ!",
+    "betaTranslateNetworkError": "Máy chủ đang quá tải hoặc lỗi mạng, vui lòng thử lại sau."
   },
   "paywall": {
     "rechargeTitle": "Nạp Xu (Recharge Credits)",

@@ -25,6 +25,7 @@ celery==5.3.6
 
 # --- AI API & NLP ENGINE ---
 openai==2.35.0
+onnxruntime==1.23.2
 pyahocorasick
 
 # --- IMAGE VALIDATION (Siêu nhẹ, không chứa GUI) ---

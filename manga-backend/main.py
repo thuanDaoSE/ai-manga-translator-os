@@ -108,6 +108,87 @@ deepseek_client = OpenAI(
     base_url="https://api.deepseek.com"
 )
 
+# ==========================================
+# 🛡️ KHỞI TẠO MÔ HÌNH KIỂM DUYỆT LOCAL NSFW (ViT-Base ONNX)
+# ==========================================
+import onnxruntime as ort
+
+NSFW_MODEL_PATH = os.path.join(os.path.dirname(__file__), "nsfw_anime.onnx")
+nsfw_session = None
+
+try:
+    if os.path.exists(NSFW_MODEL_PATH):
+        # Thiết lập giới hạn CPU threads để tránh nghẽn CPU trên VPS 2 Cores
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = 1
+        opts.inter_op_num_threads = 1
+        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        
+        # Chỉ chạy CPUExecutionProvider để tiết kiệm RAM/GPU
+        nsfw_session = ort.InferenceSession(
+            NSFW_MODEL_PATH, 
+            sess_options=opts, 
+            providers=["CPUExecutionProvider"]
+        )
+        print(f"🚀 [NSFW] Đã load mô hình NSFW thành công từ: {NSFW_MODEL_PATH} (Giới hạn 1 thread CPU)")
+    else:
+        print(f"⚠️ [NSFW] Không tìm thấy file {NSFW_MODEL_PATH}. Chế độ kiểm duyệt NSFW sẽ tạm thời bypass.")
+except Exception as e:
+    print(f"❌ [NSFW] Lỗi khi load mô hình NSFW: {e}")
+
+def check_nsfw_score(image_pil: Image.Image) -> float:
+    """
+    Chạy ảnh qua mô hình nsfw_anime.onnx (ViT-Base) để chấm điểm NSFW.
+    Quy trình tiền xử lý:
+    1. Chuyển sang RGB.
+    2. Resize về 224x224 dùng Bicubic Interpolation.
+    3. Chuyển thành numpy float32 và scale về [0.0, 1.0].
+    4. Chuẩn hóa: mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5] (tức là: x * 2 - 1).
+    5. Transpose HWC -> NCHW (1, 3, 224, 224).
+    6. Tính toán Softmax từ logits đầu ra và cộng dồn xác suất của: hentai + porn + sexy.
+    """
+    if nsfw_session is None:
+        # Nếu chưa load được mô hình (môi trường dev không có file), mặc định trả về 0.0 để bypass
+        return 0.0
+        
+    try:
+        # 1. Chuyển sang RGB (Quan trọng đối với truyện tranh trắng đen)
+        img = image_pil.convert("RGB")
+        
+        # 2. Resize về 224x224 dùng Bicubic Interpolation để bảo toàn nét vẽ (lineart)
+        img = img.resize((224, 224), Image.Resampling.BICUBIC)
+        
+        # 3. Chuyển sang numpy float32 và scale về [0.0, 1.0]
+        img_data = np.array(img).astype(np.float32) / 255.0
+        
+        # 4. Chuẩn hóa mean = [0.5, 0.5, 0.5], std = [0.5, 0.5, 0.5]
+        # (x - 0.5) / 0.5 = 2.0 * x - 1.0
+        img_data = (img_data - 0.5) / 0.5
+        
+        # 5. Transpose HWC -> CHW và thêm chiều batch -> NCHW
+        img_data = np.transpose(img_data, (2, 0, 1))  # 3, 224, 224
+        img_data = np.expand_dims(img_data, axis=0)    # 1, 3, 224, 224
+        
+        # 6. Chạy inference
+        input_name = nsfw_session.get_inputs()[0].name
+        outputs = nsfw_session.run(None, {input_name: img_data})
+        logits = outputs[0][0]  # shape: (5,)
+        
+        # Áp dụng Softmax để lấy xác suất ổn định toán học
+        exp_logits = np.exp(logits - np.max(logits))
+        probs = exp_logits / np.sum(exp_logits)
+        
+        # Thứ tự các lớp: ["drawings", "hentai", "neutral", "porn", "sexy"]
+        # Chỉ lấy tổng xác suất của hentai (1), porn (3), sexy (4)
+        nsfw_prob = float(probs[1] + probs[3] + probs[4])
+        return nsfw_prob
+        
+    except Exception as e:
+        print(f"❌ [NSFW Inference Error] Lỗi kiểm duyệt ảnh: {e}")
+        # Nếu có lỗi khi chạy inference, trả về 0.0 để tránh treo/crash request ngoài ý muốn
+        return 0.0
+
+
 # 🚀 BỔ SUNG MODEL CHO AI COPILOT
 class CopilotRequest(BaseModel):
     text: str
@@ -1298,7 +1379,12 @@ async def erase_mask(
         user_obj = res_user.scalar_one_or_none()
         current_credits = user_obj.credits if user_obj else 0
 
-        new_url = f"{str(request.base_url).rstrip('/')}/{clean_path}"
+        base_url = str(request.base_url).rstrip('/')
+        forwarded_proto = request.headers.get("x-forwarded-proto") or request.headers.get("X-Forwarded-Proto")
+        if "deepkoma.pro" in base_url or forwarded_proto == "https":
+            if base_url.startswith("http://"):
+                base_url = "https://" + base_url[7:]
+        new_url = f"{base_url}/{clean_path}"
         return {"status": "success", "new_url": new_url, "credits": current_credits}
         
     except Exception as e:
@@ -1573,7 +1659,12 @@ async def redraw_image(
         if os.path.exists(mask_temp_path):
             os.remove(mask_temp_path)
 
-        new_url = f"{str(request.base_url).rstrip('/')}/{clean_path}?t={int(time.time())}"
+        base_url = str(request.base_url).rstrip('/')
+        forwarded_proto = request.headers.get("x-forwarded-proto") or request.headers.get("X-Forwarded-Proto")
+        if "deepkoma.pro" in base_url or forwarded_proto == "https":
+            if base_url.startswith("http://"):
+                base_url = "https://" + base_url[7:]
+        new_url = f"{base_url}/{clean_path}?t={int(time.time())}"
 
         # Capture telemetry event in PostHog upon successful redraw completion
         inference_time_ms = int((time.time() - redraw_start) * 1000)
@@ -2989,3 +3080,158 @@ async def process_redraw_prompt(
     except Exception as e:
         print(f"🛑 [LỖI REDRAW PROMPT]: {e}")
         raise HTTPException(status_code=500, detail=f"Lỗi xử lý prompt vẽ lại: {str(e)}")
+
+# ==========================================
+# 🚀 BETA TRANSLATION API (Xóa chữ trên truyện tranh dùng xAI Grok)
+# ==========================================
+import httpx
+
+@app.post("/api/v1/beta-translate")
+async def beta_translate(
+    image: UploadFile = File(..., description="File ảnh gốc truyện tranh"),
+    mask: UploadFile = File(..., description="File ảnh mặt nạ chỉ định vùng chữ cần xóa"),
+    tos_agreed: bool = Form(..., description="Đồng ý với điều khoản NSFW và phí dịch vụ")
+):
+    """
+    Endpoint POST /api/v1/beta-translate:
+    1. Nhận ảnh gốc, ảnh mask và cờ đồng ý điều khoản. Nếu cờ là False, trả lỗi 403.
+    2. Chạy ảnh gốc qua mô hình ViT ONNX để kiểm duyệt NSFW. Nếu hentai + porn + sexy > 0.65, trả lỗi 400.
+    3. Cứu RAM bằng cách resize ảnh và mask nếu cạnh dài nhất vượt quá 2048px.
+    4. Mã hóa Base64 ảnh và mask.
+    5. Gọi API xAI Grok thực hiện inpainting xóa chữ vẽ lại hình nền.
+    6. Trả ảnh PNG kết quả trực tiếp cho Frontend dưới dạng StreamingResponse.
+    """
+    # 1. Kiểm tra điều khoản đồng ý dịch vụ
+    if not tos_agreed:
+        raise HTTPException(
+            status_code=403,
+            detail="Vui lòng đồng ý điều khoản NSFW và phí dịch vụ"
+        )
+
+    # Đọc bytes từ file upload
+    try:
+        image_bytes = await image.read()
+        mask_bytes = await mask.read()
+    except Exception as read_err:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Không thể đọc file đầu vào: {str(read_err)}"
+        )
+
+    # Mở ảnh bằng Pillow
+    try:
+        image_pil = Image.open(io.BytesIO(image_bytes))
+        mask_pil = Image.open(io.BytesIO(mask_bytes))
+    except Exception as img_err:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Định dạng tệp ảnh không hợp lệ (hỗ trợ PNG/JPG): {str(img_err)}"
+        )
+
+    # 2. Kiểm duyệt Local NSFW sử dụng mô hình ViT ONNX đã load toàn cục
+    nsfw_score = check_nsfw_score(image_pil)
+    if nsfw_score > 0.65:
+        raise HTTPException(
+            status_code=400,
+            detail="Ảnh chứa nội dung không phù hợp"
+        )
+
+    # 3. Tiền xử lý & Cứu RAM (Pillow): Giới hạn cạnh dài nhất tối đa 2048px
+    w_orig, h_orig = image_pil.size
+    max_dim = max(w_orig, h_orig)
+    if max_dim > 2048:
+        scale = 2048.0 / max_dim
+        new_w = int(w_orig * scale)
+        new_h = int(h_orig * scale)
+        # Resize ảnh gốc bằng LANCZOS và mask bằng NEAREST để giữ màu đen trắng sắc nét
+        image_pil = image_pil.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        mask_pil = mask_pil.resize((new_w, new_h), Image.Resampling.NEAREST)
+        print(f"⚙️ [BETA-TRANSLATE] Đã resize ảnh từ {w_orig}x{h_orig} sang {new_w}x{new_h} để tiết kiệm RAM.")
+
+    # 4. Chuyển đổi image và mask thành chuỗi Base64
+    try:
+        buffer_image = io.BytesIO()
+        image_pil.save(buffer_image, format="PNG")
+        image_b64 = base64.b64encode(buffer_image.getvalue()).decode("utf-8")
+
+        buffer_mask = io.BytesIO()
+        mask_pil.save(buffer_mask, format="PNG")
+        mask_b64 = base64.b64encode(buffer_mask.getvalue()).decode("utf-8")
+    except Exception as b64_err:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi mã hóa Base64 ảnh/mặt nạ: {str(b64_err)}"
+        )
+
+    # 5. Gọi API xAI Grok (Image-to-Image Inpainting)
+    xai_api_key = os.getenv("XAI_API_KEY")
+    if not xai_api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Hệ thống chưa cấu hình API Key xAI (XAI_API_KEY)."
+        )
+
+    payload = {
+        "model": "grok-imagine-image",
+        "prompt": "Remove text inside the bubbles, clean background, redraw missing parts, manga style, lineart",
+        "image": image_b64,
+        "mask": mask_b64,
+        "resolution": "2k"
+    }
+
+    headers = {
+        "Authorization": f"Bearer {xai_api_key}",
+        "Content-Type": "application/json"
+    }
+
+    url = "https://api.x.ai/v1/images/generations"
+
+    # Gọi API bất đồng bộ với httpx và bắt lỗi mạng rõ ràng
+    async with httpx.AsyncClient() as client:
+        try:
+            print("📡 [BETA-TRANSLATE] Đang gửi yêu cầu inpaint đến xAI Grok...")
+            response = await client.post(url, json=payload, headers=headers, timeout=60.0)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as http_err:
+            print(f"❌ [BETA-TRANSLATE] Lỗi HTTP từ xAI: {http_err.response.status_code} - {http_err.response.text}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Dịch vụ AI phản hồi lỗi: {http_err.response.text}"
+            )
+        except httpx.RequestError as net_err:
+            print(f"❌ [BETA-TRANSLATE] Lỗi kết nối đến xAI: {net_err}")
+            raise HTTPException(
+                status_code=503,
+                detail="Không thể kết nối đến dịch vụ AI. Vui lòng kiểm tra lại sau."
+            )
+
+    # 6. Phân tích kết quả trả về từ xAI
+    try:
+        res_json = response.json()
+        img_item = res_json.get("data", [{}])[0]
+        
+        # Hỗ trợ cả b64_json (trả về trực tiếp base64) và url (trả về đường dẫn ảnh)
+        b64_output = img_item.get("b64_json")
+        if b64_output:
+            if "," in b64_output:
+                b64_output = b64_output.split(",")[1]
+            output_bytes = base64.b64decode(b64_output)
+        else:
+            img_url = img_item.get("url")
+            if img_url:
+                print(f"📡 [BETA-TRANSLATE] Đang tải ảnh kết quả từ URL xAI: {img_url}")
+                async with httpx.AsyncClient() as dl_client:
+                    dl_res = await dl_client.get(img_url, timeout=30.0)
+                    dl_res.raise_for_status()
+                    output_bytes = dl_res.content
+            else:
+                raise Exception("Không tìm thấy thông tin ảnh kết quả (b64_json hoặc url) trong phản hồi của xAI.")
+    except Exception as parse_err:
+        print(f"❌ [BETA-TRANSLATE] Lỗi parse dữ liệu từ xAI: {parse_err}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Không thể xử lý ảnh kết quả từ dịch vụ AI: {str(parse_err)}"
+        )
+
+    # Trả về ảnh PNG đã xóa chữ dưới dạng StreamingResponse
+    return StreamingResponse(io.BytesIO(output_bytes), media_type="image/png")

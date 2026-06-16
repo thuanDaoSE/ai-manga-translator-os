@@ -258,6 +258,25 @@ export default function Topbar() {
           )}
         </div>
 
+        {/* Language Switcher (Vietnam/UK Flag Toggle) */}
+        <button
+          onClick={() => {
+            const nextLang = i18n.language === 'vi' ? 'en' : 'vi';
+            i18n.changeLanguage(nextLang);
+            localStorage.setItem('lang', nextLang);
+            localStorage.setItem('ui_language', nextLang);
+          }}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm text-[12px] font-bold shrink-0"
+          title={i18n.language === 'vi' ? 'Switch to English' : 'Chuyển sang Tiếng Việt'}
+        >
+          <span className="text-[16px] leading-none">
+            {i18n.language === 'vi' ? '🇻🇳' : '🇬🇧'}
+          </span>
+          <span className="hidden md:inline">
+            {i18n.language === 'vi' ? 'VI' : 'EN'}
+          </span>
+        </button>
+
         {/* Menu Account */}
         <div className="relative shrink-0" ref={accountMenuRef}>
           <button onClick={() => { setIsAccountMenuOpen(!isAccountMenuOpen); setIsExportMenuOpen(false); }} className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 focus:ring-2 focus:ring-amber-500/50 transition-transform active:scale-95 cursor-pointer shadow-sm shrink-0">
@@ -292,6 +311,7 @@ export default function Topbar() {
                   onClick={() => {
                     const nextLang = i18n.language === 'vi' ? 'en' : 'vi';
                     i18n.changeLanguage(nextLang);
+                    localStorage.setItem('lang', nextLang);
                     localStorage.setItem('ui_language', nextLang);
                   }}
                   className="w-full flex items-center justify-between px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer mt-0.5"
