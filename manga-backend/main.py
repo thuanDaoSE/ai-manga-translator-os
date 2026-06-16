@@ -2769,53 +2769,68 @@ async def create_payment_link(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id)
 ):
-    amount = payload.amount
-    if amount < 20000:
-        raise HTTPException(status_code=400, detail="Số tiền nạp tối thiểu là 20.000 VNĐ")
-
-    # Quy đổi kèm bonus
-    credits_to_add = calculate_credits(amount)
-
-    email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
-    await ensure_user_exists(db, user_id, email)
-
-    order_code = int(time.time() * 1000)
-    
-    cancel_url = "http://localhost:5173/workspace?payment=failed"
-    return_url = "http://localhost:5173/workspace?payment=success"
-    
-    payment_request = CreatePaymentLinkRequest(
-        order_code=order_code,
-        amount=amount,
-        description=f"Nap {credits_to_add} Xu", 
-        cancel_url=cancel_url,
-        return_url=return_url
-    )
-    
     try:
-        payment_link = payos_client.payment_requests.create(payment_request)
-    except Exception as e:
-        print(f"🛑 [LỖI TẠO LINK PAYOS]: {e}")
-        raise HTTPException(status_code=500, detail="Không thể tạo link thanh toán từ cổng PayOS!")
-        
-    # Lưu giao dịch PENDING vào CSDL PayOS (để quản lý link)
-    new_txn = Transaction(
-        order_code=order_code,
-        user_id=user_id,
-        package_name=f"Nạp {credits_to_add} Xu",
-        amount=amount,
-        credits_added=credits_to_add,
-        status="PENDING",
-        checkout_url=payment_link.checkout_url
-    )
-    db.add(new_txn)
-    await db.commit()
+        amount = payload.amount
+        if amount < 20000:
+            raise HTTPException(status_code=400, detail="Số tiền nạp tối thiểu là 20.000 VNĐ")
     
-    return {
-        "checkoutUrl": payment_link.checkout_url,
-        "qrCode": payment_link.qr_code,
-        "orderCode": order_code
-    }
+        # Quy đổi kèm bonus
+        credits_to_add = calculate_credits(amount)
+    
+        email = getattr(request.state, "user_email", None) or f"user_{user_id}@deepkoma.local"
+        await ensure_user_exists(db, user_id, email)
+    
+        order_code = int(time.time() * 1000)
+        
+        # Cấu hình domain động từ backend base_url thay vì localhost cố định
+        base_url = get_base_url().rstrip('/')
+        forwarded_proto = request.headers.get("x-forwarded-proto") or request.headers.get("X-Forwarded-Proto")
+        if "deepkoma.pro" in base_url or forwarded_proto == "https":
+            if base_url.startswith("http://"):
+                base_url = "https://" + base_url[7:]
+                
+        cancel_url = f"{base_url}/workspace?payment=failed"
+        return_url = f"{base_url}/workspace?payment=success"
+        
+        payment_request = CreatePaymentLinkRequest(
+            order_code=order_code,
+            amount=amount,
+            description=f"Nap {credits_to_add} Xu", 
+            cancel_url=cancel_url,
+            return_url=return_url
+        )
+        
+        try:
+            payment_link = payos_client.payment_requests.create(payment_request)
+        except Exception as e:
+            print(f"🛑 [LỖI TẠO LINK PAYOS]: {e}")
+            raise HTTPException(status_code=500, detail=f"Không thể tạo link thanh toán từ cổng PayOS! Chi tiết: {str(e)}")
+            
+        # Lưu giao dịch PENDING vào CSDL PayOS (để quản lý link)
+        new_txn = Transaction(
+            order_code=order_code,
+            user_id=user_id,
+            package_name=f"Nạp {credits_to_add} Xu",
+            amount=amount,
+            credits_added=credits_to_add,
+            status="PENDING",
+            checkout_url=payment_link.checkout_url
+        )
+        db.add(new_txn)
+        await db.commit()
+        
+        return {
+            "checkoutUrl": payment_link.checkout_url,
+            "qrCode": payment_link.qr_code,
+            "orderCode": order_code
+        }
+    except Exception as outer_e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"🛑 [LỖI NGOÀI TẠO LINK]: {outer_e}\n{tb}")
+        if isinstance(outer_e, HTTPException):
+            raise outer_e
+        raise HTTPException(status_code=500, detail=f"Lỗi Server: {str(outer_e)} | Traceback: {tb[:200]}")
 
 # ==========================================
 # API: KIỂM TRA TRẠNG THÁI GIAO DỊCH (POLLING)
