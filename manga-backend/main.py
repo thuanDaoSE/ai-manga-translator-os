@@ -88,7 +88,7 @@ SENTRY_DSN = os.getenv("SENTRY_DSN")
 if SENTRY_DSN:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        traces_sample_rate=1.0,
+        traces_sample_rate=0.1,
     )
     print("🚀 [TELEMETRY] Sentry initialized successfully.")
 
@@ -1208,7 +1208,14 @@ async def quick_scan(
             japanese_text = res.json().get('output', {}).get('text', '')
 
         if not japanese_text: 
-            return {"status": "success", "japanese": "", "vietnamese": "AI không đọc được chữ!"}
+            return {
+                "status": "success", 
+                "japanese": "", 
+                "vietnamese": "AI không đọc được chữ!",
+                "lens_used": lens_count + 1,
+                "lens_free_remaining": max(0, LENS_FREE_LIMIT - lens_count - 1),
+                "charged_xu": cost
+            }
         
         target_language = payload.target_language or "Tiếng Việt"
 
@@ -1217,7 +1224,13 @@ async def quick_scan(
         cache_key = f"{japanese_text}_{payload.genre}_{payload.tone}_{payload.pronouns}_{glossary_hash}_{target_language}"
         
         if cache_key in LENS_CACHE:
-            return LENS_CACHE[cache_key]
+            cached_res = LENS_CACHE[cache_key]
+            return {
+                **cached_res,
+                "lens_used": lens_count + 1,
+                "lens_free_remaining": max(0, LENS_FREE_LIMIT - lens_count - 1),
+                "charged_xu": cost
+            }
 
         system_prompt = (
             f"Bạn là Biên dịch Manga.\n"

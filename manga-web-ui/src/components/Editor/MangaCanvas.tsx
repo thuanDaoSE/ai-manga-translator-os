@@ -326,8 +326,19 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
               });
             }
 
-            // Đồng bộ số dư và lượt free còn lại
-            useAuthStore.getState().fetchProfile().catch(console.error);
+            // Cập nhật số dư và lượt free còn lại trực tiếp trên frontend để giảm tải cho server
+            const authStore = useAuthStore.getState();
+            if (authStore.user) {
+              const newCredits = result.charged_xu > 0 ? Math.max(0, (authStore.user.credits || 0) - result.charged_xu) : (authStore.user.credits || 0);
+              const newFreeLens = result.lens_free_remaining !== undefined ? result.lens_free_remaining : authStore.user.lensFreeRemaining;
+              useAuthStore.setState({
+                user: {
+                  ...authStore.user,
+                  credits: newCredits,
+                  lensFreeRemaining: newFreeLens
+                }
+              });
+            }
 
             // Thông báo quota
             if (result.charged_xu > 0) {
