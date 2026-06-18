@@ -1637,24 +1637,8 @@ async def redraw_image(
     if not target_key:
         target_key = hashlib.md5(req.image_url.encode('utf-8')).hexdigest()
 
-    from datetime import datetime, timezone, timedelta
-    time_limit = datetime.now(timezone.utc) - timedelta(minutes=15)
-
-    # Kiểm tra giao dịch Cold Start trong vòng 15 phút qua
-    stmt = select(UserTransaction).where(
-        UserTransaction.user_id == user_id,
-        UserTransaction.description.like(f"%Target: {target_key}%"),
-        UserTransaction.created_at >= time_limit
-    )
-    res = await db.execute(stmt)
-    recent_txn = res.scalars().first()
-
-    if recent_txn:
-        charged_amount = 1
-        description = f"Vẽ lại bằng AI (Redraw) - Target: {target_key}"
-    else:
-        charged_amount = 4
-        description = f"Vẽ lại bằng AI (Redraw + Phí Cold Start) - Target: {target_key}"
+    charged_amount = 3
+    description = f"Vẽ lại bằng AI (Redraw) - Target: {target_key}"
 
     # Khóa và trừ Xu
     await check_and_deduct_credits(db, user_id, charged_amount, description)

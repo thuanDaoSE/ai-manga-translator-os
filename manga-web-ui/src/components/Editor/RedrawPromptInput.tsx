@@ -297,13 +297,11 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
                   ? t('redrawInput.translating') 
                   : isProcessing 
                     ? dynamicLoadingText 
-                    : isRedrawSessionActive 
-                      ? t('redrawInput.redrawButtonSubsequent') 
-                      : t('redrawInput.redrawButtonFirst')}
+                    : t('redrawInput.redrawButton', 'Vẽ lại')}
               </span>
               {!isTranslating && !isProcessing && (
                 <span className="absolute right-3 inline-flex items-center bg-black/25 px-1.5 py-0.5 rounded-md text-white text-[10px] font-black whitespace-nowrap">
-                  {isRedrawSessionActive ? '1' : '4'}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
+                  3<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
                 </span>
               )}
             </button>
@@ -373,13 +371,11 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
                 ? t('redrawInput.translating') 
                 : isProcessing 
                   ? dynamicLoadingText 
-                  : isRedrawSessionActive 
-                    ? t('redrawInput.redrawButtonSubsequent') 
-                    : t('redrawInput.redrawButtonFirst')}
+                  : t('redrawInput.redrawButton', 'Vẽ lại')}
             </span>
             {!isTranslating && !isProcessing && (
               <span className="absolute right-3 inline-flex items-center bg-black/25 px-1.5 py-0.5 rounded-md text-white text-[10px] font-black whitespace-nowrap">
-                {isRedrawSessionActive ? '1' : '4'}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
+                3<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
               </span>
             )}
           </button>

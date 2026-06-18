@@ -95,7 +95,12 @@ export const FloatingCanvasToolbar: React.FC = () => {
           
           {['erase', 'redraw', 'scan'].includes(mode) && (
             <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-              {mode === 'redraw' ? (isRedrawSessionActive ? '1' : '4') : mode === 'scan' ? (
+              {mode === 'redraw' ? (
+                <>
+                  <span>3</span>
+                  <BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 fill-amber-400 shrink-0" />
+                </>
+              ) : mode === 'scan' ? (
                 lensFreeRemaining > 0 ? (
                   <span className="text-emerald-400">{lensFreeRemaining} Free</span>
                 ) : (

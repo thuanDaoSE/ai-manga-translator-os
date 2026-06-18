@@ -1037,8 +1037,8 @@ export default function Workspace() {
     setIsProcessing(true);
     setActionPosition(null);
     
-    // Trực tiếp trừ xu cục bộ trước dựa trên trạng thái phiên hoạt động
-    const amountToDeduct = isRedrawSessionActive ? 1 : 4;
+    // Trực tiếp trừ xu cục bộ trước
+    const amountToDeduct = 3;
     toast(`Đã trừ ${amountToDeduct} Xu`, { icon: "💰", duration: 2000 });
     useAuthStore.getState().deductLocalCredits(amountToDeduct);
 
