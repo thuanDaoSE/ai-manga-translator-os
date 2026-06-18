@@ -63,6 +63,9 @@ interface ToolState {
   setIsProcessing: (val: boolean) => void;
   isRedrawSessionActive: boolean;
   setIsRedrawSessionActive: (val: boolean) => void;
+  redrawSubmitHandler: ((prompts: { positive: string, negative: string }) => Promise<void>) | null;
+  redrawCancelHandler: (() => void) | null;
+  setRedrawHandlers: (submit: ((prompts: { positive: string, negative: string }) => Promise<void>) | null, cancel: (() => void) | null) => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
@@ -124,5 +127,8 @@ export const useToolStore = create<ToolState>((set) => ({
   isProcessing: false,
   setIsProcessing: (val) => set({ isProcessing: val }),
   isRedrawSessionActive: false,
-  setIsRedrawSessionActive: (val) => set({ isRedrawSessionActive: val })
+  setIsRedrawSessionActive: (val) => set({ isRedrawSessionActive: val }),
+  redrawSubmitHandler: null,
+  redrawCancelHandler: null,
+  setRedrawHandlers: (submit, cancel) => set({ redrawSubmitHandler: submit, redrawCancelHandler: cancel })
 }));

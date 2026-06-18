@@ -17,6 +17,7 @@ import { useAuthStore } from '../../store/useAuthStore';
 import LensModal from '../Modals/LensModal';
 import { AdvancedTranslateModal } from '../Modals/AdvancedTranslateModal';
 import { useTranslation } from 'react-i18next';
+import { RedrawPromptInput } from '../Editor/RedrawPromptInput';
 
 // ==========================================
 // MICRO-COMPONENTS CHO DESIGN INSPECTOR
@@ -82,8 +83,9 @@ export default function RightSidebar() {
   // ==========================================
 
   const scanModal = toolStore.scanModal;
+  const isRedrawActive = toolStore.activeMode === 'redraw' && !!toolStore.actionPosition;
 
-  if (!toolStore.showRightPanel && !scanModal?.isOpen) return null;
+  if (!toolStore.showRightPanel && !scanModal?.isOpen && !isRedrawActive) return null;
 
   return (
     <aside
@@ -101,6 +103,17 @@ export default function RightSidebar() {
 
       {scanModal?.isOpen ? (
         <LensModal />
+      ) : isRedrawActive ? (
+        <RedrawPromptInput
+          inSidebar
+          isProcessing={toolStore.isProcessing}
+          onCancel={() => {
+            if (toolStore.redrawCancelHandler) toolStore.redrawCancelHandler();
+          }}
+          onSubmit={async (prompts) => {
+            if (toolStore.redrawSubmitHandler) await toolStore.redrawSubmitHandler(prompts);
+          }}
+        />
       ) : (
         <>
           {/* HEADER TABS VÀ NÚT ĐÓNG */}

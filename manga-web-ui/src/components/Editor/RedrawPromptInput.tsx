@@ -83,12 +83,14 @@ interface RedrawPromptInputProps {
   isProcessing: boolean;
   onCancel: () => void;
   onSubmit: (prompts: { positive: string; negative: string }) => void;
+  inSidebar?: boolean;
 }
 
 export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   isProcessing,
   onCancel,
-  onSubmit
+  onSubmit,
+  inSidebar = false
 }) => {
   const { t } = useTranslation();
   const isRedrawSessionActive = useToolStore((state) => state.isRedrawSessionActive);
@@ -146,6 +148,170 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
     if (mode === 'webtoon' && category.id === 'manga') return false;
     return true;
   });
+
+  if (inSidebar) {
+    return (
+      <div className="flex flex-col h-full bg-panel text-white animate-in slide-in-from-right-4 duration-300">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-border bg-background/30 shrink-0">
+          <div className="flex items-center gap-1.5 select-none text-indigo-400 font-bold text-sm">
+            <Sparkles size={16} />
+            <span>{t('redrawInput.redrawAi')}</span>
+            <span className="bg-blue-500/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded uppercase font-bold ml-1">BETA</span>
+          </div>
+          <button 
+            type="button"
+            onClick={onCancel} 
+            className="p-1.5 text-text-muted hover:text-danger hover:bg-danger/10 rounded-lg cursor-pointer transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Form + Scrollable Body */}
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+          <div className="p-4 space-y-4 flex-1 overflow-y-auto custom-scrollbar">
+            {/* Input prompt */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Prompt Vẽ Lại</label>
+              <textarea
+                value={vietnameseText}
+                onChange={(e) => setVietnameseText(e.target.value)}
+                placeholder={t('redrawInput.placeholder' + placeholderIndex)}
+                className="w-full h-24 px-3 py-2.5 text-xs bg-neutral-900/80 border border-white/10 rounded-xl focus:outline-none focus:border-indigo-500/80 text-white placeholder-neutral-500 transition-all shadow-inner resize-none"
+                disabled={isTranslating || isProcessing}
+                autoFocus
+              />
+            </div>
+
+            {/* Selected Tags list */}
+            {selectedTags.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Tags Đã Chọn</label>
+                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-1 border border-white/5 rounded-xl p-2 bg-neutral-950/20">
+                  {selectedTags.map(tag => (
+                    <div 
+                      key={tag} 
+                      className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold border rounded-full ${getTagPillClass(tag)}`}
+                    >
+                      <span>{getTagLabel(tag)}</span>
+                      <button 
+                        type="button" 
+                        onClick={() => handleToggleTag(tag)}
+                        className="hover:bg-white/10 rounded-full p-0.5 transition-colors cursor-pointer"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Configuration / Style selection */}
+            <div className="border-t border-white/5 pt-3">
+              <div className="flex items-center justify-between pb-3">
+                <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">{t('redrawInput.styleFilter')}</span>
+                <div className="flex bg-neutral-950 border border-white/5 p-0.5 rounded-lg text-[9px] font-extrabold">
+                  <button
+                    type="button"
+                    onClick={() => setMode('manga')}
+                    className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                      mode === 'manga' 
+                        ? 'bg-indigo-600 text-white shadow-sm' 
+                        : 'text-neutral-400 hover:text-neutral-200'
+                    }`}
+                  >
+                    {t('redrawInput.mangaMode')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('webtoon')}
+                    className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                      mode === 'webtoon' 
+                        ? 'bg-indigo-600 text-white shadow-sm' 
+                        : 'text-neutral-400 hover:text-neutral-200'
+                    }`}
+                  >
+                    {t('redrawInput.webtoonMode')}
+                  </button>
+                </div>
+              </div>
+
+              {/* Tag Categories list inside sidebar */}
+              <div className="space-y-4 mt-2">
+                {filteredCategories.map(category => (
+                  <div key={category.name} className="flex flex-col gap-1.5">
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-neutral-500">
+                      {t('redrawInput.category_' + category.id)}
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {category.tags.map(tagObj => {
+                        const isSelected = selectedTags.includes(tagObj.value);
+                        return (
+                          <button
+                            key={tagObj.value}
+                            type="button"
+                            onClick={() => handleToggleTag(tagObj.value)}
+                            className={`flex items-center gap-1.5 rounded-xl border transition-all cursor-pointer font-medium ${
+                              isSelected 
+                                ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm font-semibold'
+                                : category.tagClass
+                            }`}
+                          >
+                            {isSelected && <Check size={10} />}
+                            <span>{t('redrawInput.tag_' + tagObj.value.replace(/\s+/g, '_'))}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer containing action buttons */}
+          <div className="p-4 bg-background/30 border-t border-border flex gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isTranslating || isProcessing}
+              className="flex-1 py-2.5 bg-neutral-950 border border-white/5 hover:border-white/10 hover:bg-neutral-900 text-neutral-400 hover:text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+            >
+              {t('redrawInput.cancel')}
+            </button>
+            <button
+              type="submit"
+              disabled={isTranslating || isProcessing}
+              className={`flex-[2] relative flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-800 disabled:text-neutral-500 disabled:cursor-not-allowed text-xs font-bold rounded-xl transition-all cursor-pointer shadow-md shadow-indigo-600/10 hover:shadow-indigo-600/20
+                ${!isTranslating && !isProcessing ? 'pl-4 pr-12' : 'px-4'}`}
+            >
+              {isTranslating || isProcessing ? (
+                <Loader2 className="animate-spin" size={15} />
+              ) : (
+                <Sparkles size={15} />
+              )}
+              <span>
+                {isTranslating 
+                  ? t('redrawInput.translating') 
+                  : isProcessing 
+                    ? dynamicLoadingText 
+                    : isRedrawSessionActive 
+                      ? t('redrawInput.redrawButtonSubsequent') 
+                      : t('redrawInput.redrawButtonFirst')}
+              </span>
+              {!isTranslating && !isProcessing && (
+                <span className="absolute right-3 inline-flex items-center bg-black/25 px-1.5 py-0.5 rounded-md text-white text-[10px] font-black whitespace-nowrap">
+                  {isRedrawSessionActive ? '1' : '4'}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
+                </span>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3.5 p-4 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.7)] rounded-2xl w-[380px] animate-in slide-in-from-bottom-5 fade-in duration-300 pointer-events-auto text-white">
@@ -213,7 +379,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             </span>
             {!isTranslating && !isProcessing && (
               <span className="absolute right-3 inline-flex items-center bg-black/25 px-1.5 py-0.5 rounded-md text-white text-[10px] font-black whitespace-nowrap">
-                {isRedrawSessionActive ? '4' : '1'}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
+                {isRedrawSessionActive ? '1' : '4'}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
               </span>
             )}
           </button>

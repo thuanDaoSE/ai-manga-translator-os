@@ -723,6 +723,25 @@ export default function Workspace() {
     setIsRedrawSessionActive(isActive);
   }, [currentIndex, pageId, setIsRedrawSessionActive]);
 
+  // Đăng ký các handler vẽ lại lên store để sidebar gọi được
+  useEffect(() => {
+    useToolStore.getState().setRedrawHandlers(
+      async (prompts: { positive: string; negative: string }) => {
+        await handleRedraw(prompts.positive, prompts.negative);
+      },
+      () => {
+        const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
+        const ctx = drawCanvas?.getContext("2d");
+        if (ctx) ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+        setActionPosition(null);
+        setRedrawPrompt("");
+      }
+    );
+    return () => {
+      useToolStore.getState().setRedrawHandlers(null, null);
+    };
+  }, [fileQueue, processedUrls, currentIndex, isRedrawSessionActive]);
+
   const panRef = useRef({ x: 0, y: 0 });
   const workspaceContainerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1271,23 +1290,6 @@ export default function Workspace() {
             </div>
           )}
 
-          {actionPosition && activeMode === 'redraw' && (
-            <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] pointer-events-auto flex flex-col gap-2">
-              <RedrawPromptInput
-                isProcessing={isCurrentPageProcessing}
-                onCancel={() => {
-                  const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
-                  const ctx = drawCanvas?.getContext("2d");
-                  if (ctx) ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-                  setActionPosition(null);
-                  setRedrawPrompt("");
-                }}
-                onSubmit={async ({ positive, negative }) => {
-                  await handleRedraw(positive, negative);
-                }}
-              />
-            </div>
-          )}
         </>
       )}
 

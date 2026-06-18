@@ -20,7 +20,7 @@ import { mangaApi } from './services/api';
 // 🚀 BẢN VÁ: Import hàm quản lý Font cá nhân
 
 export default function App() {
-  const { isZenMode, toggleZenMode, setActiveMode, showLeftPanel, scanModal, showRightPanel } = useToolStore();
+  const { isZenMode, toggleZenMode, setActiveMode, showLeftPanel, scanModal, showRightPanel, activeMode, actionPosition } = useToolStore();
   const { setUser, session, user, loading } = useAuthStore();
   const { projectId } = useProjectStore();
   const hasRestored = useRef(false);
@@ -147,7 +147,7 @@ export default function App() {
         </div>
 
         {/* 🚀 4. RIGHT SIDEBAR (Nằm gọn gàng bên phải và Tích hợp LensModal) */}
-        {(!isZenMode && (showRightPanel || scanModal?.isOpen)) && <RightSidebar />}
+        {(!isZenMode && (showRightPanel || scanModal?.isOpen || (activeMode === 'redraw' && !!actionPosition))) && <RightSidebar />}
 
       </div>
 
