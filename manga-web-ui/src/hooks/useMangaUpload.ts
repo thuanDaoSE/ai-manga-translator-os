@@ -43,8 +43,8 @@ export function useMangaUpload(): UseMangaUploadReturn {
         a.name.localeCompare(b.name)
       );
 
-      if (files.length > 20) {
-        toast.error('Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 20 trang mỗi lần!');
+      if (files.length > 30) {
+        toast.error('Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 30 trang mỗi lần!');
         e.target.value = '';
         return;
       }

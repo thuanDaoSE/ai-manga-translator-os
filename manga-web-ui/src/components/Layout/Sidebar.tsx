@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown } from 'lucide-react';
+import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
@@ -224,8 +224,11 @@ export default function Sidebar() {
   const projectStore = useProjectStore();
   const { fileQueue, currentIndex, setCurrentIndex, pageStatuses, processedUrls, uploadProjectFiles, reorderFiles, progresses, retryCounts } = projectStore;
   const isProcessing = useToolStore((state) => state.isProcessing);
-  const targetLanguage = useConfigStore((state) => state.targetLanguage);
   const { t } = useTranslation();
+  const user = useAuthStore((state) => state.user);
+  const currentCredits = user?.credits || 0;
+
+  const modeCost = 1; // Chi phí dịch chạy ngầm Celery mặc định là 1 Xu/trang
 
   const [previews, setPreviews] = useState<Record<number, string>>({});
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -238,6 +241,33 @@ export default function Sidebar() {
   // 🚀 STATE MỚI CHO MULTI-SELECT & FAB BAR
   const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length === 0) return;
+    const imageFiles = files.filter(file => 
+      file.type.startsWith('image/') || file.name.endsWith('.manga')
+    );
+    if (imageFiles.length === 0) return;
+    if (imageFiles.length > 30) {
+      toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 30 trang mỗi lần!");
+      return;
+    }
+    uploadProjectFiles(imageFiles.sort((a, b) => a.name.localeCompare(b.name)));
+  };
 
   const isSelectionMode = selectedPages.size > 0;
 
@@ -275,6 +305,13 @@ export default function Sidebar() {
       window.removeEventListener('mouseup', stopResizing);
     };
   }, [resize, stopResizing]);
+
+  useEffect(() => {
+    (window as any).cancelPageTask = handleCancelTask;
+    return () => {
+      delete (window as any).cancelPageTask;
+    };
+  }, [fileQueue]);
 
   const toggleSelection = (pageId: string) => {
     setSelectedPages(prev => {
@@ -686,12 +723,17 @@ export default function Sidebar() {
             toast.dismiss(t.id);
             toast.success("Đã hoàn tác! Giữ lại trang.");
           }}
-          className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
         >
-          ↩️ Hoàn tác
+          <Undo2 size={13} className="text-white" />
+          <span>Hoàn tác</span>
         </button>
       </div>
-    ), { duration: 5000, id: `delete-${uniqueId}`, icon: '⏳' });
+    ), { 
+      duration: 5000, 
+      id: `delete-${uniqueId}`, 
+      icon: <Clock size={16} className="text-amber-500 animate-pulse" /> 
+    });
 
     deleteTimeoutsRef.current[uniqueId] = setTimeout(async () => {
       const state = useProjectStore.getState();
@@ -730,20 +772,16 @@ export default function Sidebar() {
   };
 
   const handlePageClick = (index: number) => {
-    if (isProcessing) {
-      toast.error("Vui lòng chờ tiến trình xử lý AI hiện tại hoàn tất!");
-      return;
-    }
     const currentPageId = projectStore.pageIds[projectStore.currentIndex];
+    const prevStatus = projectStore.pageStatuses[projectStore.currentIndex];
+    const isPrevProcessing = prevStatus === 'processing' || prevStatus === 'waiting';
 
     // 🚀 BẢN VÁ TỐI THƯỢNG: CHẶN ĐỨNG RACE CONDITION
-    if (currentPageId) {
+    if (currentPageId && !isPrevProcessing) {
       const currentBubbles = useCanvasStore.getState().bubbles;
 
       // BÍ QUYẾT: Chỉ Auto-save khi trên màn hình THỰC SỰ CÓ CHỮ.
-      // Tuyệt đối không bao giờ lưu mảng rỗng. Điều này chặn đứng 100% việc
-      // mạng chưa tải xong (canvas đang rỗng) mà sếp lỡ chuyển trang khiến
-      // hệ thống mang mảng rỗng đi xóa sạch Database của sếp.
+      // Tuyệt đối không bao giờ lưu mảng rỗng.
       if (currentBubbles && currentBubbles.length > 0) {
         mangaApi.savePageBubbles(currentPageId, currentBubbles).catch(console.error);
       }
@@ -787,7 +825,7 @@ export default function Sidebar() {
     };
   }, [fileQueue, projectStore.processedUrls]);
 
-  const visibleFiles = fileQueue
+  const allProjectFiles = fileQueue
     .map((file, index) => {
       const pageId = projectStore.pageIds[index];
       return {
@@ -799,15 +837,23 @@ export default function Sidebar() {
     })
     .filter(({ uniqueId }) => !pendingDeletes.has(uniqueId));
 
+  const visibleFiles = allProjectFiles.filter(({ file }) => {
+    if (!searchQuery.trim()) return true;
+    return file.name.toLowerCase().includes(searchQuery.trim().toLowerCase());
+  });
+
   const itemIds = visibleFiles.map(f => f.uniqueId);
 
-  const totalPages = visibleFiles.length;
-  const completedPages = visibleFiles.filter(({ index }) => pageStatuses[index] === 'completed').length;
-  const errorPages = visibleFiles.filter(({ index }) => pageStatuses[index] === 'error').length;
-  const processingPages = visibleFiles.filter(({ index }) => pageStatuses[index] === 'processing').length;
+  const totalPages = allProjectFiles.length;
+  const completedPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'completed').length;
+  const errorPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'error').length;
+  const processingPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'processing').length;
   const progressPercent = totalPages === 0 ? 0 : ((completedPages + errorPages) / totalPages) * 100;
-  const hasUnprocessed = visibleFiles.some(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'error');
-  const isAnyProcessingOrWaiting = visibleFiles.some(({ index }) => pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting');
+  const hasUnprocessed = allProjectFiles.some(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'error');
+  const isAnyProcessingOrWaiting = allProjectFiles.some(({ index }) => pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting');
+
+  const isAllVisibleSelected = visibleFiles.length > 0 && visibleFiles.every(f => selectedPages.has(f.uniqueId));
+  const isSomeVisibleSelected = visibleFiles.some(f => selectedPages.has(f.uniqueId)) && !isAllVisibleSelected;
 
   const handleTranslateAll = async () => {
     if (visibleFiles.length === 0) return;
@@ -853,6 +899,40 @@ export default function Sidebar() {
     }
   };
 
+  const handleTranslateSelected = async () => {
+    if (selectedPages.size === 0) return;
+
+    // Lấy danh sách index của các trang đã chọn và chưa dịch / lỗi
+    const selectedIndexes = visibleFiles
+      .filter(({ uniqueId, index }) =>
+        selectedPages.has(uniqueId) &&
+        (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'error')
+      )
+      .map(f => f.index);
+
+    if (selectedIndexes.length === 0) return;
+
+    const totalCost = selectedIndexes.length * modeCost;
+    if (currentCredits < totalCost) {
+      toast.error(`Không đủ năng lượng! Cần ⚡${totalCost} nhưng bạn chỉ có ⚡${currentCredits}.`);
+      return;
+    }
+
+    // Đánh dấu chờ
+    selectedIndexes.forEach(index => projectStore.setPageStatus(index, 'waiting'));
+    clearSelection();
+
+    const limit = 3;
+    let nextIdx = 0;
+    const runNext = async () => {
+      if (nextIdx >= selectedIndexes.length) return;
+      const index = selectedIndexes[nextIdx++];
+      if (useProjectStore.getState().pageStatuses[index] !== 'waiting') { runNext(); return; }
+      try { await processSinglePage(index); } catch (err) { console.error('Lỗi dịch selected:', index, err); } finally { runNext(); }
+    };
+    for (let i = 0; i < Math.min(limit, selectedIndexes.length); i++) { runNext(); }
+  };
+
   if (fileQueue.length === 0) return null;
 
   return (
@@ -870,87 +950,178 @@ export default function Sidebar() {
           <div className="w-0.5 h-12 bg-transparent group-hover:bg-primary transition-colors rounded-full" />
         </div>
 
-        <div className="p-4 border-b border-border bg-panel/50 backdrop-blur-md flex flex-col gap-3">
-          {/* ... (Đoạn Header giữ nguyên) ... */}
-
-          {/* HEADER */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-bold text-text-main flex items-center gap-2 uppercase tracking-tight">
-                <ImageIcon size={18} className="text-primary" /> Dự án Manga
-              </h2>
-              <p className="text-[10px] text-text-muted mt-1 font-medium">{totalPages} TRANG TẤT CẢ</p>
-            </div>
-
-            <div className="flex gap-1.5 items-center">
-              {/* Nút Phủ Chọn Tất Cả (Nhanh gọn) */}
-              <button
-                onClick={() => {
-                  if (selectedPages.size === totalPages) {
-                    clearSelection();
-                  } else {
-                    // 🚀 FIX: Dùng uniqueId an toàn thay vì pageIds có thể bị undefined
-                    const allIds = visibleFiles.map(f => f.uniqueId);
-                    setSelectedPages(new Set(allIds));
-                  }
-                }}
-                className={`p-2 rounded-md cursor-pointer transition-colors ${isSelectionMode && selectedPages.size === totalPages ? 'bg-primary/20 text-primary hover:bg-primary/30' : 'bg-border/40 hover:bg-border text-text-muted hover:text-text-main'}`}
-                title="Chọn tất cả"
-              >
-                <Check size={16} />
-              </button>
-
-              <label className="p-2 bg-border/40 hover:bg-border text-text-muted hover:text-text-main rounded-md cursor-pointer transition-colors" title="Tải trang truyện lên">
-                <Upload size={16} />
-                <input
-                  type="file"
-                  multiple
-                  className="hidden"
-                  accept="image/jpeg, image/png, image/webp,.manga"
-                  onClick={(e) => {
-                    (e.target as HTMLInputElement).value = ''; // 🚀 FIX: Reset đường dẫn để có thể up lại cùng 1 file
-                  }}
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files || []);
-                    if (files.length === 0) return;
-                    if (files.length > 20) {
-                      toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 20 trang mỗi lần!");
-                      e.target.value = '';
-                      return;
-                    }
-                    uploadProjectFiles(files.sort((a, b) => a.name.localeCompare(b.name)));
-                    e.target.value = ''; // 🚀 FIX: Dọn dẹp sau khi up xong
-                  }}
-                />
-              </label>
-
-              <button
-                onClick={() => useToolStore.getState().toggleLeftPanel()}
-                className="p-2 bg-border/40 hover:bg-border text-text-muted hover:text-danger rounded-md cursor-pointer transition-colors"
-                title="Đóng bảng này"
-              >
-                <PanelLeftClose size={16} />
-              </button>
-            </div>
+        {/* ── ZONE 1: SLIM HEADER ─────────────────────────── */}
+        <div className="flex items-center justify-between px-3 pt-3 pb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-4 rounded-full bg-primary/60" />
+            <span className="text-[11px] font-extrabold text-text-muted uppercase tracking-wider">
+              DANH SÁCH TRANG ({totalPages > 0 ? currentIndex + 1 : 0}/{totalPages})
+            </span>
           </div>
 
-          {/* THANH TIẾN ĐỘ TỔNG QUAN */}
-          <div className="w-full bg-background/50 rounded-lg p-2 border border-border">
-            <div className="flex justify-between items-end mb-1">
-              <span className="text-[10px] font-bold text-text-muted uppercase">Tiến độ chung</span>
-              <span className="text-[10px] font-bold text-primary">{completedPages}/{totalPages}</span>
+          <button
+            onClick={() => useToolStore.getState().toggleLeftPanel()}
+            className="p-1.5 text-text-muted hover:bg-border/40 hover:text-danger rounded-lg transition-colors cursor-pointer"
+            title="Đóng thanh bên trái"
+          >
+            <PanelLeftClose size={15} />
+          </button>
+        </div>
+
+        {/* ── ZONE 2: HERO UPLOAD BUTTON (DRAG & DROP ZONE) ── */}
+        <div className="px-3 pb-2">
+          <label
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`
+              group w-full flex flex-col items-center justify-center gap-2.5
+              py-7 px-4 rounded-2xl cursor-pointer select-none
+              border-2 border-dashed transition-all duration-200
+              ${isDragOver 
+                ? 'border-primary bg-primary/10 scale-[1.01] shadow-md shadow-primary/5' 
+                : 'border-border/60 hover:border-primary/50 bg-[#16161a]/60 hover:bg-[#1a1a24]/40 hover:scale-[1.01]'
+              }
+            `}
+          >
+            <Upload size={24} strokeWidth={2} className={`transition-transform duration-200 group-hover:-translate-y-0.5 ${isDragOver ? 'text-primary scale-110' : 'text-text-muted/70 group-hover:text-primary/90'}`} />
+            <div className="flex flex-col items-center text-center">
+              <span className="text-[11px] font-medium text-text-muted/80">Kéo & thả hoặc bấm để</span>
+              <span className="text-[13px] font-extrabold text-text-main group-hover:text-primary transition-colors mt-0.5">Tải ảnh lên</span>
             </div>
-            <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden flex">
-              <div className="bg-primary h-full transition-all duration-500" style={{ width: `${progressPercent}%` }}></div>
+            <input
+              type="file"
+              multiple
+              className="hidden"
+              accept="image/jpeg, image/png, image/webp,.manga"
+              onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                if (files.length === 0) return;
+                if (files.length > 30) {
+                  toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 30 trang mỗi lần!");
+                  e.target.value = '';
+                  return;
+                }
+                uploadProjectFiles(files.sort((a, b) => a.name.localeCompare(b.name)));
+                e.target.value = '';
+              }}
+            />
+          </label>
+        </div>
+
+        {/* ── ZONE 4: PROGRESS BAR ───────────────────────── */}
+        <div className="mx-3 mb-3 bg-[#16161a]/60 rounded-2xl p-4 border border-border/50 flex flex-col gap-2.5">
+          <div className="flex justify-between items-center">
+            <span className="text-[11px] font-bold text-text-muted">
+              Hoàn thành: {completedPages}/{totalPages} trang
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden">
+            <div className="bg-primary h-full transition-all duration-500 rounded-full" style={{ width: `${progressPercent}%` }} />
+          </div>
+          {(processingPages > 0 || errorPages > 0) && (
+            <div className="flex justify-between items-center text-[9px] font-extrabold tracking-wide uppercase pt-0.5">
+              {processingPages > 0 ? (
+                <span className="text-amber-400 animate-pulse flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
+                  Đang chạy: {processingPages}
+                </span>
+              ) : <span />}
+              {errorPages > 0 && <span className="text-danger">Lỗi: {errorPages}</span>}
             </div>
-            {(processingPages > 0 || errorPages > 0) && (
-              <div className="flex justify-between mt-1.5 text-[9px] font-bold">
-                {processingPages > 0 ? <span className="text-amber-400">Đang chạy: {processingPages}</span> : <span></span>}
-                {errorPages > 0 && <span className="text-danger">Lỗi: {errorPages}</span>}
-              </div>
+          )}
+        </div>
+
+        {/* ── ZONE 3: SEARCH BAR ─────────────────────────── */}
+        <div className="px-3 pb-3">
+          <div className="relative flex items-center">
+            <Search size={14} className="absolute left-3 text-text-muted/50 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm kiếm trang..."
+              className="w-full bg-[#16161a]/60 border border-border/50 hover:border-border focus:border-primary/50 text-text-main placeholder-text-muted/40 text-xs rounded-xl pl-9 pr-8 py-2 focus:outline-none focus:ring-1 focus:ring-primary/10 transition-all font-medium"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 text-text-muted/40 hover:text-text-muted transition-colors cursor-pointer"
+                title="Xóa tìm kiếm"
+              >
+                <X size={14} strokeWidth={2.5} />
+              </button>
             )}
           </div>
         </div>
+
+        {/* ── SEPARATOR ──────────────────────────────────── */}
+        <div className="h-px bg-border/50 mx-3 mb-1" />
+
+        {/* ── LIST CONTROL BAR ───────────────────────────── */}
+        <div className="flex items-center justify-between px-3 py-1.5 text-xs text-text-muted font-medium select-none">
+          <button
+            onClick={() => {
+              const visibleIds = visibleFiles.map(f => f.uniqueId);
+              if (isAllVisibleSelected) {
+                // Deselect all visible pages
+                setSelectedPages(prev => {
+                  const next = new Set(prev);
+                  visibleIds.forEach(id => next.delete(id));
+                  return next;
+                });
+              } else {
+                // Select all visible pages
+                setSelectedPages(prev => {
+                  const next = new Set(prev);
+                  visibleIds.forEach(id => next.add(id));
+                  return next;
+                });
+              }
+            }}
+            className={`flex items-center gap-1.5 text-[10px] font-semibold transition-all duration-150 cursor-pointer
+              ${isAllVisibleSelected
+                ? 'text-primary'
+                : 'text-text-muted hover:text-text-main'
+              }`}
+            title="Chọn tất cả các trang đang hiển thị"
+          >
+            <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all ${
+              isAllVisibleSelected
+                ? 'bg-primary border-primary text-white'
+                : isSomeVisibleSelected
+                  ? 'bg-primary/20 border-primary text-primary'
+                  : 'border-border/80 text-transparent hover:border-primary'
+            }`}>
+              {isAllVisibleSelected ? (
+                <Check size={10} strokeWidth={4} />
+              ) : isSomeVisibleSelected ? (
+                <div className="w-1.5 h-0.5 bg-primary" />
+              ) : null}
+            </div>
+            <span>{isAllVisibleSelected ? 'Bỏ chọn' : 'Chọn tất'} ({visibleFiles.length})</span>
+          </button>
+
+          {isSelectionMode && (
+            <button
+              onClick={() => {
+                if (!window.confirm(`Xóa ${selectedPages.size} trang đã chọn?`)) return;
+                Array.from(selectedPages).forEach((uid) => {
+                  const idx = allProjectFiles.findIndex(f => f.uniqueId === uid);
+                  if (idx !== -1) handleDeletePage(allProjectFiles[idx].index);
+                });
+                clearSelection();
+              }}
+              className="flex items-center gap-1 text-[10px] font-semibold text-danger hover:text-red-400 cursor-pointer transition-all duration-150"
+              title="Xóa các trang đang chọn"
+            >
+              <Trash2 size={12} strokeWidth={2} />
+              <span>Xóa ({selectedPages.size})</span>
+            </button>
+          )}
+        </div>
+
 
         {/* DANH SÁCH ẢNH (KÉO THẢ & CHỌN) */}
         <div className="flex-1 overflow-y-auto p-2 custom-scrollbar pb-20">
@@ -977,7 +1148,7 @@ export default function Sidebar() {
                       onToggleSelection={() => toggleSelection(uniqueId)}
                       hasCleanUrl={!!processedUrls[index]} // 🚀 Dùng ID an toàn
                       isProcessing={index === currentIndex && isProcessing}
-                      disabled={isAnyProcessingOrWaiting || isProcessing}
+                      disabled={isAnyProcessingOrWaiting}
                       retryCount={retryCounts[index] || 0} // 🚀 Truyền số lần dịch lại
                     />
                   );
@@ -1044,7 +1215,48 @@ export default function Sidebar() {
           <X size={18} strokeWidth={2.5} />
         </button>
 
+        {/* NÚT DỊCH CÁC TRANG ĐÃ CHỌN */}
+        {(() => {
+          const selectedUnprocessedCount = visibleFiles.filter(({ uniqueId, index }) =>
+            selectedPages.has(uniqueId) &&
+            (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'error')
+          ).length;
+          const totalCost = selectedUnprocessedCount * modeCost;
+          const hasEnough = currentCredits >= totalCost && totalCost > 0;
+          const nothingToTranslate = selectedUnprocessedCount === 0;
+
+          return (
+            <button
+              onClick={handleTranslateSelected}
+              disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
+              title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? `Cần ⚡${totalCost}, bạn có ⚡${currentCredits}` : `Dịch ${selectedUnprocessedCount} trang`}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
+                ${nothingToTranslate || isAnyProcessingOrWaiting
+                  ? 'bg-border/30 text-text-muted cursor-not-allowed'
+                  : !hasEnough
+                    ? 'bg-danger/10 border border-danger/30 text-danger cursor-not-allowed'
+                    : 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/25 cursor-pointer'
+                }`}
+            >
+              <Sparkles size={15} strokeWidth={2.5} />
+              {!hasEnough && !nothingToTranslate ? (
+                <span>Không đủ ⚡</span>
+              ) : (
+                <>
+                  <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size}</span>
+                  {totalCost > 0 && (
+                    <span className="flex items-center gap-0.5 bg-black/15 px-1.5 py-0.5 rounded-full text-[11px] font-black">
+                      ⚡{totalCost}
+                    </span>
+                  )}
+                </>
+              )}
+            </button>
+          );
+        })()}
+
         {/* NÚT EXPORT VÀ DROPDOWN POPOVER */}
+
         <div className="relative">
           <button
             onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}

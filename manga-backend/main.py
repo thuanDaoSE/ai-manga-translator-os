@@ -30,7 +30,7 @@ from fastapi.responses import StreamingResponse
 import redis.asyncio as aioredis
 import json
 import asyncio
-from s3_utils import fetch_image_from_url
+from s3_utils import fetch_image_from_url, upload_to_r2, delete_from_r2
 # Sửa dòng import này (khoảng dòng 17)
 # from worker import process_manga_page, lama_session, mocr, client, text_detector
 # from celery.result import AsyncResult
@@ -71,6 +71,14 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ==========================================
+# CONSTANTS FOR NEW PARALLEL SSE ROUTE
+# ==========================================
+RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY", "")
+RUNPOD_ENDPOINT_URL = os.getenv("RUNPOD_ENDPOINT_URL", "")
+XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
 import sentry_sdk
 import posthog
@@ -113,28 +121,14 @@ deepseek_client = OpenAI(
 # ==========================================
 import onnxruntime as ort
 
-NSFW_MODEL_PATH = os.path.join(os.path.dirname(__file__), "nsfw_anime.onnx")
+# Mô hình NSFW cục bộ đã được loại bỏ hoàn toàn khỏi hệ thống theo yêu cầu của USER
+# do tỷ lệ nhận diện sai quá cao (false positives) trên ảnh truyện tranh trắng đen.
+# Chúng ta dựa hoàn toàn vào bộ lọc NSFW của Kie.ai trên API request.
+DISABLE_LOCAL_NSFW = True
+KIE_POLLING_TIMEOUT = 80.0
 nsfw_session = None
 
-try:
-    if os.path.exists(NSFW_MODEL_PATH):
-        # Thiết lập giới hạn CPU threads để tránh nghẽn CPU trên VPS 2 Cores
-        opts = ort.SessionOptions()
-        opts.intra_op_num_threads = 1
-        opts.inter_op_num_threads = 1
-        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        
-        # Chỉ chạy CPUExecutionProvider để tiết kiệm RAM/GPU
-        nsfw_session = ort.InferenceSession(
-            NSFW_MODEL_PATH, 
-            sess_options=opts, 
-            providers=["CPUExecutionProvider"]
-        )
-        print(f"🚀 [NSFW] Đã load mô hình NSFW thành công từ: {NSFW_MODEL_PATH} (Giới hạn 1 thread CPU)")
-    else:
-        print(f"⚠️ [NSFW] Không tìm thấy file {NSFW_MODEL_PATH}. Chế độ kiểm duyệt NSFW sẽ tạm thời bypass.")
-except Exception as e:
-    print(f"❌ [NSFW] Lỗi khi load mô hình NSFW: {e}")
+print("🚀 [NSFW] Kiểm duyệt Local NSFW đã được TẮT hoàn toàn (Hardcoded DISABLE_LOCAL_NSFW=True).")
 
 def check_nsfw_score(image_pil: Image.Image) -> float:
     """
@@ -147,7 +141,7 @@ def check_nsfw_score(image_pil: Image.Image) -> float:
     5. Transpose HWC -> NCHW (1, 3, 224, 224).
     6. Tính toán Softmax từ logits đầu ra và cộng dồn xác suất của: hentai + porn + sexy.
     """
-    if nsfw_session is None:
+    if DISABLE_LOCAL_NSFW or nsfw_session is None:
         # Nếu chưa load được mô hình (môi trường dev không có file), mặc định trả về 0.0 để bypass
         return 0.0
         
@@ -187,6 +181,53 @@ def check_nsfw_score(image_pil: Image.Image) -> float:
         print(f"❌ [NSFW Inference Error] Lỗi kiểm duyệt ảnh: {e}")
         # Nếu có lỗi khi chạy inference, trả về 0.0 để tránh treo/crash request ngoài ý muốn
         return 0.0
+
+
+def preprocess_image(image_bytes: bytes) -> np.ndarray:
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    # Resize to (224, 224) using resample=Image.BICUBIC
+    img = img.resize((224, 224), resample=Image.BICUBIC)
+    
+    # Convert to float32 and scale to [0.0, 1.0]
+    img_np = np.array(img).astype(np.float32) / 255.0
+    
+    # Normalize with mean=[0.5, 0.5, 0.5] and std=[0.5, 0.5, 0.5]
+    mean = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+    std = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+    img_np = (img_np - mean) / std
+    
+    # Transpose from HWC to NCHW (3, 224, 224)
+    img_np = np.transpose(img_np, (2, 0, 1))
+    
+    # Expand dims to batch size 1 (1, 3, 224, 224)
+    img_np = np.expand_dims(img_np, axis=0)
+    return img_np
+
+
+def check_image_nsfw(image_bytes: bytes) -> bool:
+    if DISABLE_LOCAL_NSFW or nsfw_session is None:
+        return False
+    try:
+        img_data = preprocess_image(image_bytes)
+        input_name = nsfw_session.get_inputs()[0].name
+        outputs = nsfw_session.run(None, {input_name: img_data})
+        logits = outputs[0][0]  # shape (5,)
+        
+        # Softmax to get probabilities
+        exp_logits = np.exp(logits - np.max(logits))
+        probs = exp_logits / np.sum(exp_logits)
+        
+        # Classes: ["drawings", "hentai", "neutral", "porn", "sexy"]
+        hentai_prob = float(probs[1])
+        porn_prob = float(probs[3])
+        
+        # Tinh chỉnh lại ngưỡng lên 0.85 để tránh chặn nhầm ảnh thường (false positives)
+        if hentai_prob > 0.85 or porn_prob > 0.85:
+            return True
+        return False
+    except Exception as e:
+        print(f"❌ [NSFW Image Inference Error]: {e}")
+        return False
 
 
 # 🚀 BỔ SUNG MODEL CHO AI COPILOT
@@ -570,7 +611,8 @@ from fastapi import Request, HTTPException
 # 🚀 CỬA KHẨU BẢO MẬT: Bóc tách JWT thuần túy (Chống crash 100% + Hỗ trợ Query Param cho tải file)
 async def get_current_user_id(request: Request):
     auth_header = request.headers.get("Authorization")
-    print(f"🔑 [AUTH DEBUG] Request path: {request.url.path} | Authorization Header: {auth_header}")
+    auth_header_masked = f"{auth_header[:25]}..." if auth_header and len(auth_header) > 25 else auth_header
+    print(f"🔑 [AUTH DEBUG] Request path: {request.url.path} | Authorization Header: {auth_header_masked}")
     token = None
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
@@ -618,7 +660,7 @@ async def ensure_user_exists(db: AsyncSession, user_id: str, email: str = None):
     if not user:
         if not email:
             email = f"user_{user_id}@deepkoma.local"
-        user = models.User(id=user_id, email=email, credits=20)
+        user = models.User(id=user_id, email=email, credits=30)
         db.add(user)
         await db.flush()
     return user
@@ -626,6 +668,13 @@ async def ensure_user_exists(db: AsyncSession, user_id: str, email: str = None):
 # 🚀 HELPER: Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng bảo mật IDOR)
 async def check_page_ownership(page_id: str, user_id: str, db: AsyncSession) -> models.Page:
     from sqlalchemy import select
+    # Bước 1: Kiểm tra trang tồn tại không (không join project)
+    page_exists_stmt = select(models.Page).where(models.Page.id == page_id)
+    page_obj = (await db.execute(page_exists_stmt)).scalars().first()
+    if not page_obj:
+        raise HTTPException(status_code=404, detail="Trang không tồn tại hoặc đã bị xóa!")
+
+    # Bước 2: Kiểm tra quyền sở hữu
     stmt = select(models.Page).join(models.Project, models.Page.project_id == models.Project.id).where(
         models.Page.id == page_id,
         models.Project.user_id == user_id
@@ -634,8 +683,8 @@ async def check_page_ownership(page_id: str, user_id: str, db: AsyncSession) -> 
     page = result.scalars().first()
     if not page:
         raise HTTPException(
-            status_code=403, 
-            detail="Bạn không có quyền truy cập trang này hoặc trang không tồn tại!"
+            status_code=403,
+            detail="Bạn không có quyền truy cập trang này!"
         )
     return page
 
@@ -763,11 +812,11 @@ async def upload_page_to_project(
     if free_mb < 500: # Trống dưới 500MB là cấm cửa ngay
         raise HTTPException(status_code=507, detail="Hệ thống đang bảo trì ổ cứng (Sắp đầy), vui lòng thử lại sau!")
 
-    # 🚀 CHỐT 2: KIỂM TRA HẠN MỨC DỰ ÁN (Ví dụ: Tối đa 50 trang/dự án)
+    # 🚀 CHỐT 2: KIỂM TRA HẠN MỨC DỰ ÁN (Ví dụ: Tối đa 30 trang/dự án)
     result_pages = await db.execute(select(models.Page).where(models.Page.project_id == project_id))
     current_pages = result_pages.scalars().all()
-    if len(current_pages) >= 50:
-        raise HTTPException(status_code=403, detail="Dự án đã đạt giới hạn 50 trang. Vui lòng xóa bớt ảnh cũ hoặc tạo dự án mới!")
+    if len(current_pages) >= 30:
+        raise HTTPException(status_code=403, detail="Dự án đã đạt giới hạn 30 trang. Vui lòng xóa bớt ảnh cũ hoặc tạo dự án mới!")
 
     # 🚀 CHỐT 3: KIỂM TRA FILE QUÁ NẶNG (Tối ưu RAM)
     # Thay vì đọc hết file vào RAM gây đơ máy, ta chỉ nhảy con trỏ xuống cuối file để đo kích thước
@@ -1888,9 +1937,9 @@ async def auto_cleanup_workspace():
             if os.path.exists(workspace_dir):
                 current_time = time.time()
                 
-                # THỜI GIAN HẾT HẠN (6 giờ = 21600 giây) để tuân thủ chính sách "Zero-Storage"
-                # ⏳ ĐỂ TEST: Đổi số 21600 thành số 60 (1 phút)
-                EXPIRATION_TIME = 21600 
+                # THỜI GIAN HẾT HẠN (2 giờ = 7200 giây) để tuân thủ chính sách "Zero-Storage"
+                # ⏳ ĐỂ TEST: Đổi số 7200 thành số 60 (1 phút)
+                EXPIRATION_TIME = 7200 
                 # EXPIRATION_TIME = 60 
                 
                 deleted_count = 0
@@ -1930,20 +1979,19 @@ async def startup_event():
 async def delete_page_from_server(
     page_id: str, 
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
+    user_id: str = Depends(get_current_user_id)
 ):
     try:
-        # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
+        # 1. Kiểm tra quyền sở hữu
         page = await check_page_ownership(page_id, user_id, db)
-        
         project_id = page.project_id
 
-        # 2. XÓA CACHE REDIS & FILE RAW VẬT LÝ
+        # 2. XÓA FILE RAW VẬT LÝ + CACHE REDIS (lỗi file không chặn xóa DB)
         if page.raw_url:
-            raw_filename = page.raw_url.split("/")[-1].split("?")[0] # Bỏ query string timestamp nếu có
+            raw_filename = page.raw_url.split("/")[-1].split("?")[0]
             raw_path = f"workspace/{project_id}/raw/{raw_filename}"
             if os.path.exists(raw_path):
-                # 🚀 XÓA CACHE TRONG REDIS ĐỂ TRÁNH TRÙNG LẶP KHI UPLOAD LẠI ẢNH CŨ
+                # Xóa cache Redis
                 try:
                     img_hash = get_image_ahash(raw_path)
                     if img_hash:
@@ -1951,30 +1999,38 @@ async def delete_page_from_server(
                         async for key in async_redis_client.scan_iter(match=pattern):
                             await async_redis_client.delete(key)
                         await async_redis_client.delete(f"ocr_translate_cache:{img_hash}")
-                        print(f"🔥 [DELETE] Đã xóa tất cả cache Redis cho ảnh: {img_hash}")
+                        print(f"🔥 [DELETE] Đã xóa cache Redis cho ảnh: {img_hash}")
                 except Exception as ce:
-                    print(f"⚠️ [DELETE] Lỗi xóa cache Redis: {ce}")
-                    
-                os.remove(raw_path)
+                    print(f"⚠️ [DELETE] Lỗi xóa Redis cache (bỏ qua): {ce}")
+                # Xóa file vật lý — lỗi ở đây không được chặn xóa DB
+                try:
+                    os.remove(raw_path)
+                except OSError as fe:
+                    print(f"⚠️ [DELETE] Không xóa được file raw (bỏ qua): {fe}")
 
-        # 3. XÓA FILE CLEAN VẬT LÝ (Nếu có)
+        # 3. XÓA FILE CLEAN VẬT LÝ (lỗi file không chặn xóa DB)
         if hasattr(page, 'clean_url') and page.clean_url:
             clean_filename = page.clean_url.split("/")[-1].split("?")[0]
-            # 🚀 SỬA ĐƯỜNG DẪN XÓA ẢNH CLEAN CHO ĐÚNG THƯ MỤC THỰC TẾ
             clean_path = f"workspace/{clean_filename}"
-            if os.path.exists(clean_path):
-                os.remove(clean_path)
+            try:
+                if os.path.exists(clean_path):
+                    os.remove(clean_path)
+            except OSError as fe:
+                print(f"⚠️ [DELETE] Không xóa được file clean (bỏ qua): {fe}")
 
-        # 4. Xóa bản ghi trong Database
+        # 4. XÓA RECORD TRONG DATABASE — đây mới là bước quan trọng nhất
         await db.delete(page)
         await db.commit()
         
-        print(f"🔥 [DELETE] Đã xóa vĩnh viễn trang {page_id} khỏi ổ cứng và DB!")
+        print(f"🔥 [DELETE] Đã xóa trang {page_id} khỏi DB!")
         return {"status": "success", "message": "Đã giải phóng dung lượng Server thành công"}
 
+    except HTTPException:
+        raise  # 403 ownership check → pass through, không rollback DB
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Lỗi không thể xóa file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Lỗi không thể xóa trang: {str(e)}")
+
     
 os.makedirs("workspace/fonts", exist_ok=True)
 
@@ -3189,9 +3245,15 @@ async def beta_translate(
     payload = {
         "model": "grok-imagine-image",
         "prompt": "Remove text inside the bubbles, clean background, redraw missing parts, manga style, lineart",
-        "image": image_b64,
-        "mask": mask_b64,
-        "resolution": "2k"
+        "n": 1,
+        "aspect_ratio": "auto",
+        "resolution": "2k",
+        "image": {
+            "url": f"data:image/png;base64,{image_b64}"
+        },
+        "mask": {
+            "url": f"data:image/png;base64,{mask_b64}"
+        }
     }
 
     headers = {
@@ -3199,7 +3261,7 @@ async def beta_translate(
         "Content-Type": "application/json"
     }
 
-    url = "https://api.x.ai/v1/images/generations"
+    url = "https://api.x.ai/v1/images/edits"
 
     # Gọi API bất đồng bộ với httpx và bắt lỗi mạng rõ ràng
     async with httpx.AsyncClient() as client:
@@ -3249,4 +3311,612 @@ async def beta_translate(
         )
 
     # Trả về ảnh PNG đã xóa chữ dưới dạng StreamingResponse
-    return StreamingResponse(io.BytesIO(output_bytes), media_type="image/png")
+    return StreamingResponse(io.BytesIO(output_bytes), media_type="image/png")
+
+
+# ==========================================
+# 🚀 API: SEQUENTIAL-TO-PARALLEL STREAMING FLOW (SSE)
+# ==========================================
+import re
+import httpx
+import cv2
+import numpy as np
+from typing import List, Dict, Any, Optional
+
+# Banned NSFW keywords for rapid text-based check
+BANNED_NSFW_KEYWORDS = ["nsfw", "porn", "hentai", "nude", "explicit", "genitalia"]
+
+def resize_image_cv2(base64_str: str, width: int, height: int) -> str:
+    """
+    Decodes a base64 image string, resizes it using OpenCV's INTER_CUBIC interpolation,
+    and returns the resized image encoded back as a base64 string.
+    """
+    if "," in base64_str:
+        base64_str = base64_str.split(",")[1]
+    img_data = base64.b64decode(base64_str)
+    nparr = np.frombuffer(img_data, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        raise ValueError("OpenCV failed to decode the inpainted image.")
+    resized_img = cv2.resize(img, (width, height), interpolation=cv2.INTER_CUBIC)
+    _, buffer = cv2.imencode('.png', resized_img)
+    resized_b64 = base64.b64encode(buffer).decode("utf-8")
+    return resized_b64
+
+
+def calculate_price(output_format: str, quality_level: int) -> float:
+    base_price = 0.01 if output_format == "png" else 0.008
+    multiplier = {1: 1.0, 2: 1.5, 3: 2.0}.get(quality_level, 1.5)
+    return base_price * multiplier
+
+async def call_grok_inpainting(original_b64: str, prompt: str) -> str:
+    """Task A: Full-Image Redraw via xAI Grok API"""
+    xai_key = XAI_API_KEY or os.getenv("XAI_API_KEY")
+    if not xai_key:
+        raise Exception("Missing xAI API Key (XAI_API_KEY)")
+
+    url = "https://api.x.ai/v1/images/edits"
+    system_prompt = f"{prompt}, Remove all text bubbles and text, preserve manga lineart style, redraw background seamlessly"
+    payload = {
+        "model": "grok-imagine-image",
+        "prompt": system_prompt,
+        "n": 1,
+        "aspect_ratio": "auto",
+        "resolution": "2k",
+        "image": {
+            "url": f"data:image/png;base64,{original_b64}"
+        }
+    }
+    headers = {
+        "Authorization": f"Bearer {xai_key}",
+        "Content-Type": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, json=payload, headers=headers, timeout=90.0)
+        response.raise_for_status()
+        res_json = response.json()
+        img_item = res_json.get("data", [{}])[0]
+        
+        # Parse b64_json or url
+        b64_output = img_item.get("b64_json")
+        if b64_output:
+            if "," in b64_output:
+                b64_output = b64_output.split(",")[1]
+            return b64_output
+        else:
+            img_url = img_item.get("url")
+            if img_url:
+                async with httpx.AsyncClient() as dl_client:
+                    dl_res = await dl_client.get(img_url, timeout=45.0)
+                    dl_res.raise_for_status()
+                    return base64.b64encode(dl_res.content).decode("utf-8")
+            else:
+                raise Exception("Missing inpainted image data in xAI response")
+
+async def call_deepseek_translation(texts: List[str]) -> List[str]:
+    """Task B: Translation via DeepSeek API"""
+    deepseek_key = DEEPSEEK_API_KEY or os.getenv("DEEPSEEK_API_KEY")
+    if not deepseek_key:
+        raise Exception("Missing DeepSeek API Key (DEEPSEEK_API_KEY)")
+
+    url = "https://api.deepseek.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {deepseek_key}",
+        "Content-Type": "application/json"
+    }
+    system_prompt = (
+        "You are a professional manga translator. Translate the array of lines into natural, "
+        "localized Vietnamese manga style, preserving the exact array ordering. "
+        "Respond ONLY with a JSON object containing a 'translations' key mapping to a list of strings "
+        "in the exact same length and order, e.g. {\"translations\": [\"dịch 1\", \"dịch 2\"]}. "
+        "Do not include any explanation or markdown formatting."
+    )
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(texts, ensure_ascii=False)}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.3
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, json=payload, headers=headers, timeout=60.0)
+        response.raise_for_status()
+        res_json = response.json()
+        content = res_json["choices"][0]["message"]["content"]
+        data = json.loads(content)
+        return data.get("translations", [])
+
+@app.post("/api/v1/ai-process")
+async def ai_process(
+    image: UploadFile = File(..., description="Manga Page Image"),
+    prompt: str = Form(..., description="Redraw instructions / context"),
+    existing_bubbles: Optional[str] = Form(None, description="Serialized existing bubble data to bypass OCR detection"),
+    output_format: str = Form("jpeg", description="Output format (png or jpg)"),
+    translation_mode: str = Form("fast", description="Translation mode: fast | deep | studio"),
+    detect_only: bool = Form(False, description="Whether to stop after text detection and OCR"),
+    page_id: Optional[str] = Form(None, description="Active page ID to save results"),
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    try:
+        image_bytes = await image.read()
+
+        # Capture Original Dimensions using OpenCV (runs in thread pool to prevent event loop blocking)
+        def get_dimensions(data: bytes):
+            nparr = np.frombuffer(data, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
+            if img is None:
+                raise ValueError("OpenCV failed to decode image bytes")
+            return img.shape[1], img.shape[0]  # width, height
+
+        original_width, original_height = await asyncio.to_thread(get_dimensions, image_bytes)
+        print(f"📸 [AI-PROCESS] Original image dimensions captured: {original_width}x{original_height}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read uploaded image: {str(e)}")
+
+    # ==========================================
+    # CREDIT COST MAP & PRE-FLIGHT DEDUCTION
+    # ==========================================
+    MODE_COST = {"fast": 2, "deep": 8, "studio": 12}
+    required_credits = MODE_COST.get(translation_mode, 2)
+    print(f"💰 [AI-PROCESS] Mode='{translation_mode}', Required credits={required_credits}")
+
+    try:
+        await check_and_deduct_credits(
+            db, user_id, required_credits,
+            f"AI Process - Chế độ: {translation_mode} ({required_credits} credits)"
+        )
+        await db.commit()
+        print(f"✅ [AI-PROCESS] Deducted {required_credits} credits from user {user_id}")
+    except HTTPException as credit_err:
+        raise credit_err
+
+    async def event_generator():
+        credits_refunded = False
+
+        async def do_refund(reason: str):
+            nonlocal credits_refunded
+            if not credits_refunded:
+                credits_refunded = True
+                try:
+                    from database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as refund_db:
+                        await refund_credits(
+                            refund_db, user_id, required_credits,
+                            f"Hoàn {required_credits} credits: {reason}"
+                        )
+                        await refund_db.commit()
+                    print(f"💰 [AI-PROCESS] Refunded {required_credits} credits to {user_id}: {reason}")
+                except Exception as ref_err:
+                    print(f"⚠️ [AI-PROCESS] Refund failed: {ref_err}")
+
+        # 1. Local Image NSFW Check
+        if check_image_nsfw(image_bytes):
+            await do_refund("NSFW image rejected")
+            yield f"data: {json.dumps({'status': 'error', 'message': 'Hệ thống từ chối ảnh có nội dung nhạy cảm (NSFW).'}, ensure_ascii=False)}\n\n"
+            return
+        
+        yield f"data: {json.dumps({'status': 'image_nsfw_passed'}, ensure_ascii=False)}\n\n"
+
+        # 2. Text NSFW validation step
+        if DISABLE_LOCAL_NSFW:
+            nsfw_detected = False
+        else:
+            prompt_lower = prompt.lower()
+            nsfw_detected = any(kw in prompt_lower for kw in BANNED_NSFW_KEYWORDS)
+            
+        if nsfw_detected:
+            yield f"data: {json.dumps({'status': 'error', 'message': 'NSFW keywords detected in prompt'}, ensure_ascii=False)}\n\n"
+            return
+        
+        yield f"data: {json.dumps({'status': 'nsfw_passed'}, ensure_ascii=False)}\n\n"
+
+        # 3. Start R2 upload task concurrently (only for studio mode and not detect_only)
+        upload_task = None
+        original_filename = None
+        if translation_mode == "studio" and not detect_only:
+            try:
+                original_filename = f"orig_{uuid.uuid4().hex}.png"
+                async def do_upload():
+                    print(f"🌐 [AI-PROCESS] Starting concurrent R2 upload...")
+                    return await upload_to_r2(image_bytes, original_filename, "image/png")
+                upload_task = asyncio.create_task(do_upload())
+            except Exception as upload_init_err:
+                await do_refund(f"R2 upload task initialization failed: {upload_init_err}")
+                yield f"data: {json.dumps({'status': 'error', 'message': f'Failed to start original image upload: {str(upload_init_err)}'}, ensure_ascii=False)}\n\n"
+                return
+
+        # 4. Handle existing bubbles / RunPod OCR
+        has_existing = False
+        boxes = []
+        texts = []
+        mask_b64 = None
+        mask_filename = None
+
+        if existing_bubbles:
+            try:
+                parsed_bubbles = json.loads(existing_bubbles)
+                if isinstance(parsed_bubbles, list) and len(parsed_bubbles) > 0:
+                    for b in parsed_bubbles:
+                        x = int(b.get("x", 0))
+                        y = int(b.get("y", 0))
+                        w = int(b.get("w", 0))
+                        h = int(b.get("h", 0))
+                        boxes.append({
+                            "x1": x,
+                            "y1": y,
+                            "x2": x + w,
+                            "y2": y + h
+                        })
+                        # Prioritize source text (japanese) for translation, fallback to text/vietnamese
+                        texts.append(b.get("japanese") or b.get("vietnamese") or b.get("text") or "")
+                    
+                    has_existing = True
+                    print(f"⚡ [BETA-TRANSLATE] Bypassing RunPod OCR. Found {len(boxes)} existing bubbles.")
+            except Exception as parse_err:
+                print(f"⚠️ [BETA-TRANSLATE] Failed to parse existing_bubbles: {parse_err}")
+
+        if has_existing:
+            yield f"data: {json.dumps({'status': 'text_detected', 'boxes': boxes, 'texts': texts}, ensure_ascii=False)}\n\n"
+        else:
+            # Call Internal RunPod (RunPod worker now returns boxes, texts, and mask_base64)
+            runpod_api_key = RUNPOD_API_KEY or os.getenv("RUNPOD_API_KEY")
+            runpod_endpoint_url = RUNPOD_ENDPOINT_URL or os.getenv("RUNPOD_ENDPOINT_URL")
+            
+            # Fallback to standard RunPod URL if RUNPOD_ENDPOINT_URL is not set but translate endpoint ID is
+            if not runpod_endpoint_url:
+                endpoint_id = os.getenv("RUNPOD_TRANSLATE_ENDPOINT_ID") or os.getenv("RUNPOD_ENDPOINT_ID")
+                if endpoint_id:
+                    runpod_endpoint_url = f"https://api.runpod.ai/v2/{endpoint_id}/run"
+            
+            if not runpod_api_key or not runpod_endpoint_url:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Missing RunPod configuration'}, ensure_ascii=False)}\n\n"
+                return
+
+            try:
+                original_b64 = base64.b64encode(image_bytes).decode("utf-8")
+                headers = {
+                    "Authorization": f"Bearer {runpod_api_key}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "input": {
+                        "image": original_b64,
+                        "action": "detect_and_ocr_only"
+                    }
+                }
+                
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(runpod_endpoint_url, json=payload, headers=headers, timeout=90.0)
+                    response.raise_for_status()
+                    res_json = response.json()
+                
+                job_status = res_json.get("status")
+                job_id = res_json.get("id")
+                
+                if job_status == "COMPLETED":
+                    output = res_json.get("output", {})
+                elif job_id and job_status in ["IN_QUEUE", "IN_PROGRESS"]:
+                    # Poll status
+                    poll_url = runpod_endpoint_url.split("/run")[0] + f"/status/{job_id}"
+                    output = {}
+                    for _ in range(30):  # 60 seconds timeout max
+                        await asyncio.sleep(2)
+                        async with httpx.AsyncClient() as client:
+                            poll_res = await client.get(poll_url, headers=headers, timeout=15.0)
+                            poll_res.raise_for_status()
+                            poll_json = poll_res.json()
+                        status = poll_json.get("status")
+                        if status == "COMPLETED":
+                            output = poll_json.get("output", {})
+                            break
+                        elif status in ["FAILED", "CANCELLED"]:
+                            raise Exception(f"RunPod job failed or cancelled (job_id: {job_id})")
+                    else:
+                        raise Exception("RunPod job polling timed out")
+                else:
+                    output = res_json.get("output", {})
+                    if not output and "boxes" in res_json:
+                        output = res_json
+                
+                boxes = output.get("boxes", [])
+                texts = output.get("texts", [])
+                
+                yield f"data: {json.dumps({'status': 'text_detected', 'boxes': boxes, 'texts': texts}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'status': 'error', 'message': f'RunPod execution failed: {str(e)}'}, ensure_ascii=False)}\n\n"
+                if upload_task:
+                    upload_task.cancel()
+                return
+
+        if detect_only:
+            yield f"data: {json.dumps({'status': 'detect_completed', 'boxes': boxes, 'texts': texts, 'mask_base64': None}, ensure_ascii=False)}\n\n"
+            if upload_task:
+                upload_task.cancel()
+            if original_filename:
+                try:
+                    await delete_from_r2(original_filename)
+                except Exception as cleanup_err:
+                    print(f"⚠️ [AI-PROCESS] Error deleting original file in detect_only: {cleanup_err}")
+            return
+
+        # Parallel Execution via asyncio.Queue
+        queue = asyncio.Queue()
+
+        async def run_task_a():
+            nonlocal original_filename
+            try:
+                print(f"🚦 [AI-PROCESS] Routing → mode='{translation_mode}'")
+                img_b64 = None
+
+                if translation_mode == "studio":
+                    # ── STUDIO: Kie.ai Nano Banana (Generative AI, ⚡12) ──────────
+                    print("🎨 [AI-PROCESS] Studio mode → Kie.ai Nano Banana")
+                    kie_key = os.getenv("KIE_API_KEY") or os.getenv("KIE_AI_API_KEY")
+                    if not kie_key:
+                        raise Exception("Missing Kie.ai API Key (KIE_API_KEY / KIE_AI_API_KEY)")
+
+                    # Yield R2 uploading status
+                    if upload_task and not upload_task.done():
+                        await queue.put({"status": "kie_progress", "state": "uploading_r2"})
+
+                    # Await R2 upload completion
+                    try:
+                        original_url = await upload_task
+                        print(f"🌐 [AI-PROCESS] R2 Upload complete. URL: {original_url}")
+                    except Exception as upload_err:
+                        raise Exception(f"R2 upload failed: {upload_err}")
+
+                    await queue.put({"status": "kie_progress", "state": "submitting"})
+
+                    kie_url = "https://api.kie.ai/api/v1/jobs/createTask"
+                    kie_headers = {
+                        "Authorization": f"Bearer {kie_key}",
+                        "Content-Type": "application/json"
+                    }
+                    full_prompt = "loại bỏ chữ khỏi ảnh, giữ nguyên screentone của tác giả, không vẽ thêm, không xóa hoặc thêm bóng thoại mà trong ảnh không có, không xóa mắt của nhân vật"
+                    payload = {
+                        "model": "google/nano-banana-edit",
+                        "input": {
+                            "prompt": full_prompt,
+                            "image_urls": [original_url],
+                            "output_format": output_format,
+                            "aspect_ratio": "auto",
+                            "nsfw_checker": True
+                        }
+                    }
+
+                    print("📡 [AI-PROCESS] Calling Kie.ai createTask API...")
+                    async with httpx.AsyncClient() as client:
+                        response = await client.post(kie_url, json=payload, headers=kie_headers, timeout=60.0)
+                        response.raise_for_status()
+                        res_json = response.json()
+
+                    task_id = res_json.get("taskId") or res_json.get("data", {}).get("taskId")
+                    if not task_id:
+                        raise Exception(f"Failed to retrieve taskId from Kie.ai createTask: {res_json}")
+
+                    poll_url = f"https://api.kie.ai/api/v1/jobs/recordInfo?taskId={task_id}"
+                    print(f"📡 [AI-PROCESS] Polling Kie.ai task: {task_id}...")
+                    poll_start_time = asyncio.get_event_loop().time()
+                    final_img_url = None
+
+                    while True:
+                        elapsed = asyncio.get_event_loop().time() - poll_start_time
+                        if elapsed > KIE_POLLING_TIMEOUT:
+                            raise Exception(
+                                "Yêu cầu xử lý ảnh (Kie.ai) bị quá thời gian (Timeout). "
+                                "Có khả năng ảnh bạn gửi lên không đạt yêu cầu. Vui lòng thử lại sau."
+                            )
+                        await asyncio.sleep(3)
+                        async with httpx.AsyncClient() as client:
+                            poll_res = await client.get(poll_url, headers=kie_headers, timeout=15.0)
+                            poll_res.raise_for_status()
+                            poll_json = poll_res.json()
+
+                        state = poll_json.get("state") or poll_json.get("status") or poll_json.get("data", {}).get("state")
+                        await queue.put({"status": "kie_progress", "state": state})
+
+                        if state in ["success", "SUCCESS", "COMPLETED"]:
+                            data_obj = poll_json.get("data") or poll_json
+                            result_json_str = data_obj.get("resultJson") or data_obj.get("result_json")
+                            result_urls = []
+                            if result_json_str:
+                                try:
+                                    result_data = json.loads(result_json_str)
+                                    result_urls = result_data.get("resultUrls") or result_data.get("result_urls") or []
+                                except Exception as parse_err:
+                                    print(f"⚠️ [KIE-AI] Error parsing resultJson: {parse_err}")
+                            if not result_urls:
+                                result_urls = data_obj.get("resultUrls") or data_obj.get("result_urls") or []
+                            if not result_urls:
+                                raise Exception(f"No result URLs found in Kie.ai response (task_id: {task_id})")
+                            final_img_url = result_urls[0]
+                            break
+                        elif state in ["fail", "failed", "FAILED", "cancelled", "CANCELLED", "error", "ERROR"]:
+                            err_detail = None
+                            data_obj = poll_json.get("data") or {}
+                            if isinstance(data_obj, dict):
+                                err_detail = data_obj.get("errorMsg") or data_obj.get("errorMessage") or data_obj.get("error")
+                            if not err_detail:
+                                err_detail = poll_json.get("message") or poll_json.get("error")
+                            err_msg = f"Kie.ai task failed: {err_detail}" if err_detail else f"Kie.ai task status '{state}' (task_id: {task_id})"
+                            raise Exception(err_msg)
+
+                    if original_filename:
+                        try:
+                            print("🧹 [AI-PROCESS] Kie.ai task succeeded. Deleting original file from R2...")
+                            asyncio.create_task(delete_from_r2(original_filename))
+                            original_filename = None
+                        except Exception as cleanup_err:
+                            print(f"⚠️ [AI-PROCESS] Error starting R2 cleanup after Kie.ai result: {cleanup_err}")
+
+                    print(f"📡 [AI-PROCESS] Downloading Kie.ai result: {final_img_url}")
+                    async with httpx.AsyncClient() as dl_client:
+                        dl_res = await dl_client.get(final_img_url, timeout=30.0)
+                        dl_res.raise_for_status()
+                        final_bytes = dl_res.content
+
+                    await queue.put({"status": "kie_progress", "state": "resizing"})
+                    img_b64 = base64.b64encode(final_bytes).decode("utf-8")
+                    try:
+                        print(f"🔄 [AI-PROCESS] Resizing to {original_width}x{original_height}...")
+                        img_b64 = await asyncio.to_thread(resize_image_cv2, img_b64, original_width, original_height)
+                        print("✅ [AI-PROCESS] Resize complete.")
+                    except Exception as resize_err:
+                        print(f"⚠️ [AI-PROCESS] Resize failed, using raw output: {resize_err}")
+
+                    await queue.put({"status": "kie_progress", "state": "success"})
+                    await queue.put({"status": "image_ready", "image_base64": img_b64})
+
+                else:
+                    # ── FAST (⚡2): RunPod LaMa endpoint ──────────────────────────
+                    # ── DEEP (⚡8): RunPod Diffusion endpoint ──────────────────────
+                    if translation_mode == "deep":
+                        runpod_ep_id = os.getenv("RUNPOD_DEEP_ENDPOINT_ID") or RUNPOD_REDRAW_ENDPOINT_ID
+                        action = "inpaint"
+                        print(f"🧠 [AI-PROCESS] Deep mode → RunPod endpoint: {runpod_ep_id}")
+                    else:  # fast
+                        runpod_ep_id = os.getenv("RUNPOD_TRANSLATE_ENDPOINT_ID") or os.getenv("RUNPOD_ENDPOINT_ID")
+                        action = "lama_inpaint"
+                        print(f"⚡ [AI-PROCESS] Fast mode → RunPod endpoint: {runpod_ep_id}")
+
+                    if not runpod_ep_id:
+                        raise Exception(f"Missing RunPod endpoint ID for mode '{translation_mode}'. Check .env.")
+
+                    await queue.put({"status": "kie_progress", "state": "submitting"})
+
+                    runpod_api_key = RUNPOD_API_KEY or os.getenv("RUNPOD_API_KEY")
+                    runpod_run_url = f"https://api.runpod.ai/v2/{runpod_ep_id}/run"
+                    original_b64 = base64.b64encode(image_bytes).decode("utf-8")
+                    rp_headers = {
+                        "Authorization": f"Bearer {runpod_api_key}",
+                        "Content-Type": "application/json"
+                    }
+                    payload = {
+                        "input": {
+                            "image": original_b64,
+                            "image_base64": original_b64,
+                            "action": action
+                        }
+                    }
+
+                    async with httpx.AsyncClient() as client:
+                        res = await client.post(runpod_run_url, json=payload, headers=rp_headers, timeout=90.0)
+                        res.raise_for_status()
+                        res_json = res.json()
+
+                    job_id = res_json.get("id")
+                    status = res_json.get("status")
+
+                    await queue.put({"status": "kie_progress", "state": status})
+
+                    if status == "COMPLETED":
+                        output = res_json.get("output", {})
+                    elif job_id and status in ["IN_QUEUE", "IN_PROGRESS"]:
+                        poll_url = f"https://api.runpod.ai/v2/{runpod_ep_id}/status/{job_id}"
+                        output = {}
+                        for _ in range(60):  # max 3 min
+                            await asyncio.sleep(3)
+                            async with httpx.AsyncClient() as client:
+                                pr = await client.get(poll_url, headers=rp_headers, timeout=15.0)
+                                pr.raise_for_status()
+                                pj = pr.json()
+                            status = pj.get("status")
+                            await queue.put({"status": "kie_progress", "state": status})
+                            if status == "COMPLETED":
+                                output = pj.get("output", {})
+                                break
+                            elif status in ["FAILED", "CANCELLED"]:
+                                raise Exception(f"RunPod job failed (job_id: {job_id})")
+                        else:
+                            raise Exception("RunPod job polling timed out after 3 minutes")
+                    else:
+                        output = res_json.get("output", {})
+
+                    if isinstance(output, dict) and output.get("status") == "error":
+                        raise Exception(f"RunPod worker error: {output.get('message', 'Unknown error')}")
+
+                    img_b64 = output.get("clean_image_base64") or output.get("image_base64") or output.get("image")
+                    if not img_b64:
+                        raise Exception("RunPod returned no image in output")
+
+                    await queue.put({"status": "kie_progress", "state": "success"})
+                    await queue.put({"status": "image_ready", "image_base64": img_b64})
+
+                # If page_id is provided, save clean image to disk and update DB
+                if page_id and img_b64:
+                    try:
+                        from database import AsyncSessionLocal
+                        async with AsyncSessionLocal() as page_db:
+                            result = await page_db.execute(select(models.Page).where(models.Page.id == page_id))
+                            page_obj = result.scalars().first()
+                            if page_obj:
+                                raw_path = get_local_path_from_url(page_obj.raw_url)
+                                clean_path = raw_path.replace("/raw/", "/clean/") if "/raw/" in raw_path else f"workspace/clean_{page_id}.png"
+                                
+                                # Write resized image bytes to clean_path
+                                png_bytes = base64.b64decode(img_b64)
+                                os.makedirs(os.path.dirname(clean_path), exist_ok=True)
+                                with open(clean_path, "wb") as f:
+                                    f.write(png_bytes)
+                                print(f"💾 [AI-PROCESS] Clean image saved to VPS local disk at: {clean_path}")
+                                
+                                page_obj.clean_url = f"/{clean_path}"
+                                page_obj.status = "completed"
+                                await page_db.commit()
+                                print(f"✅ [AI-PROCESS] Page {page_id} clean_url updated to /{clean_path}")
+                    except Exception as save_err:
+                        print(f"⚠️ [AI-PROCESS] Failed to save clean image or update database: {save_err}")
+
+            except Exception as e:
+                await do_refund(f"AI image processing failed: {e}")
+                await queue.put({"status": "image_failed", "error": str(e)})
+            finally:
+                if original_filename:
+                    try:
+                        print("🧹 [AI-PROCESS] Cleaning up temporary R2 objects...")
+                        await asyncio.shield(delete_from_r2(original_filename))
+                    except Exception as cleanup_err:
+                        print(f"⚠️ [AI-PROCESS] Error during R2 cleanup: {cleanup_err}")
+
+        async def run_task_b():
+            try:
+                if not texts:
+                    await queue.put({"status": "translation_ready", "translations": []})
+                    return
+                await queue.put({"status": "translating_text"})
+                translations = await call_deepseek_translation(texts)
+                await queue.put({"status": "translation_ready", "translations": translations})
+            except Exception as e:
+                await queue.put({"status": "translation_failed", "error": str(e)})
+
+        task_a = asyncio.create_task(run_task_a())
+        task_b = asyncio.create_task(run_task_b())
+
+        pending_tasks = {task_a, task_b}
+        try:
+            while pending_tasks:
+                while not queue.empty():
+                    item = await queue.get()
+                    yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+                done, pending_tasks = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED, timeout=0.5)
+
+            # Flush any remaining items in the queue
+            while not queue.empty():
+                item = await queue.get()
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+        finally:
+            # Cancel background tasks if client disconnects or generator exits
+            for t in [task_a, task_b]:
+                if not t.done():
+                    t.cancel()
+            print("🛑 [AI-PROCESS] Cancelled background tasks due to client disconnection or generator exit.")
+
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+

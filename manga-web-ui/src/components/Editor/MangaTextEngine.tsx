@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import * as fabric from 'fabric';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
+import { useProjectStore } from '../../store/useProjectStore';
 import { loadFont } from '../../utils/fontManager';
 
 const ROTATE_ICON_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E";
@@ -23,6 +24,10 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
   const activeBubbleId = useCanvasStore((state) => state.activeBubbleId);
   const activeMode = useToolStore((state) => state.activeMode);
   const showText = useToolStore((state) => state.showText);
+
+  const pageStatuses = useProjectStore((state) => state.pageStatuses);
+  const currentIndex = useProjectStore((state) => state.currentIndex);
+  const isCurrentPageProcessing = pageStatuses[currentIndex] === 'processing' || pageStatuses[currentIndex] === 'waiting';
 
   useEffect(() => {
     if (!containerRef.current || !wrapperRef.current) return;
@@ -373,14 +378,14 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
   useEffect(() => {
     const canvas = fabricCanvas.current;
     if (!canvas) return;
-    const isInteractive = activeMode === 'none' && showText;
+    const isInteractive = activeMode === 'none' && showText && !isCurrentPageProcessing;
     canvas.getObjects().forEach((obj) => {
       obj.selectable = isInteractive;
       obj.evented = isInteractive;
     });
     if (!isInteractive) canvas.discardActiveObject();
     canvas.renderAll();
-  }, [activeMode, showText, bubbles]);
+  }, [activeMode, showText, bubbles, isCurrentPageProcessing]);
 
   // 🚀 BẢN VÁ 2: ĐỒNG BỘ NGƯỢC (TỪ SIDEBAR XUỐNG CANVAS)
   useEffect(() => {

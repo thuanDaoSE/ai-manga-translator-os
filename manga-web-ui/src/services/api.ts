@@ -31,7 +31,7 @@ const handleApiError = async (response: Response, defaultMessage: string) => {
 };
 
 // 🚀 NÂNG CẤP THÀNH ASYNC: TỰ ĐỘNG KIỂM TRA VÀ GIA HẠN TOKEN KHI CÓ REQUEST
-const getAuthHeaders = async (isFormData: boolean = false) => {
+export const getAuthHeaders = async (isFormData: boolean = false) => {
   let token = useAuthStore.getState().session?.access_token;
 
   try {
@@ -340,9 +340,13 @@ export const mangaApi = {
       method: "DELETE",
       headers: await getAuthHeaders()
     });
-    // Bắt lỗi 401 nếu có
-    if (response.status === 401) {
-      await handleApiError(response, "Lỗi xác thực!");
+    // Xóa cache cục bộ ngay khi nhận phản hồi (dù thành công hay lỗi)
+    delete bubblesCache[pageId];
+    // Nếu không thành công (trừ 404 - trang đã bị xóa rồi cũng được), throw để FE biết
+    if (!response.ok && response.status !== 404) {
+      let detail = `Lỗi xóa trang (${response.status})`;
+      try { const d = await response.json(); detail = d.detail || d.message || detail; } catch {}
+      throw new Error(detail);
     }
   },
   getProjectPages: async (projectId: string) => {

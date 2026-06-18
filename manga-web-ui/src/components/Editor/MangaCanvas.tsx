@@ -65,10 +65,13 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
       // Nếu user đã bấm chuyển sang trang khác trong lúc ảnh đang tải -> Hủy vẽ
       if (!isMounted) return;
 
+      let w = 0;
+      let h = 0;
+
       // 1. VẼ ẢNH HIỂN THỊ CHÍNH & ĐỒNG BỘ SIZE CÁC CANVAS VẼ
       if (displayImg) {
-        const w = displayImg.naturalWidth;
-        const h = displayImg.naturalHeight;
+        w = displayImg.naturalWidth;
+        h = displayImg.naturalHeight;
 
         // Đổi size tất cả các canvas cùng 1 thời điểm chớp nhoáng
         [cleanRef, drawRef, committedRef].forEach(ref => {
@@ -82,16 +85,20 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
 
       // 2. VẼ ẢNH RAW (Lớp ẩn)
       if (rawImg && rawRef.current) {
-        rawRef.current.width = rawImg.naturalWidth;
-        rawRef.current.height = rawImg.naturalHeight;
-        rawRef.current.getContext('2d')?.drawImage(rawImg, 0, 0);
+        const targetW = w > 0 ? w : rawImg.naturalWidth;
+        const targetH = h > 0 ? h : rawImg.naturalHeight;
+        rawRef.current.width = targetW;
+        rawRef.current.height = targetH;
+        rawRef.current.getContext('2d')?.drawImage(rawImg, 0, 0, targetW, targetH);
       }
 
       // 3. VẼ ẢNH ORIGINAL CLEAN (Két sắt ẩn)
       if (originalCleanImg && originalCleanRef.current) {
-        originalCleanRef.current.width = originalCleanImg.naturalWidth;
-        originalCleanRef.current.height = originalCleanImg.naturalHeight;
-        originalCleanRef.current.getContext('2d')?.drawImage(originalCleanImg, 0, 0);
+        const targetW = w > 0 ? w : originalCleanImg.naturalWidth;
+        const targetH = h > 0 ? h : originalCleanImg.naturalHeight;
+        originalCleanRef.current.width = targetW;
+        originalCleanRef.current.height = targetH;
+        originalCleanRef.current.getContext('2d')?.drawImage(originalCleanImg, 0, 0, targetW, targetH);
       }
 
       // Xóa các nét vẽ cũ (nếu có) khi sang trang mới

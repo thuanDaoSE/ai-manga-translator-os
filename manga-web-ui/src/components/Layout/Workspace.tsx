@@ -1,13 +1,13 @@
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
-import { mangaApi } from '../../services/api';
+import { mangaApi, getAuthHeaders } from '../../services/api';
 import toast from 'react-hot-toast';
 import MangaTextEngine from '../Editor/MangaTextEngine';
 import MangaCanvas from '../Editor/MangaCanvas';
 import WelcomeScreen from '../Editor/WelcomeScreen';
-import { Search, Eraser, Paintbrush, Sparkles, Type as TypeIcon, PanelLeft, PanelRight, ChevronRight, ChevronLeft, Check, Wand2 } from 'lucide-react';
+import { Search, Eraser, Paintbrush, Sparkles, Type as TypeIcon, PanelLeft, PanelRight, ChevronRight, ChevronLeft, Check, Wand2, Settings } from 'lucide-react';
 import { FloatingCanvasToolbar } from '../Editor/FloatingCanvasToolbar';
 import { RedrawPromptInput } from '../Editor/RedrawPromptInput';
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
@@ -21,7 +21,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { useMangaEditorStore } from '../../store/useMangaEditorStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useDeviceDetect } from '../../hooks/useDeviceDetect';
-import { Smartphone, ArrowLeft, Loader2 } from 'lucide-react';
+import { Smartphone, ArrowLeft, Loader2, Languages, Hourglass } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Helper to convert base64/dataURL to Blob
@@ -38,10 +38,16 @@ const dataURLtoBlob = (dataurl: string) => {
 };
 
 
+const BoltIcon = () => (
+  <svg className="w-3.5 h-3.5 text-amber-500 fill-current inline-block align-middle" viewBox="-11 0 32 32" xmlns="http://www.w3.org/2000/svg">
+    <path d="M1.84 26.24c-0.080 0-0.16 0-0.24-0.040-0.4-0.12-0.64-0.52-0.56-0.92l1.32-9.16h-1.52c-0.24 0-0.52-0.12-0.68-0.32s-0.2-0.48-0.16-0.72l2.32-8.68c0.080-0.36 0.44-0.64 0.8-0.64h5.56c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-2.6 5.12h1.24c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-6.24 12.48c-0.12 0.28-0.44 0.48-0.76 0.48zM1.92 14.44h1.4c0.24 0 0.48 0.12 0.64 0.28 0.16 0.2 0.24 0.44 0.2 0.68l-0.72 4.92 3.28-6.56h-1.24c-0.28 0-0.56-0.16-0.72-0.4s-0.16-0.56-0.040-0.8l2.6-5.12h-3.56l-1.84 7z"></path>
+  </svg>
+);
+
 export default function Workspace() {
   const { t } = useTranslation();
   const isMobileOrTouch = useDeviceDetect();
-  const { signOut } = useAuthStore();
+  const { signOut, user } = useAuthStore();
   const [showPaywall, setShowPaywall] = useState(false);
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
@@ -51,66 +57,299 @@ export default function Workspace() {
   const isRedrawProcessingRef = useRef(false);
 
   const [showTosModal, setShowTosModal] = useState(false);
-  const [tosChecked, setTosChecked] = useState(false);
   const [isBetaTranslating, setIsBetaTranslating] = useState(false);
+  const isBetaTranslatingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
+  
+  const translationMode = useConfigStore((s) => s.translationMode);
+  const setTranslationMode = useConfigStore((s) => s.setTranslationMode);
+  const [maskPreviewUrl, setMaskPreviewUrl] = useState<string | null>(null);
+  const [isWaitingConfirm, setIsWaitingConfirm] = useState(false);
+  const [deductionAnim, setDeductionAnim] = useState<{ cost: number; id: number } | null>(null);
 
-  const startBetaTranslation = async () => {
-    if (isBetaTranslating) return;
-    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
-    if (!drawCanvas) return;
+  const triggerDeductionAnim = (cost: number) => {
+    const id = Date.now();
+    setDeductionAnim({ cost, id });
+    setTimeout(() => setDeductionAnim(null), 1100);
+  };
+
+  const startBetaTranslation = async (detectOnly = false) => {
+    if (isBetaTranslatingRef.current || isBetaTranslating || isProcessing) return;
+    isBetaTranslatingRef.current = true;
+
+    // Xác định chi phí theo mode (Nano Banana / Kie.ai luôn dùng Studio Mode)
+    const modeCost = 12;
 
     // Đọc số xu
     const { user } = useAuthStore.getState();
     const currentCredits = user?.credits || 0;
-    if (currentCredits < 3) {
+    if (currentCredits < modeCost) {
       setShowPaywall(true);
-      toast.error("Tài khoản của bạn không đủ Xu. Vui lòng nạp thêm!");
+      toast.error(`Tài khoản không đủ Xu. Cần ⚡${modeCost} nhưng chỉ có ⚡${currentCredits}. Vui lòng nạp thêm!`);
+      isBetaTranslatingRef.current = false;
       return;
     }
 
     setIsBetaTranslating(true);
     setIsProcessing(true);
     setActionPosition(null);
+    setAiStatus("Đang kết nối...");
+    projectStore.setPageStatus(currentIndex, "processing");
 
-    const toastId = toast.loading("Đang thực hiện dịch và xóa chữ...");
+    // Trừ xu cục bộ trước
+    useAuthStore.getState().deductLocalCredits(modeCost);
+    // Gọi API trừ xu thật trên Database (BE sẽ trừ lại thật, đây là optimistic UI)
+    mangaApi.deductCredits(modeCost).catch(e => console.error("Lỗi khấu trừ xu:", e));
+    // 🎮 Trigger RPG-style deduction animation
+    triggerDeductionAnim(modeCost);
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    const pageId = projectStore.pageIds[currentIndex];
 
     try {
-      // 1. Chuyển mask canvas sang Blob
-      const maskBase64 = drawCanvas.toDataURL("image/png");
-      const maskBlob = dataURLtoBlob(maskBase64);
-
-      // 2. Chuyển ảnh hiện tại trên canvas sang Blob
+      // 1. Chuyển ảnh hiện tại trên canvas sang Blob
       if (!displayUrl) throw new Error("Không tìm thấy ảnh gốc.");
       const imageResponse = await fetch(displayUrl);
       const imageBlob = await imageResponse.blob();
 
-      // 3. Gọi API thực thi dịch
-      const cleanImageBlob = await mangaApi.betaTranslate(imageBlob, maskBlob, true);
+      // 2. Tạo FormData để gửi lên API
+      const formData = new FormData();
+      formData.append('image', imageBlob, 'image.png');
+      formData.append('prompt', 'Clean and translate this page');
+      formData.append('translation_mode', 'studio');
+      formData.append('detect_only', detectOnly ? 'true' : 'false');
+      if (pageId) {
+        formData.append('page_id', pageId);
+      }
 
-      // Trừ xu cục bộ trước
-      useAuthStore.getState().deductLocalCredits(3);
-      // Gọi API trừ xu thật trên Database
-      mangaApi.deductCredits(3).catch(e => console.error("Lỗi khấu trừ xu:", e));
+      const currentBubbles = useCanvasStore.getState().bubbles;
+      if (currentBubbles && currentBubbles.length > 0) {
+        formData.append('existing_bubbles', JSON.stringify(currentBubbles));
+      }
 
-      // Tạo URL ảnh mới
-      const newUrl = URL.createObjectURL(cleanImageBlob);
+      // 3. Gọi API stream
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const authHeaders = await getAuthHeaders(true);
+      const response = await fetch(`${baseUrl}/api/v1/ai-process`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: formData,
+        signal: abortController.signal,
+      });
 
-      // Lưu lịch sử trong Editor store
-      useMangaEditorStore.getState().saveHistory();
-      useMangaEditorStore.getState().setImageUrl(newUrl);
 
-      // Đồng bộ URL mới vào projectStore
-      projectStore.setProcessedUrl(currentIndex, newUrl);
+      if (!response.ok) {
+        throw new Error(`Server returned status: ${response.statusText} (${response.status})`);
+      }
 
-      // Xóa vùng chọn vẽ trên mask
-      const ctx = drawCanvas.getContext("2d");
-      if (ctx) ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Trình duyệt không hỗ trợ stream.');
+      }
 
-      toast.success("✨ Dịch và xóa chữ thành công!", { id: toastId });
-      setActiveMode("none");
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let detectedBoxes: any[] = [];
+      let detectedTexts: any[] = [];
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+
+        for (const part of parts) {
+          const cleanPart = part.trim();
+          if (!cleanPart) continue;
+
+          if (cleanPart.startsWith('data: ')) {
+            const jsonStr = cleanPart.slice(6).trim();
+            let event: any;
+            try {
+              event = JSON.parse(jsonStr);
+            } catch (jsonErr: any) {
+              console.error('Error parsing JSON chunk:', jsonErr, jsonStr);
+              continue;
+            }
+
+            if (event.status === 'error') {
+              throw new Error(event.message || 'Lỗi không xác định từ server.');
+            }
+
+            switch (event.status) {
+                case 'image_nsfw_passed':
+                  setAiStatus("Kiểm duyệt ảnh...");
+                  break;
+                case 'nsfw_passed':
+                  setAiStatus("Kiểm duyệt prompt...");
+                  break;
+                case 'kie_progress': {
+                  const state = event.state;
+                  if (state === 'uploading_r2') {
+                    setAiStatus("Đang lưu trữ ảnh...");
+                  } else if (state === 'submitting' || state === 'submitting_runpod') {
+                    setAiStatus("Đang gửi yêu cầu...");
+                  } else if (state === 'waiting' || state === 'queued') {
+                    setAiStatus("Đang xếp hàng vẽ lại (Kie.ai)...");
+                  } else if (state === 'running' || state === 'active' || state === 'processing' || state === 'IN_QUEUE' || state === 'IN_PROGRESS') {
+                    setAiStatus("Đang vẽ lại ảnh (AI)...");
+                  } else if (state === 'resizing') {
+                    setAiStatus("Đang xử lý ảnh...");
+                  } else if (state === 'success' || state === 'COMPLETED') {
+                    setAiStatus("Vẽ lại ảnh hoàn tất!");
+                  } else {
+                    setAiStatus(`Đang xử lý vẽ lại (${state})...`);
+                  }
+                  break;
+                }
+                case 'detect_completed': {
+                  setAiStatus(null);
+                  setIsProcessing(false);
+                  setIsBetaTranslating(false);
+                  isBetaTranslatingRef.current = false;
+                  projectStore.setPageStatus(currentIndex, "unprocessed");
+                  
+                  // Load bubbles immediately to screen so the user can inspect/edit them
+                  detectedBoxes = event.boxes || [];
+                  detectedTexts = event.texts || [];
+                  
+                  const toolState = useToolStore.getState();
+                  const tempBubbles = detectedBoxes.map((box: any, idx: number) => {
+                    const x = box.x1;
+                    const y = box.y1;
+                    const w = box.x2 - box.x1;
+                    const h = box.y2 - box.y1;
+                    return {
+                      id: `bubble_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 9)}`,
+                      x,
+                      y,
+                      w,
+                      h,
+                      text: detectedTexts[idx] || "",
+                      vietnamese: "",
+                      japanese: detectedTexts[idx] || "",
+                      fontSize: toolState.fontSize || 20,
+                      fontColor: toolState.fontColor || "#000000",
+                      fontFamily: toolState.fontFamily || "'Comic Neue', cursive",
+                      rotation: 0,
+                      boxX: x,
+                      boxY: y,
+                      boxW: w,
+                      boxH: h
+                    };
+                  });
+                  useCanvasStore.getState().setBubbles(tempBubbles);
+
+                  // Store mask preview URL
+                  if (event.mask_base64) {
+                    processMaskImage(event.mask_base64).then(processedUrl => {
+                      setMaskPreviewUrl(processedUrl);
+                    });
+                  }
+                  setIsWaitingConfirm(true);
+                  break;
+                }
+                case 'text_detected':
+                  setAiStatus("Nhận diện chữ...");
+                  detectedBoxes = event.boxes || [];
+                  detectedTexts = event.texts || [];
+                  break;
+                case 'translating_text':
+                  setAiStatus("Đang dịch nghĩa...");
+                  break;
+                case 'image_ready':
+                  setAiStatus("Đang dịch & vẽ...");
+                  if (event.image_base64) {
+                    const dataUrl = 'data:image/png;base64,' + event.image_base64;
+                    const imageRes = await fetch(dataUrl);
+                    const cleanBlob = await imageRes.blob();
+                    const newUrl = URL.createObjectURL(cleanBlob);
+
+                    // Lưu lịch sử trong Editor store
+                    useMangaEditorStore.getState().saveHistory();
+                    useMangaEditorStore.getState().setImageUrl(newUrl);
+
+                    // Đồng bộ URL mới vào projectStore
+                    projectStore.setProcessedUrl(currentIndex, newUrl);
+                  }
+                  break;
+                case 'image_failed': {
+                  const errMsg = event.error || 'Lỗi không xác định';
+                  console.error("Kie.ai Image redraw failed:", errMsg);
+                  if (errMsg.toLowerCase().includes('nsfw') || errMsg.toLowerCase().includes('content check') || errMsg.toLowerCase().includes('nhạy cảm')) {
+                    throw new Error(`NSFW: ${errMsg}`);
+                  }
+                  toast.error(`Vẽ lại ảnh thất bại: ${errMsg}`);
+                  break;
+                }
+                case 'translation_ready': {
+                  const translations = event.translations || [];
+                  const toolState = useToolStore.getState();
+                  const newBubbles = detectedBoxes.map((box: any, index: number) => {
+                    const x = box.x1;
+                    const y = box.y1;
+                    const w = box.x2 - box.x1;
+                    const h = box.y2 - box.y1;
+ 
+                    return {
+                      id: `bubble_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 9)}`,
+                      x,
+                      y,
+                      w,
+                      h,
+                      text: translations[index] || "",
+                      vietnamese: translations[index] || "",
+                      japanese: detectedTexts[index] || "",
+                      fontSize: toolState.fontSize || 20,
+                      fontColor: toolState.fontColor || "#000000",
+                      fontFamily: toolState.fontFamily || "'Comic Neue', cursive",
+                      rotation: 0,
+                      boxX: x,
+                      boxY: y,
+                      boxW: w,
+                      boxH: h
+                    };
+                  });
+ 
+                  // Nạp bubbles vào store
+                  useCanvasStore.getState().setBubbles(newBubbles);
+ 
+                  // Lưu lưu trữ local/server
+                  if (pageId) {
+                    mangaApi.savePageBubbles(pageId, newBubbles).catch(err => console.error("Lỗi Auto-Save Bubbles:", err));
+                  }
+
+                  // Cập nhật trạng thái hoàn thành để lưu trong projectStore và cập nhật sidebar checkmark
+                  projectStore.setPageStatus(currentIndex, "completed");
+ 
+
+ 
+                  // Xóa vùng chọn vẽ trên mask
+                  const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
+                  const ctx = drawCanvas?.getContext("2d");
+                  if (ctx) ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+ 
+                  toast.success("✨ Dịch và xóa chữ thành công!", { duration: 3000 });
+                  setActiveMode("none");
+                  break;
+                }
+            }
+          }
+        }
+      }
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        toast("Đã hủy tiến trình dịch AI.");
+        projectStore.setPageStatus(currentIndex, "unprocessed");
+        return;
+      }
       console.error(err);
-      toast.dismiss(toastId);
+      projectStore.setPageStatus(currentIndex, "error");
 
       const errorMsg = err.message || "";
       if (
@@ -128,34 +367,78 @@ export default function Workspace() {
       // Đồng bộ ví từ server
       await useAuthStore.getState().fetchProfile();
     } finally {
+      isBetaTranslatingRef.current = false;
       setIsBetaTranslating(false);
       setIsProcessing(false);
+      setAiStatus(null);
+      abortControllerRef.current = null;
     }
+
+  };
+
+  const processMaskImage = (maskBase64: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = 'data:image/png;base64,' + maskBase64;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve('data:image/png;base64,' + maskBase64);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          if (r < 25) {
+            // Text area: make it transparent
+            data[i+3] = 0;
+          } else {
+            // Background area: make it a dim translucent dark overlay
+            data[i] = 0;      // R (black)
+            data[i+1] = 0;    // G (black)
+            data[i+2] = 0;    // B (black)
+            data[i+3] = 110;  // Alpha (approx 43% opacity)
+          }
+        }
+        ctx.putImageData(imgData, 0, 0);
+        resolve(canvas.toDataURL());
+      };
+      img.onerror = () => {
+        resolve('data:image/png;base64,' + maskBase64);
+      };
+    });
+  };
+
+  const handleConfirmSendToKie = async () => {
+    setIsWaitingConfirm(false);
+    setMaskPreviewUrl(null);
+    await startBetaTranslation(false);
+  };
+
+  const handleCancelConfirm = () => {
+    setIsWaitingConfirm(false);
+    setMaskPreviewUrl(null);
+    useCanvasStore.getState().setBubbles([]);
   };
 
   const handleExecuteBetaTranslate = () => {
-    // 1. Kiểm tra xem đã vẽ khoanh vùng chưa
-    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
-    const ctx = drawCanvas?.getContext("2d");
-    if (!ctx?.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data.some((p, i) => i % 4 === 3 && p > 0)) {
-      return toast.error("Hãy vẽ khoanh vùng đỏ trước khi thực thi!");
-    }
-
-    // 2. Kiểm tra điều khoản
     const hasAgreed = localStorage.getItem('agreed_nsfw_terms');
     if (hasAgreed === 'true') {
-      startBetaTranslation();
+      startBetaTranslation(false);
     } else {
-      setTosChecked(false);
       setShowTosModal(true);
     }
   };
 
   const handleAgreeTerms = () => {
-    if (!tosChecked) return;
     localStorage.setItem('agreed_nsfw_terms', 'true');
     setShowTosModal(false);
-    startBetaTranslation();
+    startBetaTranslation(false);
   };
 
 
@@ -320,6 +603,11 @@ export default function Workspace() {
   }, [projectStore.currentIndex, projectStore.pageIds]);
 
   const { currentZoom, activeMode, setActiveMode, brushSize, setBrushSize, setZoom, isComparing, setIsComparing, actionPosition, setActionPosition, showText, isProcessing, setIsProcessing, isRedrawSessionActive, setIsRedrawSessionActive } = useToolStore();
+  const pageStatuses = useProjectStore((s) => s.pageStatuses);
+  const progresses = useProjectStore((s) => s.progresses);
+  const isCurrentPageProcessing = pageStatuses[currentIndex] === 'processing' || pageStatuses[currentIndex] === 'waiting';
+  const currentProgress = progresses[currentIndex];
+  const activeStatus = aiStatus || (isCurrentPageProcessing ? (currentProgress ? `${Math.round(currentProgress.percent)}% - ${currentProgress.message}` : "Đang chuẩn bị...") : null);
 
   const [rawUrl, setRawUrl] = useState<string | null>(null);
 
@@ -837,7 +1125,7 @@ export default function Workspace() {
             {/* Render Canvas */}
             <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none ph-no-capture" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
             <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} />
-            <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+            <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
               <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
               <VisualGuideOverlay />
               <div className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${showText ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
@@ -845,7 +1133,7 @@ export default function Workspace() {
                 {showText && <FloatingTextToolbar />}
               </div>
             </div>
-          </div>
+            </div>
         )}
       </div>
 
@@ -879,12 +1167,12 @@ export default function Workspace() {
 
           {actionPosition && activeMode === 'erase' && (
             <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-1.5 p-1.5 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto">
-              <button onClick={() => handleFillColor('white')} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-white text-black hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer shadow-sm">⬜ Trắng</button>
-              <button onClick={() => handleFillColor('black')} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-50 transition-colors cursor-pointer border border-white/10 shadow-sm">⬛ Đen</button>
+              <button onClick={() => handleFillColor('white')} disabled={isCurrentPageProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-white text-black hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer shadow-sm">⬜ Trắng</button>
+              <button onClick={() => handleFillColor('black')} disabled={isCurrentPageProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-50 transition-colors cursor-pointer border border-white/10 shadow-sm">⬛ Đen</button>
               <div className="w-px h-8 bg-border mx-1"></div>
-              <button onClick={handleErase} disabled={isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm">
-                {isProcessing ? <span className="animate-spin">⏳</span> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
-                {isProcessing ? dynamicLoadingText : "✨ Xóa nền thông minh"}
+              <button onClick={handleErase} disabled={isCurrentPageProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm">
+                {isCurrentPageProcessing ? <span className="animate-spin">⏳</span> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
+                {isCurrentPageProcessing ? dynamicLoadingText : "✨ Xóa nền thông minh"}
               </button>
             </div>
           )}
@@ -892,7 +1180,7 @@ export default function Workspace() {
           {actionPosition && activeMode === 'redraw' && (
             <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] pointer-events-auto flex flex-col gap-2">
               <RedrawPromptInput
-                isProcessing={isProcessing}
+                isProcessing={isCurrentPageProcessing}
                 onCancel={() => {
                   const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
                   const ctx = drawCanvas?.getContext("2d");
@@ -929,97 +1217,173 @@ export default function Workspace() {
         isOpen={showPaywall}
         onClose={() => setShowPaywall(false)}
       />
-
-      {/* 🚀 NÚT THỰC THI (ACTION BUTTON) HÌNH TRÒN Ở GÓC DƯỚI BÊN PHẢI */}
+      {/* 🚀 NÚT THỰC THI (ACTION BUTTON) Ở GÓC DƯỚI BÊN PHẢI */}
       {displayUrl && (
-        <div className="absolute bottom-6 right-6 z-[100] pointer-events-auto flex flex-col items-center group">
-          {/* Custom Figma-style Tooltip hiện khi hover */}
-          <div className="absolute -top-12 right-0 opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 px-3 py-2 bg-panel text-white text-[11px] font-bold rounded-lg shadow-xl whitespace-nowrap pointer-events-none border border-border z-[150] flex items-center gap-1.5">
-            <span>{t('workspace.executeBetaButton', { credits: 3 })}</span>
-            <span className="bg-yellow-500/20 text-yellow-400 text-[9px] px-1 py-0.5 rounded uppercase font-bold">BETA</span>
-            <div className="absolute -bottom-1.5 right-6 border-4 border-transparent border-t-border"></div>
-          </div>
+        <div className="absolute bottom-6 right-6 z-[100] pointer-events-auto flex flex-col items-end gap-2.5">
+          <div className="relative flex items-center gap-2">
 
-          <div className="relative">
-            {/* Nhãn BETA màu vàng/cam nhỏ góc trên đầu */}
-            <span className="absolute -top-1 -right-1 bg-gradient-to-r from-amber-400 to-amber-600 text-neutral-950 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider shadow-[0_2px_10px_rgba(245,158,11,0.4)] border border-amber-300/30 z-50 animate-bounce duration-1000 select-none">
-              BETA
-            </span>
-            
-            <button
-              onClick={handleExecuteBetaTranslate}
-              disabled={isBetaTranslating || isProcessing}
-              className={`w-14 h-14 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-[0_10px_30px_rgba(99,102,241,0.3)] hover:shadow-[0_10px_35px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all cursor-pointer border border-indigo-400/20 flex items-center justify-center select-none
-                ${(isBetaTranslating || isProcessing) ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}
-              `}
-            >
-              {isBetaTranslating ? (
-                <Loader2 className="w-6 h-6 animate-spin text-white" />
-              ) : (
-                <Sparkles className="w-6 h-6 text-white" />
-              )}
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* 🚀 MODAL CẢNH BÁO ĐIỀU KHOẢN (TOS MODAL) ĐÃ ÁP DỤNG I18N */}
-      {showTosModal && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-[#0c0c0e]/80 backdrop-blur-md" />
-          <div className="relative max-w-md w-full bg-[#16161a] border border-white/10 rounded-3xl p-7 shadow-[0_25px_60px_rgba(0,0,0,0.8)] flex flex-col gap-6 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-              <div className="flex items-center justify-center w-10 h-10 bg-amber-500/10 rounded-xl text-amber-500 border border-amber-500/20">
-                <span className="text-xl">⚠️</span>
-              </div>
-              <h3 className="text-base font-extrabold text-white tracking-tight uppercase">
-                {t('workspace.betaTosTitle')}
-              </h3>
-            </div>
-
-            <div className="space-y-3 text-left">
-              <div className="bg-neutral-900/60 p-5 rounded-2xl border border-white/5 space-y-2.5 font-medium text-xs text-gray-300 leading-relaxed">
-                <p>{t('workspace.betaTosCost', { credits: 3 })}</p>
-                <p>{t('workspace.betaTosQuality')}</p>
-                <p className="text-rose-400 font-bold">{t('workspace.betaTosNsfw')}</p>
-              </div>
-            </div>
-
-            <label className="flex items-center gap-3 cursor-pointer select-none text-xs text-gray-300 hover:text-white transition-colors group">
-              <input
-                type="checkbox"
-                checked={tosChecked}
-                onChange={(e) => setTosChecked(e.target.checked)}
-                className="w-4 h-4 bg-neutral-900 border border-white/10 rounded text-primary focus:ring-primary focus:ring-offset-neutral-900 cursor-pointer transition-all"
-              />
-              <span className="font-semibold group-hover:translate-x-0.5 transition-transform duration-200">
-                {t('workspace.betaTosAgree')}
+            <div className="relative group">
+              {/* Nhãn BETA màu vàng/cam nhỏ góc trên đầu */}
+              <span className="absolute -top-2 -right-2 bg-gradient-to-r from-yellow-300 via-yellow-400 to-yellow-500 text-neutral-950 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider shadow-[0_2px_10px_rgba(234,179,8,0.5)] border border-yellow-300/40 z-50 select-none">
+                BETA
               </span>
-            </label>
 
-            <div className="flex gap-3 border-t border-white/5 pt-4">
+              {/* Gemini logo badge — góc dưới trái */}
+              <div className="absolute -bottom-1.5 -left-1.5 z-50 w-5 h-5 rounded-full bg-[#1b1b1f] border border-white/10 shadow-[0_2px_8px_rgba(0,0,0,0.4)] flex items-center justify-center select-none pointer-events-none">
+                <img src="/gemini-color.svg" className="w-3.5 h-3.5 object-contain" alt="Powered by Gemini" />
+              </div>
+
+              {/* 🎮 Floating deduction number — RPG damage style */}
+              {deductionAnim && (
+                <>
+                  <style>{`
+                    @keyframes float-up-fade {
+                      0%   { transform: translateY(0)   scale(1);    opacity: 1; }
+                      60%  { transform: translateY(-28px) scale(1.15); opacity: 0.9; }
+                      100% { transform: translateY(-50px) scale(0.9);  opacity: 0; }
+                    }
+                    .deduction-float { animation: float-up-fade 1.0s cubic-bezier(0.22,1,0.36,1) forwards; }
+                  `}</style>
+                  <div
+                    key={deductionAnim.id}
+                    className="deduction-float absolute -top-3 left-1/2 -translate-x-1/2 z-[200] pointer-events-none select-none flex items-center gap-0.5 text-amber-400 font-black text-sm drop-shadow-[0_2px_6px_rgba(245,158,11,0.8)]"
+                  >
+                    <span className="text-xs">-⚡</span>
+                    <span>{deductionAnim.cost}</span>
+                  </div>
+                </>
+              )}
               <button
-                onClick={() => setShowTosModal(false)}
-                className="flex-1 py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-white/5 text-center active:scale-[0.98]"
-              >
-                {t('workspace.betaTosCancel')}
-              </button>
-              <button
-                onClick={handleAgreeTerms}
-                disabled={!tosChecked}
-                className={`flex-1 py-3 px-4 font-bold text-xs uppercase tracking-wider rounded-xl transition-all text-center select-none border active:scale-[0.98]
-                  ${tosChecked
-                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white border-indigo-400/20 shadow-md cursor-pointer'
-                    : 'bg-neutral-800 text-neutral-500 border-transparent cursor-not-allowed opacity-50'
+                onClick={() => {
+                  if (!activeStatus && !isBetaTranslating && !isProcessing && !isCurrentPageProcessing) {
+                    handleExecuteBetaTranslate();
                   }
+                }}
+                disabled={!activeStatus && (isBetaTranslating || isProcessing || isCurrentPageProcessing)}
+                className={`h-14 rounded-2xl bg-[#1b1b1f] hover:bg-[#27272a] text-slate-200 border border-amber-500/25 hover:border-amber-500/45 flex items-center justify-center select-none transition-all duration-300 active:scale-[0.98] cursor-pointer
+                  ${activeStatus 
+                    ? 'w-auto px-4 ring-4 ring-amber-500/20 shadow-[0_0_25px_rgba(245,158,11,0.25)] border-amber-500/40' 
+                    : 'w-14 shadow-[0_8px_24px_rgba(0,0,0,0.2)] hover:shadow-[0_12px_30px_rgba(245,158,11,0.25)]'
+                  }
+                  ${(!activeStatus && (isBetaTranslating || isProcessing || isCurrentPageProcessing)) ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}
                 `}
               >
-                {t('workspace.betaTosConfirm')}
+                {activeStatus ? (
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-500">
+                    {activeStatus.includes("xếp hàng") || activeStatus.includes("chờ") ? (
+                      <Hourglass className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                    ) : (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                    )}
+                    <span className="animate-pulse">{activeStatus}</span>
+                    <span className="w-px h-3 bg-amber-500/25 mx-1"></span>
+                    <span 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        if (abortControllerRef.current) {
+                          abortControllerRef.current.abort();
+                        } else if ((window as any).cancelPageTask) {
+                          (window as any).cancelPageTask(currentIndex);
+                        }
+                      }}
+                      className="text-rose-400 hover:text-rose-300 font-extrabold uppercase hover:scale-105 cursor-pointer pointer-events-auto select-none"
+                    >
+                      Hủy
+                    </span>
+                  </div>
+                ) : (
+                  <img src="/nanobanana-color.svg" className="w-8 h-8 object-contain select-none pointer-events-none" alt="NanoBanana" />
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      
+
+      {/* 🚀 MODAL CẢNH BÁO ĐIỀU KHOẢN (TOS MODAL) ĐÃ ÁP DỤNG I18N */}
+      <BetaTosModal
+        isOpen={showTosModal}
+        onClose={() => setShowTosModal(false)}
+        onAgree={handleAgreeTerms}
+        t={t}
+        credits={12}
+      />
     </div>
   );
-}
+}
+
+interface BetaTosModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onAgree: () => void;
+  t: any;
+  credits: number;
+}
+
+const BetaTosModal: React.FC<BetaTosModalProps> = ({ isOpen, onClose, onAgree, t, credits }) => {
+  const [tosChecked, setTosChecked] = useState(false);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-[#0c0c0e]/95" onClick={onClose} />
+      <div className="relative max-w-md w-full bg-[#16161a] border border-white/10 rounded-3xl p-7 shadow-[0_25px_60px_rgba(0,0,0,0.8)] flex flex-col gap-6 animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+          <div className="flex items-center justify-center w-10 h-10 bg-amber-500/10 rounded-xl text-amber-500 border border-amber-500/20">
+            <span className="text-xl">⚠️</span>
+          </div>
+          <h3 className="text-base font-extrabold text-white tracking-tight uppercase">
+            {t('workspace.betaTosTitle')}
+          </h3>
+        </div>
+
+        <div className="space-y-3 text-left">
+          <div className="bg-neutral-900/60 p-5 rounded-2xl border border-white/5 space-y-2.5 font-medium text-xs text-gray-300 leading-relaxed">
+            <p>{t('workspace.betaTosCost', { credits })}</p>
+            <p>{t('workspace.betaTosQuality')}</p>
+            <p className="text-rose-400 font-bold">{t('workspace.betaTosNsfw')}</p>
+          </div>
+        </div>
+
+        <label className="flex items-center gap-3 cursor-pointer select-none text-xs text-gray-300 hover:text-white transition-colors group">
+          <input
+            type="checkbox"
+            checked={tosChecked}
+            onChange={(e) => setTosChecked(e.target.checked)}
+            className="w-4 h-4 bg-neutral-900 border border-white/10 rounded text-primary focus:ring-primary focus:ring-offset-neutral-900 cursor-pointer transition-all"
+          />
+          <span className="font-semibold group-hover:translate-x-0.5 transition-transform duration-200">
+            {t('workspace.betaTosAgree')}
+          </span>
+        </label>
+
+        <div className="flex gap-3 border-t border-white/5 pt-4">
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-white/5 text-center active:scale-[0.98]"
+          >
+            {t('workspace.betaTosCancel')}
+          </button>
+          <button
+            onClick={onAgree}
+            disabled={!tosChecked}
+            className={`flex-1 py-3 px-4 font-bold text-xs uppercase tracking-wider rounded-xl transition-all text-center select-none border active:scale-[0.98]
+              ${tosChecked
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white border-indigo-400/20 shadow-md cursor-pointer'
+                : 'bg-neutral-800 text-neutral-500 border-transparent cursor-not-allowed opacity-50'
+              }
+            `}
+          >
+            {t('workspace.betaTosConfirm')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+

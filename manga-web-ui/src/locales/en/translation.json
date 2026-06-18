@@ -13,7 +13,9 @@
     "supportRequest": "Send Support Request (Bug Report)",
     "logout": "Log Out",
     "rechargeMore": "Recharge",
-    "confirmCloseProject": "Do you want to close the current project and return to the home screen?"
+    "confirmCloseProject": "Do you want to close the current project and return to the home screen?",
+    "closeLeftPanel": "Close left panel",
+    "openLeftPanel": "Open left panel"
   },
   "sidebar": {
     "waiting": "Waiting Translation",
@@ -69,8 +71,8 @@
     "mobileBlockDesc": "The image editor and canvas masking tools require high precision. To ensure the best redraw quality and output, please save this page and open it on a Desktop/Laptop.",
     "backToHome": "Back to Home",
     "redrawConfirmTitle": "Activate AI Redraw (SDXL)",
-    "redrawConfirmDesc": "The Redraw tool uses premium GPU infrastructure and a custom SDXL model to reconstruct selected regions. The activation fee for this page is 2 Credits.",
-    "agreeCredits": "Agree (2 Credits)",
+    "redrawConfirmDesc": "The Redraw tool uses premium GPU infrastructure and a custom SDXL model to reconstruct selected regions. The first draw on this page costs 4 Credits (includes a 3-Credit server call fee and 1-Credit draw fee), subsequent draws on the same page cost 1 Credit.",
+    "agreeCredits": "Agree (4 Credits)",
     "cancel": "Cancel",
     "executeBetaButton": "✨ Execute ({{credits}} Credits)",
     "betaTosTitle": "⚠️ Terms & Service Confirmation (BETA)",
@@ -109,7 +111,7 @@
     "disclaimerHeader": "I commit and agree that:",
     "disclaimerItem1": "(1) All uploaded content is my <1>legal ownership/use</1>.",
     "disclaimerItem2": "(2) I am fully <1>responsible under Vietnamese law</1>.",
-    "disclaimerItem3": "(3) Obscene <1>(18+), reactionary</1> content is strictly prohibited. The system will automatically delete data after 6 hours.",
+    "disclaimerItem3": "(3) Obscene <1>(18+), reactionary</1> content is strictly prohibited. The system will automatically delete data after 2 hours.",
     "backToAmountSelect": "Back to select another amount",
     "pollingNotice": "Credits will be added automatically immediately after the transaction succeeds. No need to close this popup manually.",
     "generatingQr": "Generating QR code...",
@@ -222,7 +224,7 @@
     "subtitle": "Please read carefully before using the service",
     "agree": "I understand and Agree",
     "sec1Title": "1. Privacy & Data Storage",
-    "sec1Desc": "Our system (MangaAI Studio) only temporarily stores your images and translations on the server. The system has an <b>automatic garbage collector Bot</b> that permanently deletes all your project data after <b>6 hours</b> of inactivity to protect privacy and comply with the ephemeral processing model.",
+    "sec1Desc": "Our system (MangaAI Studio) only temporarily stores your images and translations on the server. The system has an <b>automatic garbage collector Bot</b> that permanently deletes all your project data after <b>2 hours</b> of inactivity to protect privacy and comply with the ephemeral processing model.",
     "sec2Title": "2. Copyright & Legal Responsibility",
     "sec2Desc": "Users are fully responsible for the copyright and legality of the images and manga uploaded to the platform. We only provide tools (AI technology, OCR, Typesetting) and do not hold copyrights or distribute any user works.<br/><br/>Strictly prohibited to upload, process, or translate obscene material (18+ manga, hentai, adult doujinshi), reactionary, or violence-inducing content. Users bear 100% criminal responsibility under Vietnamese law (including <strong>Article 326 of the Penal Code</strong> on transmitting obscene materials) for any violations.",
     "sec3Title": "3. Abuse of AI System",
@@ -359,7 +361,7 @@
   },
   "welcome": {
     "newProject": "New Project",
-    "newProjectDesc": "Upload raw scanned pages (.jpg, .png, .webp). Max 20 pages.",
+    "newProjectDesc": "Upload raw scanned pages (.jpg, .png, .webp). Max 30 pages.",
     "restoreProgress": "Restore Progress",
     "restoreDesc": "Open .manga backup files to restore translated text layers.",
     "policyLinkText": "Terms & Policy",

@@ -24,6 +24,8 @@ interface ConfigState {
   customPronoun: string;
   glossary: string;
   targetLanguage: string;
+  translationMode: 'fast' | 'deep' | 'studio';
+  setTranslationMode: (mode: 'fast' | 'deep' | 'studio') => void;
 
   // Các hàm cập nhật
   setConfig: (field: string, value: string) => void;
@@ -44,6 +46,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   customPronoun: '',
   glossary: '',
   targetLanguage: 'Tiếng Việt',
+  translationMode: 'fast' as 'fast' | 'deep' | 'studio',
+  setTranslationMode: (mode) => set({ translationMode: mode }),
 
   setConfig: (field, value) => set({ [field]: value }),
 

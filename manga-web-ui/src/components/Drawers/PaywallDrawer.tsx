@@ -229,7 +229,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                       </span>
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
-                      {t('paywall.valueEquivalent', { translate: equivalentXu, redraw: Math.floor(equivalentXu / 4) })}
+                      {t('paywall.valueEquivalent', { translate: Math.floor(equivalentXu / 3), redraw: Math.floor(equivalentXu / 4) })}
                     </p>
                   </div>
                 )}

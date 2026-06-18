@@ -506,7 +506,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
                 <div className="mb-1">
                   <span className="text-4xl font-extrabold text-white tracking-tight">$4.99</span>
                 </div>
-                <p className="text-sm text-neutral-600 mb-6 pb-6 border-b border-white/[0.06]">50 Credits · ~2 Chương truyện</p>
+                <p className="text-sm text-neutral-600 mb-6 pb-6 border-b border-white/[0.06]">50 Credits · ~16 trang dịch (~1 Chương)</p>
                 <ul className="space-y-3">
                   {lightFeatures.map((f, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-[13.5px] text-neutral-400">
@@ -545,7 +545,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
                 <div className="mb-1">
                   <span className="text-4xl font-extrabold text-white tracking-tight">$14.99</span>
                 </div>
-                <p className="text-sm text-indigo-400 font-semibold mb-6 pb-6 border-b border-white/[0.06]">200 Credits · ~10 Chương truyện</p>
+                <p className="text-sm text-indigo-400 font-semibold mb-6 pb-6 border-b border-white/[0.06]">200 Credits · ~66 trang dịch (~4 Chương)</p>
                 <ul className="space-y-3">
                   {popularFeatures.map((f, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-[13.5px] text-white/80">
@@ -579,7 +579,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
                 <div className="mb-1">
                   <span className="text-4xl font-extrabold text-white tracking-tight">$49.99</span>
                 </div>
-                <p className="text-sm text-neutral-600 mb-6 pb-6 border-b border-white/[0.06]">1000 Credits · ~50 Chương truyện</p>
+                <p className="text-sm text-neutral-600 mb-6 pb-6 border-b border-white/[0.06]">1000 Credits · ~333 trang dịch (~22 Chương)</p>
                 <ul className="space-y-3">
                   {studioFeatures.map((f, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-[13.5px] text-neutral-400">

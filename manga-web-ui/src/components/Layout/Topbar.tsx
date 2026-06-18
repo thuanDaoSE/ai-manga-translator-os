@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { toJpeg } from "html-to-image";
 import {
-  CloudCheck, Download, Diamond, User, Settings, LogOut, ChevronDown,
+  CloudCheck, Download, Zap, User, Settings, LogOut, ChevronDown,
   Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages,
-  FileText, Globe
+  FileText, Globe, PanelLeftClose, PanelLeft
 } from "lucide-react";
 import toast from 'react-hot-toast';
 import { useConfigStore } from "../../store/useConfigStore";
@@ -25,7 +25,7 @@ import DeepKomaLogo from "../ui/DeepKomaLogo";
 
 export default function Topbar() {
   const { t, i18n } = useTranslation();
-  const { isComparing, setIsComparing } = useToolStore();
+  const { isComparing, setIsComparing, showLeftPanel, toggleLeftPanel } = useToolStore();
   const { user, signOut } = useAuthStore();
   const projectStore = useProjectStore();
 
@@ -120,20 +120,65 @@ export default function Topbar() {
   };
 
   const handleExportImage = async () => {
-    const el = document.getElementById("manga-canvas-render");
-    if (!el) return toast.error("Không tìm thấy vùng vẽ để xuất ảnh!");
     setIsExporting(true);
     setIsExportMenuOpen(false);
     const loadId = toast.loading("Đang xuất ảnh JPG...");
     try {
-      const dataUrl = await toJpeg(el, { quality: 0.95 });
-      saveAs(dataUrl, `deepkoma-${Date.now()}.jpg`);
-      toast.success("Xuất ảnh thành công!", { id: loadId });
-    } catch (e) { 
-      toast.error("Lỗi khi xuất ảnh!", { id: loadId }); 
+      // Lấy ảnh display (clean/processed)
+      const projectStore = useProjectStore.getState();
+      const idx = projectStore.currentIndex;
+      const pageId = projectStore.pageIds[idx];
+      const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
+      const serverRawUrl = pageId
+        ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+        : null;
+      const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
+      if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
+
+      // Tải ảnh chính vào Image
+      const loadImg = (src: string): Promise<HTMLImageElement> =>
+        new Promise((res, rej) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => res(img);
+          img.onerror = () => rej(new Error('Không tải được ảnh.'));
+          img.src = src;
+        });
+
+      const baseImg = await loadImg(displayUrl);
+      const w = baseImg.naturalWidth;
+      const h = baseImg.naturalHeight;
+
+      // Tạo canvas tổng hợp
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = w;
+      exportCanvas.height = h;
+      const ctx = exportCanvas.getContext('2d')!;
+
+      // Layer 1: vẽ ảnh nền
+      ctx.drawImage(baseImg, 0, 0, w, h);
+
+      // Layer 2: vẽ Fabric canvas (text layer) nếu có
+      const fabricCanvasEl = document.querySelector('#workspace-container canvas.upper-canvas') as HTMLCanvasElement
+        || document.querySelector('#workspace-container canvas') as HTMLCanvasElement;
+      if (fabricCanvasEl) {
+        ctx.drawImage(fabricCanvasEl, 0, 0, w, h);
+      }
+
+      // Xuất JPEG
+      exportCanvas.toBlob((blob) => {
+        if (!blob) throw new Error('Không tạo được file ảnh.');
+        saveAs(blob, `deepkoma-${Date.now()}.jpg`);
+        toast.success('Xuất ảnh thành công!', { id: loadId });
+        setIsExporting(false);
+      }, 'image/jpeg', 0.95);
+      return; // early return, setIsExporting handled inside toBlob
+    } catch (e: any) {
+      toast.error(e.message || 'Lỗi khi xuất ảnh!', { id: loadId });
     } finally {
-      setIsExporting(false);
+      // chỉ set false nếu chưa được set bởi toBlob
     }
+    setIsExporting(false);
   };
 
   const handleExportPSD = async () => {
@@ -173,7 +218,18 @@ export default function Topbar() {
 
       {/* 1. LEFT ZONE: LOGO & PROJECT */}
       <div className="flex items-center gap-4 flex-1">
-        <DeepKomaLogo onClick={handleLogoClick} className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
+        {!showLeftPanel ? (
+          <button
+            onClick={() => toggleLeftPanel()}
+            className="p-2 shrink-0 bg-border/40 hover:bg-border text-text-muted hover:text-primary rounded-md cursor-pointer transition-colors"
+            title={t('topbar.openLeftPanel', 'Mở thanh bên trái')}
+          >
+            <PanelLeft size={16} />
+          </button>
+        ) : (
+          <DeepKomaLogo onClick={handleLogoClick} className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
+        )}
+
         <div className="w-px h-8 bg-border mx-2 hidden sm:block" />
 
         <div className="flex flex-col justify-center min-w-0 max-w-[300px]">
@@ -217,7 +273,7 @@ export default function Topbar() {
 
         {/* Nút Credits */}
         <button onClick={() => setIsPaywallOpen(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-[12px] font-bold ${user?.isPro ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' : 'bg-background hover:bg-border/40 border-border'}`}>
-          <Diamond size={14} className={user?.isPro ? "text-indigo-400 animate-pulse" : "text-amber-500 group-hover:scale-110 transition-transform"} />
+          <Zap size={14} className={user?.isPro ? "text-indigo-400 animate-pulse" : "text-amber-500 fill-amber-500 group-hover:scale-110 transition-transform"} />
           <span className={user?.isPro ? 'text-indigo-400' : 'text-text-main'}>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span>
           {!user?.isPro && <span className="text-[9px] font-black uppercase text-amber-500/80 ml-1 hidden sm:inline">{t('topbar.recharge')}</span>}
         </button>
@@ -258,25 +314,6 @@ export default function Topbar() {
           )}
         </div>
 
-        {/* Language Switcher (Vietnam/UK Flag Toggle) */}
-        <button
-          onClick={() => {
-            const nextLang = i18n.language === 'vi' ? 'en' : 'vi';
-            i18n.changeLanguage(nextLang);
-            localStorage.setItem('lang', nextLang);
-            localStorage.setItem('ui_language', nextLang);
-          }}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm text-[12px] font-bold shrink-0"
-          title={i18n.language === 'vi' ? 'Switch to English' : 'Chuyển sang Tiếng Việt'}
-        >
-          <span className="text-[16px] leading-none">
-            {i18n.language === 'vi' ? '🇻🇳' : '🇬🇧'}
-          </span>
-          <span className="hidden md:inline">
-            {i18n.language === 'vi' ? 'VI' : 'EN'}
-          </span>
-        </button>
-
         {/* Menu Account */}
         <div className="relative shrink-0" ref={accountMenuRef}>
           <button onClick={() => { setIsAccountMenuOpen(!isAccountMenuOpen); setIsExportMenuOpen(false); }} className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 focus:ring-2 focus:ring-amber-500/50 transition-transform active:scale-95 cursor-pointer shadow-sm shrink-0">
@@ -291,7 +328,7 @@ export default function Topbar() {
               </div>
               <div className="px-2 py-2 border-b border-border">
                 <div className="flex items-center justify-between px-3 py-2.5 mb-1 bg-background rounded-lg border border-border/50">
-                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><Diamond size={14} className="text-amber-500" /><span>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} Credits`}</span></div>
+                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><Zap size={14} className="text-amber-500 fill-amber-500" /><span>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span></div>
                   <button onClick={() => { setIsAccountMenuOpen(false); setIsPaywallOpen(true); }} className="text-[10px] font-black uppercase text-primary hover:text-primary-hover transition-colors cursor-pointer">{t('topbar.rechargeMore')}</button>
                 </div>
                 <button
