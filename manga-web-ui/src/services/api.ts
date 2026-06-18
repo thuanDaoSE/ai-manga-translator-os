@@ -402,6 +402,13 @@ export const mangaApi = {
     await handleApiError(response, "Lỗi tải lịch sử giao dịch");
     return await response.json();
   },
+  getCreditHistory: async () => {
+    const response = await fetch(`${API_URL}/credits/history`, {
+      headers: await getAuthHeaders()
+    });
+    await handleApiError(response, "Lỗi tải lịch sử dùng xu");
+    return await response.json();
+  },
 
   translatePageById: async (pageId: string, config: any) => {
     const response = await fetch(`${API_URL}/pages/${pageId}/translate`, {

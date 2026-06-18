@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { useAuthStore } from '../../store/useAuthStore';
 import { mangaApi } from '../../services/api';
 import { useTranslation, Trans } from 'react-i18next';
+import PolicyModal from '../Modals/PolicyModal';
 
 interface PaywallDrawerProps {
   isOpen: boolean;
@@ -39,8 +40,9 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   const { t } = useTranslation();
   const user = useAuthStore((state) => state.user);
   const fetchProfile = useAuthStore((state) => state.fetchProfile);
-  const [selectedAmount, setSelectedAmount] = useState<number>(50000); // 50,000 VNĐ default
+  const [selectedAmount, setSelectedAmount] = useState<number>(50000);
   const [customAmount, setCustomAmount] = useState<string>('');
+  const [isPolicyOpen, setIsPolicyOpen] = useState(false);
   
   const [isLoading, setIsLoading] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
@@ -235,7 +237,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                       </span>
                     </div>
                     <p className="text-xs text-yellow-500 font-semibold mt-1">
-                      💡 Tương đương: ~{Math.floor(equivalentXu / 2)} trang Dịch Nhanh (LaMa) HOẶC ~{Math.floor(equivalentXu / 8)} trang Vá Nền (AI)
+                      💡 Tương đương: ~{Math.floor(equivalentXu / 2)} trang Dịch Nhanh HOÀC ~{Math.floor(equivalentXu / 8)} trang Dịch AI (Grok/GPT)
                     </p>
                   </div>
                 )}
@@ -326,11 +328,12 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
             </button>
             <div className="text-center text-[10px] text-gray-500">
               <Trans i18nKey="paywall.termsAgreement">
-                Bằng việc tiếp tục, bạn đồng ý với <a href="#" onClick={(e) => e.preventDefault()} className="underline hover:text-indigo-400 transition-colors">Điều khoản Dịch vụ</a> của chúng tôi.
+                Bằng việc tiếp tục, bạn đồng ý với <button type="button" onClick={() => setIsPolicyOpen(true)} className="underline hover:text-indigo-400 transition-colors cursor-pointer">Điều khoản Dịch vụ</button> của chúng tôi.
               </Trans>
             </div>
           </div>
         )}
+        <PolicyModal isOpen={isPolicyOpen} onClose={() => setIsPolicyOpen(false)} />
 
       </div>
     </div>

@@ -452,6 +452,17 @@ def process_manga_page(self, page_id: str, config: dict):
         print(f"❌ [WORKER ERROR] Lỗi nghiêm trọng: {e}")
         traceback.print_exc()
         
+        # 🚀 Cập nhật trạng thái trang thành failed trong CSDL để tránh kẹt trạng thái processing
+        try:
+            with SessionLocal() as db:
+                page = db.query(models.Page).filter(models.Page.id == page_id).first()
+                if page:
+                    page.status = "failed"
+                    db.commit()
+                    print(f"❌ [WORKER DB] Đã cập nhật trạng thái failed cho trang {page_id}")
+        except Exception as dbe:
+            print(f"⚠️ [WORKER DB ERROR] Không thể cập nhật trạng thái failed cho trang {page_id}: {dbe}")
+        
         # Hoàn Xu cho người dùng do lỗi tác vụ ngầm thất bại
         if 'user_id' in locals() and user_id:
             try:

@@ -54,3 +54,10 @@ checkpoints/
 
 # --- BỎ QUA LOGS CỦA JAVA/PYTHON ---
 *.log
+
+# --- BỎ QUA CÁC FILE TẠM THỜI ---
+temp_*.json
+temp.txt
+scratch/
+manga_studio.db
+manga_studio_v2.db

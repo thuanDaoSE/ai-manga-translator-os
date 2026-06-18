@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import MangaTextEngine from '../Editor/MangaTextEngine';
 import MangaCanvas from '../Editor/MangaCanvas';
 import WelcomeScreen from '../Editor/WelcomeScreen';
-import { Search, Eraser, Paintbrush, Sparkles, Type as TypeIcon, PanelLeft, PanelRight, ChevronRight, ChevronLeft, Check, Wand2, Settings } from 'lucide-react';
+import { Search, Eraser, Paintbrush, Sparkles, Type as TypeIcon, PanelLeft, PanelRight, ChevronRight, ChevronLeft, Check, Wand2, Settings, ChevronUp, Bolt } from 'lucide-react';
 import { FloatingCanvasToolbar } from '../Editor/FloatingCanvasToolbar';
 import { RedrawPromptInput } from '../Editor/RedrawPromptInput';
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
@@ -21,7 +21,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { useMangaEditorStore } from '../../store/useMangaEditorStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useDeviceDetect } from '../../hooks/useDeviceDetect';
-import { Smartphone, ArrowLeft, Loader2, Languages, Hourglass } from 'lucide-react';
+import { Smartphone, ArrowLeft, Loader2, Languages, Hourglass, Play } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Helper to convert base64/dataURL to Blob
@@ -41,6 +41,20 @@ const dataURLtoBlob = (dataurl: string) => {
 const BoltIcon = () => (
   <svg className="w-3.5 h-3.5 text-amber-500 fill-current inline-block align-middle" viewBox="-11 0 32 32" xmlns="http://www.w3.org/2000/svg">
     <path d="M1.84 26.24c-0.080 0-0.16 0-0.24-0.040-0.4-0.12-0.64-0.52-0.56-0.92l1.32-9.16h-1.52c-0.24 0-0.52-0.12-0.68-0.32s-0.2-0.48-0.16-0.72l2.32-8.68c0.080-0.36 0.44-0.64 0.8-0.64h5.56c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-2.6 5.12h1.24c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-6.24 12.48c-0.12 0.28-0.44 0.48-0.76 0.48zM1.92 14.44h1.4c0.24 0 0.48 0.12 0.64 0.28 0.16 0.2 0.24 0.44 0.2 0.68l-0.72 4.92 3.28-6.56h-1.24c-0.28 0-0.56-0.16-0.72-0.4s-0.16-0.56-0.040-0.8l2.6-5.12h-3.56l-1.84 7z"></path>
+  </svg>
+);
+
+const GrokIcon = ({ className = "w-5 h-5 text-slate-200" }: { className?: string }) => (
+  <svg className={className} fill="currentColor" fillRule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <title>Grok</title>
+    <path d="M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815"></path>
+  </svg>
+);
+
+const OpenaiIcon = ({ className = "w-5.5 h-5.5 text-slate-200" }: { className?: string }) => (
+  <svg className={className} fill="currentColor" fillRule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <title>OpenAI</title>
+    <path d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z"></path>
   </svg>
 );
 
@@ -68,6 +82,47 @@ export default function Workspace() {
   const [isWaitingConfirm, setIsWaitingConfirm] = useState(false);
   const [deductionAnim, setDeductionAnim] = useState<{ cost: number; id: number } | null>(null);
 
+  const grokSubModel = useConfigStore((s) => s.grokSubModel);
+  const setGrokSubModel = useConfigStore((s) => s.setGrokSubModel);
+  const openaiSubModel = useConfigStore((s) => s.openaiSubModel);
+  const setOpenaiSubModel = useConfigStore((s) => s.setOpenaiSubModel);
+  const studioSubModel = useConfigStore((s) => s.studioSubModel);
+  const setStudioSubModel = useConfigStore((s) => s.setStudioSubModel);
+  const kieResolution = useConfigStore((s) => s.kieResolution);
+  const setKieResolution = useConfigStore((s) => s.setKieResolution);
+  const kieOutputFormat = useConfigStore((s) => s.kieOutputFormat);
+  const setKieOutputFormat = useConfigStore((s) => s.setKieOutputFormat);
+
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [showAdvancedModels, setShowAdvancedModels] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowModelDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const getKieCost = (model: string, resolution: string) => {
+    let base = 8;
+    if (model === 'gpt-image-2-image-to-image') base = 10;
+    else if (model === 'nano-banana-2') base = 10;
+    else if (model === 'nano-banana-pro') base = 15;
+    
+    let resAddon = 0;
+    if (resolution === '2K') resAddon = 3;
+    
+    return base + resAddon;
+  };
+
+  const currentModeCost = translationMode === 'grok' 
+    ? 8 
+    : getKieCost(studioSubModel, kieResolution);
+
   const triggerDeductionAnim = (cost: number) => {
     const id = Date.now();
     setDeductionAnim({ cost, id });
@@ -78,8 +133,8 @@ export default function Workspace() {
     if (isBetaTranslatingRef.current || isBetaTranslating || isProcessing) return;
     isBetaTranslatingRef.current = true;
 
-    // Xác định chi phí theo mode (Nano Banana / Kie.ai luôn dùng Studio Mode)
-    const modeCost = 12;
+    // Xác định chi phí theo mode
+    const modeCost = currentModeCost;
 
     // Đọc số xu
     const { user } = useAuthStore.getState();
@@ -100,7 +155,9 @@ export default function Workspace() {
     // Trừ xu cục bộ trước
     useAuthStore.getState().deductLocalCredits(modeCost);
     // Gọi API trừ xu thật trên Database (BE sẽ trừ lại thật, đây là optimistic UI)
-    mangaApi.deductCredits(modeCost).catch(e => console.error("Lỗi khấu trừ xu:", e));
+    if (translationMode !== 'studio') {
+      mangaApi.deductCredits(modeCost).catch(e => console.error("Lỗi khấu trừ xu:", e));
+    }
     // 🎮 Trigger RPG-style deduction animation
     triggerDeductionAnim(modeCost);
 
@@ -110,19 +167,29 @@ export default function Workspace() {
     const pageId = projectStore.pageIds[currentIndex];
 
     try {
-      // 1. Chuyển ảnh hiện tại trên canvas sang Blob
       if (!displayUrl) throw new Error("Không tìm thấy ảnh gốc.");
       const imageResponse = await fetch(displayUrl);
       const imageBlob = await imageResponse.blob();
 
-      // 2. Tạo FormData để gửi lên API
       const formData = new FormData();
       formData.append('image', imageBlob, 'image.png');
       formData.append('prompt', 'Clean and translate this page');
-      formData.append('translation_mode', 'studio');
+      formData.append('translation_mode', translationMode);
       formData.append('detect_only', detectOnly ? 'true' : 'false');
       if (pageId) {
         formData.append('page_id', pageId);
+      }
+
+      const configState = useConfigStore.getState();
+      formData.append('target_language', configState.targetLanguage);
+      formData.append('genre', configState.genre);
+      formData.append('tone', configState.tone);
+      formData.append('pronoun', configState.pronoun);
+
+      if (translationMode === 'studio') {
+        formData.append('studio_model', studioSubModel);
+        formData.append('resolution', kieResolution);
+        formData.append('output_format', kieOutputFormat);
       }
 
       const currentBubbles = useCanvasStore.getState().bubbles;
@@ -130,7 +197,6 @@ export default function Workspace() {
         formData.append('existing_bubbles', JSON.stringify(currentBubbles));
       }
 
-      // 3. Gọi API stream
       const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
       const authHeaders = await getAuthHeaders(true);
       const response = await fetch(`${baseUrl}/api/v1/ai-process`, {
@@ -139,7 +205,6 @@ export default function Workspace() {
         body: formData,
         signal: abortController.signal,
       });
-
 
       if (!response.ok) {
         throw new Error(`Server returned status: ${response.statusText} (${response.status})`);
@@ -195,7 +260,7 @@ export default function Workspace() {
                   } else if (state === 'submitting' || state === 'submitting_runpod') {
                     setAiStatus("Đang gửi yêu cầu...");
                   } else if (state === 'waiting' || state === 'queued') {
-                    setAiStatus("Đang xếp hàng vẽ lại (Kie.ai)...");
+                    setAiStatus("Đang xếp hàng vẽ lại...");
                   } else if (state === 'running' || state === 'active' || state === 'processing' || state === 'IN_QUEUE' || state === 'IN_PROGRESS') {
                     setAiStatus("Đang vẽ lại ảnh (AI)...");
                   } else if (state === 'resizing') {
@@ -733,6 +798,7 @@ export default function Workspace() {
     img.onerror = () => {
       if (!isMounted) return;
       setRawUrl(targetUrl);
+      projectStore.verifyAndRemovePage(currentIndex);
     };
 
     img.src = targetUrl;
@@ -1124,7 +1190,7 @@ export default function Workspace() {
           >
             {/* Render Canvas */}
             <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none ph-no-capture" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
-            <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} />
+            <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
             <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
               <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
               <VisualGuideOverlay />
@@ -1170,9 +1236,19 @@ export default function Workspace() {
               <button onClick={() => handleFillColor('white')} disabled={isCurrentPageProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-white text-black hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer shadow-sm">⬜ Trắng</button>
               <button onClick={() => handleFillColor('black')} disabled={isCurrentPageProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-50 transition-colors cursor-pointer border border-white/10 shadow-sm">⬛ Đen</button>
               <div className="w-px h-8 bg-border mx-1"></div>
-              <button onClick={handleErase} disabled={isCurrentPageProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm">
-                {isCurrentPageProcessing ? <span className="animate-spin">⏳</span> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
-                {isCurrentPageProcessing ? dynamicLoadingText : "✨ Xóa nền thông minh"}
+              <button 
+                onClick={handleErase} 
+                disabled={isCurrentPageProcessing} 
+                className={`relative flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm
+                  ${!isCurrentPageProcessing ? 'pl-4 pr-12' : 'px-4'}`}
+              >
+                {isCurrentPageProcessing ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
+                <span>{isCurrentPageProcessing ? dynamicLoadingText : "✨ Xóa nền thông minh"}</span>
+                {!isCurrentPageProcessing && (
+                  <span className="absolute right-3 inline-flex items-center bg-primary/10 group-hover:bg-black/20 px-1.5 py-0.5 rounded-md text-primary group-hover:text-white text-[10px] font-black transition-all">
+                    1<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-primary fill-primary group-hover:text-white group-hover:fill-white transition-all shrink-0" />
+                  </span>
+                )}
               </button>
             </div>
           )}
@@ -1229,11 +1305,6 @@ export default function Workspace() {
                 BETA
               </span>
 
-              {/* Gemini logo badge — góc dưới trái */}
-              <div className="absolute -bottom-1.5 -left-1.5 z-50 w-5 h-5 rounded-full bg-[#1b1b1f] border border-white/10 shadow-[0_2px_8px_rgba(0,0,0,0.4)] flex items-center justify-center select-none pointer-events-none">
-                <img src="/gemini-color.svg" className="w-3.5 h-3.5 object-contain" alt="Powered by Gemini" />
-              </div>
-
               {/* 🎮 Floating deduction number — RPG damage style */}
               {deductionAnim && (
                 <>
@@ -1247,29 +1318,19 @@ export default function Workspace() {
                   `}</style>
                   <div
                     key={deductionAnim.id}
-                    className="deduction-float absolute -top-3 left-1/2 -translate-x-1/2 z-[200] pointer-events-none select-none flex items-center gap-0.5 text-amber-400 font-black text-sm drop-shadow-[0_2px_6px_rgba(245,158,11,0.8)]"
+                    className="deduction-float absolute -top-3 left-1/2 -translate-x-1/2 z-[200] pointer-events-none select-none flex items-center text-amber-400 font-black text-sm drop-shadow-[0_2px_6px_rgba(245,158,11,0.8)]"
                   >
-                    <span className="text-xs">-⚡</span>
-                    <span>{deductionAnim.cost}</span>
+                    <span className="text-[10px] font-bold">-</span>
+                    <BoltIcon className="w-3.5 h-3.5 -ml-[1px] text-amber-400 fill-amber-400" />
+                    <span className="-ml-[1px]">{deductionAnim.cost}</span>
                   </div>
                 </>
               )}
-              <button
-                onClick={() => {
-                  if (!activeStatus && !isBetaTranslating && !isProcessing && !isCurrentPageProcessing) {
-                    handleExecuteBetaTranslate();
-                  }
-                }}
-                disabled={!activeStatus && (isBetaTranslating || isProcessing || isCurrentPageProcessing)}
-                className={`h-14 rounded-2xl bg-[#1b1b1f] hover:bg-[#27272a] text-slate-200 border border-amber-500/25 hover:border-amber-500/45 flex items-center justify-center select-none transition-all duration-300 active:scale-[0.98] cursor-pointer
-                  ${activeStatus 
-                    ? 'w-auto px-4 ring-4 ring-amber-500/20 shadow-[0_0_25px_rgba(245,158,11,0.25)] border-amber-500/40' 
-                    : 'w-14 shadow-[0_8px_24px_rgba(0,0,0,0.2)] hover:shadow-[0_12px_30px_rgba(245,158,11,0.25)]'
-                  }
-                  ${(!activeStatus && (isBetaTranslating || isProcessing || isCurrentPageProcessing)) ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}
-                `}
-              >
-                {activeStatus ? (
+              {activeStatus ? (
+                <button
+                  disabled
+                  className="h-14 rounded-2xl bg-[#1b1b1f] border border-amber-500/40 ring-4 ring-amber-500/20 shadow-[0_0_25px_rgba(245,158,11,0.25)] flex items-center justify-center px-4 select-none"
+                >
                   <div className="flex items-center gap-2 text-xs font-bold text-amber-500">
                     {activeStatus.includes("xếp hàng") || activeStatus.includes("chờ") ? (
                       <Hourglass className="w-3.5 h-3.5 animate-spin text-amber-400" />
@@ -1292,16 +1353,269 @@ export default function Workspace() {
                       Hủy
                     </span>
                   </div>
-                ) : (
-                  <img src="/nanobanana-color.svg" className="w-8 h-8 object-contain select-none pointer-events-none" alt="NanoBanana" />
-                )}
-              </button>
+                </button>
+              ) : (
+                <div ref={dropdownRef} className="relative flex items-center bg-[#1b1b1f] border border-amber-500/20 hover:border-amber-500/40 rounded-2xl p-1 shadow-[0_8px_24px_rgba(0,0,0,0.3)] hover:shadow-[0_12px_30px_rgba(245,158,11,0.15)] transition-all duration-300">
+                  <button
+                    onClick={() => {
+                      if (!isBetaTranslating && !isProcessing && !isCurrentPageProcessing) {
+                        setShowModelDropdown(!showModelDropdown);
+                      }
+                    }}
+                    disabled={isBetaTranslating || isProcessing || isCurrentPageProcessing}
+                    className={`h-12 px-3 rounded-xl hover:bg-white/5 text-slate-200 flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] cursor-pointer
+                      ${(isBetaTranslating || isProcessing || isCurrentPageProcessing) ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}
+                    `}
+                  >
+                    {translationMode === 'grok' && (
+                      <div className="w-8 h-8 rounded-lg bg-black border border-white/10 flex items-center justify-center">
+                        <GrokIcon className="w-5 h-5 text-slate-200 animate-in zoom-in-50 duration-200" />
+                      </div>
+                    )}
+                    {translationMode === 'studio' && studioSubModel === 'gpt-image-2-image-to-image' && (
+                      <div className="w-8 h-8 rounded-lg bg-[#10a37f] border border-white/10 flex items-center justify-center">
+                        <OpenaiIcon className="w-5.5 h-5.5 text-white animate-in zoom-in-50 duration-200" />
+                      </div>
+                    )}
+                    {translationMode === 'studio' && studioSubModel !== 'gpt-image-2-image-to-image' && (
+                      <div className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center overflow-hidden">
+                        <img src="/nanobanana.webp" className="w-full h-full object-cover animate-in zoom-in-50 duration-200" alt="Studio" />
+                      </div>
+                    )}
+                    <ChevronUp className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${showModelDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {/* Dropdown Menu (mở hướng lên trên) */}
+                  {showModelDropdown && (
+                    <div className="absolute bottom-16 right-0 w-76 bg-[#141417]/95 backdrop-blur-md border border-white/10 rounded-2xl p-2.5 shadow-[0_15px_40px_rgba(0,0,0,0.65)] flex flex-col gap-1.5 z-[210] animate-in fade-in slide-in-from-bottom-2 duration-200">
+                      {/* Tiêu đề */}
+                      <div className="px-2.5 py-1 border-b border-white/5 mb-0.5 select-none flex items-center justify-between">
+                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Lựa chọn Mô hình</span>
+                        <div 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setShowAdvancedModels(!showAdvancedModels); 
+                          }}
+                          className="flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <span className="text-[8.5px] font-black text-slate-400 select-none uppercase tracking-wider">Tùy chỉnh</span>
+                          <div className={`w-7 h-4 rounded-full p-0.5 transition-all duration-200 ${showAdvancedModels ? 'bg-amber-500' : 'bg-white/10'}`}>
+                            <div className={`w-3 h-3 rounded-full bg-[#141417] transition-all duration-200 transform ${showAdvancedModels ? 'translate-x-3' : 'translate-x-0'}`} />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Các nút chọn mode */}
+                      {/* Grok */}
+                      <div
+                        onClick={() => setTranslationMode('grok')}
+                        className={`w-full text-left p-2 rounded-xl hover:bg-white/5 flex flex-col gap-1.5 transition-all cursor-pointer ${translationMode === 'grok' ? 'bg-amber-500/5' : ''}`}
+                      >
+                        <div className="flex items-start gap-3 w-full">
+                          <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-black border border-white/10 flex items-center justify-center">
+                            <GrokIcon className="w-5 h-5 text-slate-200" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-slate-200">Grok Imagine</span>
+                              <span className="text-[10px] font-bold text-amber-500 flex items-center gap-0.5">
+                                <BoltIcon className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0" />
+                                8 Xu
+                              </span>
+                            </div>
+                            <p className="text-[9px] text-slate-400 leading-normal mt-0.5 truncate">
+                              Mô hình Grok mới nhất, vẽ lại tốt nhất
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* GPT Image 2 */}
+                      <div
+                        onClick={() => {
+                          setTranslationMode('studio');
+                          setStudioSubModel('gpt-image-2-image-to-image');
+                        }}
+                        className={`w-full text-left p-2 rounded-xl hover:bg-white/5 flex flex-col gap-1.5 transition-all cursor-pointer ${translationMode === 'studio' && studioSubModel === 'gpt-image-2-image-to-image' ? 'bg-amber-500/5' : ''}`}
+                      >
+                        <div className="flex items-start gap-3 w-full">
+                          <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-[#10a37f] border border-white/10 flex items-center justify-center">
+                            <OpenaiIcon className="w-5.5 h-5.5 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-slate-200">GPT Image 2</span>
+                              <span className="text-[10px] font-bold text-amber-500 flex items-center gap-0.5">
+                                <BoltIcon className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0" />
+                                {getKieCost('gpt-image-2-image-to-image', kieResolution)} Xu
+                              </span>
+                            </div>
+                            <p className="text-[9px] text-slate-400 leading-normal mt-0.5 truncate">
+                              model chỉnh ảnh mạnh nhất của OpenAI hiện tại
+                            </p>
+                          </div>
+                        </div>
+                        {showAdvancedModels && translationMode === 'studio' && studioSubModel === 'gpt-image-2-image-to-image' && (
+                          <div className="flex flex-col gap-1 pl-11">
+                            <span className="text-[8px] font-semibold text-slate-500 uppercase tracking-wider">Độ phân giải:</span>
+                            <div className="flex gap-1.5">
+                              {(['1K', '2K'] as const).map((res) => {
+                                const addon = res === '1K' ? '+0' : '+3';
+                                return (
+                                  <button
+                                    key={res}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setKieResolution(res);
+                                    }}
+                                    className={`text-[8.5px] px-1.5 py-0.5 rounded transition-all font-black ${
+                                      kieResolution === res
+                                        ? 'bg-amber-500/20 text-amber-400'
+                                        : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                                    }`}
+                                  >
+                                    {res} ({addon} Xu)
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Studio */}
+                      <div
+                        onClick={() => {
+                          setTranslationMode('studio');
+                          if (studioSubModel === 'gpt-image-2-image-to-image') {
+                            setStudioSubModel('nano-banana-2');
+                          }
+                        }}
+                        className={`w-full text-left p-2 rounded-xl hover:bg-white/5 flex flex-col gap-2 transition-all cursor-pointer ${translationMode === 'studio' && studioSubModel !== 'gpt-image-2-image-to-image' ? 'bg-amber-500/5' : ''}`}
+                      >
+                        <div className="flex items-start gap-3 w-full">
+                          <div className="flex-shrink-0 w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center overflow-hidden">
+                            <img src="/nanobanana.webp" className="w-full h-full object-cover" alt="Studio" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-slate-200">Nano Banana</span>
+                              <span className="text-[10px] font-bold text-amber-500 flex items-center gap-0.5">
+                                <BoltIcon className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0" />
+                                {getKieCost(studioSubModel, kieResolution)} Xu
+                              </span>
+                            </div>
+                            <p className="text-[9px] text-slate-400 leading-normal mt-0.5">
+                              Dịch ảnh chất lượng cao giữ nguyên chi tiết nét vẽ gốc
+                            </p>
+                          </div>
+                        </div>
+
+                        {showAdvancedModels && translationMode === 'studio' && studioSubModel !== 'gpt-image-2-image-to-image' && (
+                          <>
+                            {/* Model Selector */}
+                            <div className="flex flex-col gap-1.5 pl-11">
+                              <span className="text-[8px] font-semibold text-slate-500 uppercase tracking-wider">Chọn mô hình:</span>
+                              <div className="flex flex-col gap-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setStudioSubModel('google/nano-banana-edit');
+                                  }}
+                                  className={`w-full text-left text-[8.5px] px-1.5 py-1 rounded transition-all font-black ${
+                                    studioSubModel === 'google/nano-banana-edit'
+                                      ? 'bg-amber-500/20 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                                      : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  nano banana v1 - 8 Xu
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setStudioSubModel('nano-banana-2');
+                                  }}
+                                  className={`w-full text-left text-[8.5px] px-1.5 py-1 rounded transition-all font-black ${
+                                    studioSubModel === 'nano-banana-2'
+                                      ? 'bg-amber-500/20 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                                      : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  nano banana v2 - 10 Xu
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setStudioSubModel('nano-banana-pro');
+                                  }}
+                                  className={`w-full text-left text-[8.5px] px-1.5 py-1 rounded transition-all font-black ${
+                                    studioSubModel === 'nano-banana-pro'
+                                      ? 'bg-amber-500/20 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                                      : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  nano banana v2 pro - 15 Xu
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Resolution Selector */}
+                            <div className="flex flex-col gap-1 pl-11">
+                              <span className="text-[8px] font-semibold text-slate-500 uppercase tracking-wider">Độ phân giải:</span>
+                              <div className="flex gap-1.5">
+                                {(['1K', '2K'] as const).map((res) => {
+                                  const addon = res === '1K' ? '+0' : '+3';
+                                  return (
+                                    <button
+                                      key={res}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setKieResolution(res);
+                                      }}
+                                      className={`text-[8.5px] px-1.5 py-0.5 rounded transition-all font-black ${
+                                        kieResolution === res
+                                          ? 'bg-amber-500/20 text-amber-400'
+                                          : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                                      }`}
+                                    >
+                                      {res} ({addon} Xu)
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Play Run Button at the bottom of the dropdown */}
+                      <div className="mt-2 pt-2 border-t border-white/5 px-1 flex flex-col gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowModelDropdown(false);
+                            if (!isBetaTranslating && !isProcessing && !isCurrentPageProcessing) {
+                              handleExecuteBetaTranslate();
+                            }
+                          }}
+                          disabled={isBetaTranslating || isProcessing || isCurrentPageProcessing}
+                          className="w-full h-10 relative flex items-center justify-center gap-2 pl-4 pr-12 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-400 hover:to-teal-400 font-black text-[10px] uppercase tracking-wider transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:pointer-events-none shadow-[0_4px_12px_rgba(16,185,129,0.25)]"
+                        >
+                          <Play size={12} className="fill-current text-slate-950" />
+                          <span>Dịch trang này</span>
+                          <span className="absolute right-3 inline-flex items-center bg-black/10 px-1.5 py-0.5 rounded-md text-slate-950 text-[10px] font-black transition-all">
+                            {currentModeCost}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-slate-950 fill-slate-950 shrink-0" />
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
-
-      
 
       {/* 🚀 MODAL CẢNH BÁO ĐIỀU KHOẢN (TOS MODAL) ĐÃ ÁP DỤNG I18N */}
       <BetaTosModal
@@ -1309,7 +1623,7 @@ export default function Workspace() {
         onClose={() => setShowTosModal(false)}
         onAgree={handleAgreeTerms}
         t={t}
-        credits={12}
+        credits={currentModeCost}
       />
     </div>
   );

@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { X, Sparkles, ChevronDown, Check } from 'lucide-react';
+import { X, Sparkles, ChevronDown, Check, Loader2 } from 'lucide-react';
 import { mangaApi } from '../../services/api';
 import toast from 'react-hot-toast';
 import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
 import { useTranslation } from 'react-i18next';
 import { useToolStore } from '../../store/useToolStore';
+
+const BoltIcon = ({ className = "w-3 h-3 text-amber-500 fill-current" }: { className?: string }) => (
+  <svg className={`${className} inline-block align-middle`} viewBox="-11 0 32 32" xmlns="http://www.w3.org/2000/svg">
+    <path d="M1.84 26.24c-0.080 0-0.16 0-0.24-0.040-0.4-0.12-0.64-0.52-0.56-0.92l1.32-9.16h-1.52c-0.24 0-0.52-0.12-0.68-0.32s-0.2-0.48-0.16-0.72l2.32-8.68c0.080-0.36 0.44-0.64 0.8-0.64h5.56c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-2.6 5.12h1.24c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-6.24 12.48c-0.12 0.28-0.44 0.48-0.76 0.48zM1.92 14.44h1.4c0.24 0 0.48 0.12 0.64 0.28 0.16 0.2 0.24 0.44 0.2 0.68l-0.72 4.92 3.28-6.56h-1.24c-0.28 0-0.56-0.16-0.72-0.4s-0.16-0.56-0.040-0.8l2.6-5.12h-3.56l-1.84 7z"></path>
+  </svg>
+);
 
 interface TagOption {
   value: string;
@@ -183,34 +189,33 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
           </div>
         )}
 
-        {/* Dòng ghi chú nhỏ về phí gọi máy chủ và cảnh báo BETA */}
-        <div className="flex flex-col gap-1 select-none">
-          <div className="text-[10px] text-gray-400">
-            {t('redrawInput.redrawDisclaimer')}
-          </div>
-          <div className="text-amber-500/80 text-[11px] mt-1 leading-tight font-medium">
-            {t('redrawInput.redrawBetaWarning')}
-          </div>
-        </div>
 
         <div className="flex items-center gap-2">
           <button
             type="submit"
             disabled={isTranslating || isProcessing}
-            className="flex-1 flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-800 disabled:text-neutral-500 disabled:cursor-not-allowed text-xs font-bold rounded-xl transition-all cursor-pointer shadow-md shadow-indigo-600/10 hover:shadow-indigo-600/20"
+            className={`flex-1 relative flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-neutral-800 disabled:text-neutral-500 disabled:cursor-not-allowed text-xs font-bold rounded-xl transition-all cursor-pointer shadow-md shadow-indigo-600/10 hover:shadow-indigo-600/20
+              ${!isTranslating && !isProcessing ? 'pl-4 pr-12' : 'px-4'}`}
           >
             {isTranslating || isProcessing ? (
-              <span className="animate-spin text-sm">⏳</span>
+              <Loader2 className="animate-spin" size={15} />
             ) : (
               <Sparkles size={15} />
             )}
-            {isTranslating 
-              ? t('redrawInput.translating') 
-              : isProcessing 
-                ? dynamicLoadingText 
-                : isRedrawSessionActive 
-                  ? t('redrawInput.redrawButtonSubsequent') 
-                  : t('redrawInput.redrawButtonFirst')}
+            <span>
+              {isTranslating 
+                ? t('redrawInput.translating') 
+                : isProcessing 
+                  ? dynamicLoadingText 
+                  : isRedrawSessionActive 
+                    ? t('redrawInput.redrawButtonSubsequent') 
+                    : t('redrawInput.redrawButtonFirst')}
+            </span>
+            {!isTranslating && !isProcessing && (
+              <span className="absolute right-3 inline-flex items-center bg-black/25 px-1.5 py-0.5 rounded-md text-white text-[10px] font-black whitespace-nowrap">
+                {isRedrawSessionActive ? '4' : '1'}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
+              </span>
+            )}
           </button>
           
           <button

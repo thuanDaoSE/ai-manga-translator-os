@@ -147,4 +147,15 @@ class UserTransaction(Base):
     type = Column(String, nullable=False) # "TOPUP" hoặc "DEDUCT"
     description = Column(Text, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    order_code = Column(BigInteger, nullable=True, index=True) # order_code từ PayOS nếu là nạp
+    order_code = Column(BigInteger, nullable=True, index=True) # order_code từ PayOS nếu là nạp
+
+
+class CreditLog(Base):
+    __tablename__ = "credit_logs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    amount = Column(Integer, nullable=False) # Số Xu thay đổi (âm hoặc dương)
+    action_type = Column(String, nullable=False) # TRANSLATE_LAMA, VÀ_NỀN_RUNPOD, REGISTER_BONUS, REFUND, DEPOSIT
+    description = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

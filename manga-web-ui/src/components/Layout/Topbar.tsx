@@ -3,7 +3,7 @@ import { toJpeg } from "html-to-image";
 import {
   CloudCheck, Download, Zap, User, Settings, LogOut, ChevronDown,
   Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages,
-  FileText, Globe, PanelLeftClose, PanelLeft
+  FileText, Globe
 } from "lucide-react";
 import toast from 'react-hot-toast';
 import { useConfigStore } from "../../store/useConfigStore";
@@ -218,21 +218,13 @@ export default function Topbar() {
 
       {/* 1. LEFT ZONE: LOGO & PROJECT */}
       <div className="flex items-center gap-4 flex-1">
-        {!showLeftPanel ? (
-          <button
-            onClick={() => toggleLeftPanel()}
-            className="p-2 shrink-0 bg-border/40 hover:bg-border text-text-muted hover:text-primary rounded-md cursor-pointer transition-colors"
-            title={t('topbar.openLeftPanel', 'Mở thanh bên trái')}
-          >
-            <PanelLeft size={16} />
-          </button>
-        ) : (
-          <DeepKomaLogo onClick={handleLogoClick} className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
-        )}
+        <DeepKomaLogo onClick={handleLogoClick} className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
 
-        <div className="w-px h-8 bg-border mx-2 hidden sm:block" />
+        {/* <div className="w-px h-8 bg-border mx-2 hidden sm:block" /> */}
 
-        <div className="flex flex-col justify-center min-w-0 max-w-[300px]">
+
+        {/* Project name + sync status — ẩn tạm thời (tính năng .manga sẽ phát triển sau) */}
+        {/* <div className="flex flex-col justify-center min-w-0 max-w-[300px]">
           <input
             type="text"
             value={localProjectName}
@@ -244,7 +236,8 @@ export default function Topbar() {
             <CloudCheck size={12} className="mr-1 text-[#06B6D4]" />
             <span>{t('topbar.synced')}</span>
           </div>
-        </div>
+        </div> */}
+
       </div>
 
       {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa) */}
@@ -308,8 +301,7 @@ export default function Topbar() {
             <div className="absolute top-[calc(100%+8px)] right-0 w-52 bg-panel border border-border rounded-xl shadow-2xl overflow-hidden py-1 animate-in fade-in slide-in-from-top-2" style={{ zIndex: 99999 }}>
               <button onClick={handleExportImage} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors cursor-pointer"><ImageDown size={14} className="text-emerald-500" /> {t('sidebar.exportJpg')}</button>
               <button onClick={handleExportPSD} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors border-y border-border/50 cursor-pointer"><Palette size={14} className="text-indigo-500" /> {t('sidebar.exportPsd')}</button>
-              <button onClick={handleExportText} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors border-b border-border/50 cursor-pointer"><FileText size={14} className="text-amber-500" /> {t('sidebar.exportText')}</button>
-              <button onClick={handleExportManga} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-muted hover:text-text-main hover:bg-background transition-colors cursor-pointer"><Save size={14} /> {t('sidebar.saveBackup')}</button>
+              <button onClick={handleExportText} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors cursor-pointer"><FileText size={14} className="text-amber-500" /> {t('sidebar.exportText')}</button>
             </div>
           )}
         </div>

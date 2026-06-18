@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Wand2,
@@ -17,6 +17,7 @@ import SpotlightCard from './ui/SpotlightCard';
 import ComparisonSlider from './ui/ComparisonSlider';
 import PulsatingButton from './ui/PulsatingButton';
 import { cn } from '../utils';
+import PolicyModal from './Modals/PolicyModal';
 
 interface LandingPageProps {
   onOpenAuth?: () => void;
@@ -44,6 +45,8 @@ const SectionHeader = ({ label, title, sub }: { label: string; title: React.Reac
 );
 
 export default function LandingPage({ onOpenAuth }: LandingPageProps) {
+  const [isPolicyOpen, setIsPolicyOpen] = useState(false);
+
   const workflowSteps = [
     {
       icon: UploadCloud,
@@ -349,7 +352,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
 
             {/* CTAs */}
             <motion.div variants={fadeInUp} className="flex flex-col sm:flex-row items-center gap-4 mb-10">
-              <PulsatingButton text="Bắt Đầu Miễn Phí — Nhận 20 Credits" onClick={onOpenAuth} />
+              <PulsatingButton text="Bắt Đầu Miễn Phí — Nhận 30 Credits" onClick={onOpenAuth} />
               <button
                 onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}
                 className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full text-[13.5px] font-semibold text-neutral-400 hover:text-white border border-white/[0.08] hover:border-white/20 bg-white/[0.03] hover:bg-white/[0.06] transition-all cursor-pointer group"
@@ -504,9 +507,9 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
                   <span className="text-[10px] font-black tracking-widest uppercase px-2 py-[3px] rounded-md border text-neutral-500 border-neutral-700 bg-neutral-800">STARTER</span>
                 </div>
                 <div className="mb-1">
-                  <span className="text-4xl font-extrabold text-white tracking-tight">$4.99</span>
+                  <span className="text-4xl font-extrabold text-white tracking-tight">25.000₫</span>
                 </div>
-                <p className="text-sm text-neutral-600 mb-6 pb-6 border-b border-white/[0.06]">50 Credits · ~16 trang dịch (~1 Chương)</p>
+                <p className="text-sm text-neutral-600 mb-6 pb-6 border-b border-white/[0.06]">100 Credits · ~50 trang dịch (~2–3 Chương)</p>
                 <ul className="space-y-3">
                   {lightFeatures.map((f, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-[13.5px] text-neutral-400">
@@ -543,9 +546,10 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
                   <span className="text-[10px] font-black tracking-widest uppercase px-2 py-[3px] rounded-md border text-indigo-400 border-indigo-500/30 bg-indigo-500/10">PRO</span>
                 </div>
                 <div className="mb-1">
-                  <span className="text-4xl font-extrabold text-white tracking-tight">$14.99</span>
+                  <span className="text-4xl font-extrabold text-white tracking-tight">50.000₫</span>
+                  <span className="ml-2 text-sm font-bold text-emerald-400">+20 xu bonus</span>
                 </div>
-                <p className="text-sm text-indigo-400 font-semibold mb-6 pb-6 border-b border-white/[0.06]">200 Credits · ~66 trang dịch (~4 Chương)</p>
+                <p className="text-sm text-indigo-400 font-semibold mb-6 pb-6 border-b border-white/[0.06]">220 Credits · ~110 trang dịch (~5–6 Chương)</p>
                 <ul className="space-y-3">
                   {popularFeatures.map((f, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-[13.5px] text-white/80">
@@ -577,9 +581,10 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
                   <span className="text-[10px] font-black tracking-widest uppercase px-2 py-[3px] rounded-md border text-violet-400 border-violet-500/30 bg-violet-500/10">TEAM</span>
                 </div>
                 <div className="mb-1">
-                  <span className="text-4xl font-extrabold text-white tracking-tight">$49.99</span>
+                  <span className="text-4xl font-extrabold text-white tracking-tight">100.000₫</span>
+                  <span className="ml-2 text-sm font-bold text-emerald-400">+60 xu bonus</span>
                 </div>
-                <p className="text-sm text-neutral-600 mb-6 pb-6 border-b border-white/[0.06]">1000 Credits · ~333 trang dịch (~22 Chương)</p>
+                <p className="text-sm text-neutral-600 mb-6 pb-6 border-b border-white/[0.06]">460 Credits · ~230 trang dịch (~12–15 Chương)</p>
                 <ul className="space-y-3">
                   {studioFeatures.map((f, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-[13.5px] text-neutral-400">
@@ -620,7 +625,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
             <p className="text-neutral-500 text-base md:text-lg mb-10 max-w-xl mx-auto leading-relaxed">
               Tham gia cùng hàng trăm nhóm dịch tự do và dịch giả độc lập đang tối ưu hóa quy trình bằng DeepKoma.
             </p>
-            <PulsatingButton text="Bắt Đầu Miễn Phí — Nhận 20 Credits" onClick={onOpenAuth} />
+            <PulsatingButton text="Bắt Đầu Miễn Phí — Nhận 30 Credits" onClick={onOpenAuth} />
           </div>
         </div>
 
@@ -632,8 +637,8 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
               <span>© 2026 DeepKoma Inc. Bảo lưu mọi quyền.</span>
             </div>
             <div className="flex items-center gap-6 font-medium">
-              <a href="#" onClick={(e) => e.preventDefault()} className="hover:text-white transition-colors">Điều khoản dịch vụ</a>
-              <a href="#" onClick={(e) => e.preventDefault()} className="hover:text-white transition-colors">Chính sách bảo mật</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); setIsPolicyOpen(true); }} className="hover:text-white transition-colors cursor-pointer">Điều khoản dịch vụ</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); setIsPolicyOpen(true); }} className="hover:text-white transition-colors cursor-pointer">Chính sách bảo mật</a>
               <a href="#" onClick={(e) => e.preventDefault()} className="hover:text-white transition-colors flex items-center gap-1.5">
                 <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
@@ -650,6 +655,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
           </div>
         </div>
       </footer>
+      <PolicyModal isOpen={isPolicyOpen} onClose={() => setIsPolicyOpen(false)} />
     </div>
   );
 }

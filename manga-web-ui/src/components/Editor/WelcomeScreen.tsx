@@ -30,12 +30,12 @@ export default function WelcomeScreen() {
         </header>
 
         {/* Primary Actions Section */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+        <div className="flex justify-center w-full">
           
           {/* New Project Card */}
           <label
             className={cn(
-              "flex flex-col items-start p-4 rounded-xl border transition-all duration-300 outline-none select-none text-left relative overflow-hidden group",
+              "flex flex-col items-start p-4 rounded-xl border transition-all duration-300 outline-none select-none text-left relative overflow-hidden group w-full max-w-sm",
               "focus-within:ring-2 focus-within:ring-indigo-500/50",
               isAgreed
                 ? "cursor-pointer border-indigo-500/20 bg-gradient-to-br from-indigo-500/10 to-purple-500/5 backdrop-blur-md shadow-[0_0_20px_rgba(99,102,241,0.08)] hover:scale-[1.01] hover:border-indigo-400/40"
@@ -79,50 +79,6 @@ export default function WelcomeScreen() {
               disabled={!isAgreed}
               onChange={handleFileChange}
               aria-label={t('welcome.uploadLabel')}
-            />
-          </label>
-
-          {/* Restore Card */}
-          <label
-            className={cn(
-              "flex flex-col items-start p-4 rounded-xl border transition-all duration-300 outline-none select-none text-left relative overflow-hidden group",
-              "focus-within:ring-2 focus-within:ring-indigo-500/50",
-              isAgreed
-                ? "cursor-pointer border-white/5 bg-white/5 backdrop-blur-md hover:bg-white/10 hover:border-white/10 hover:scale-[1.01]"
-                : "opacity-40 cursor-not-allowed bg-panel/10 border-border/40 text-text-muted/40"
-            )}
-            aria-disabled={!isAgreed}
-          >
-            <div className="flex items-center gap-3 mb-2 w-full">
-              <div className={cn(
-                "p-2 rounded-lg transition-all duration-300 shrink-0",
-                isAgreed
-                  ? "bg-white/10 text-slate-300 group-hover:scale-105"
-                  : "bg-panel/20 border border-border/20 text-text-muted/30"
-              )}>
-                <FolderArchive size={18} />
-              </div>
-              <span className={cn(
-                "font-bold text-sm transition-colors duration-300",
-                isAgreed ? "text-slate-100" : "text-text-muted/50"
-              )}>
-                {t('welcome.restoreProgress')}
-              </span>
-            </div>
-            
-            <span className={cn(
-              "text-xs leading-normal transition-colors duration-300",
-              isAgreed ? "text-slate-500" : "text-text-muted/30"
-            )}>
-              {t('welcome.restoreDesc')}
-            </span>
-            <input
-              type="file"
-              accept=".manga"
-              className="sr-only"
-              disabled={!isAgreed}
-              onChange={handleImportManga}
-              aria-label={t('welcome.restoreLabel')}
             />
           </label>
 

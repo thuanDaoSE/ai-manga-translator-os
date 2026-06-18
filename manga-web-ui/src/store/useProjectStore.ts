@@ -43,6 +43,7 @@ interface ProjectState {
   clearProject: () => void;
 
   restoreProject: (pages: any[]) => void;
+  verifyAndRemovePage: (index: number) => Promise<void>;
 }
 
 export const useProjectStore = create<ProjectState>((set) => ({
@@ -347,10 +348,18 @@ export const useProjectStore = create<ProjectState>((set) => ({
     pages.forEach((page, index) => {
       newPageIds[index] = page.id;
 
-      // 🚀 2. TÔN TRỌNG TRẠNG THÁI TỪ SERVER:
-      // Nếu server có gửi status thì dùng, không thì tự suy luận: có ảnh sạch -> cleaned, chưa có -> unprocessed
-      // 🚀 Tôn trọng Status thực tế từ DB
-      newPageStatuses[index] = page.status || (page.clean_url ? "cleaned" : "unprocessed");
+      // 🚀 Tôn trọng Status thực tế từ DB, map các trạng thái trung gian/lỗi
+      let status = page.status;
+      if (status === "pending") {
+        status = "unprocessed";
+      } else if (status === "failed") {
+        status = "error";
+      } else if (status === "processing" || status === "waiting") {
+        // Nếu reload giữa chừng, đưa về trạng thái nhàn rỗi (idle) để người dùng có thể dịch lại
+        status = page.clean_url ? "cleaned" : "unprocessed";
+      }
+
+      newPageStatuses[index] = status || (page.clean_url ? "cleaned" : "unprocessed");
       newRetryCounts[index] = page.retry_count || 0; // 🚀 Trích xuất retry_count từ Server
 
       if (page.clean_url) {
@@ -368,5 +377,80 @@ export const useProjectStore = create<ProjectState>((set) => ({
       fileQueue: newQueue,
       currentIndex: pages.length > 0 ? 0 : -1
     });
+  },
+  verifyAndRemovePage: async (index) => {
+    const currentState = useProjectStore.getState();
+    const pageId = currentState.pageIds[index];
+    const file = currentState.fileQueue[index];
+    if (!pageId || !file) return;
+
+    if (!navigator.onLine) return;
+
+    let checkUrl = '';
+    if (currentState.processedUrls[index]) {
+      checkUrl = currentState.processedUrls[index];
+    } else {
+      const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
+      checkUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${currentState.projectId}/raw/${pageId}.${ext}`;
+    }
+
+    if (!checkUrl || checkUrl.startsWith('blob:')) return;
+
+    try {
+      const res = await fetch(checkUrl, { method: 'HEAD' });
+      if (res.status === 404) {
+        console.warn(`[Auto-Clean] Image for page ${index} returned 404. Removing page from store.`);
+        const state = useProjectStore.getState();
+        const tempArr = state.fileQueue.map((f, i) => ({
+          file: f, url: state.processedUrls[i], status: state.pageStatuses[i],
+          progress: state.progresses[i], pageId: state.pageIds[i], past: state.pastUrls[i], future: state.futureUrls[i],
+          retryCount: state.retryCounts[i]
+        }));
+
+        tempArr.splice(index, 1);
+
+        const newQueue = tempArr.map(item => item.file);
+        const newProcessed: Record<number, string> = {};
+        const newStatuses: Record<number, PageStatus> = {};
+        const newProgresses: Record<number, ProgressData> = {};
+        const newPageIds: Record<number, string> = {};
+        const newRetryCounts: Record<number, number> = {};
+        const newPast: Record<number, string[]> = {};
+        const newFuture: Record<number, string[]> = {};
+
+        tempArr.forEach((item, i) => {
+          if (item.url) newProcessed[i] = item.url;
+          if (item.status) newStatuses[i] = item.status;
+          if (item.progress) newProgresses[i] = item.progress;
+          if (item.pageId) newPageIds[i] = item.pageId;
+          if (item.retryCount !== undefined) newRetryCounts[i] = item.retryCount;
+          if (item.past) newPast[i] = item.past;
+          if (item.future) newFuture[i] = item.future;
+        });
+
+        let newCurrentIndex = state.currentIndex;
+        if (state.currentIndex === index) {
+          newCurrentIndex = tempArr.length > 0 ? Math.max(0, index - 1) : -1;
+        } else if (state.currentIndex > index) {
+          newCurrentIndex--;
+        }
+
+        try {
+          await mangaApi.deletePage(pageId);
+        } catch (e) {
+          // Ignore
+        }
+
+        set({
+          fileQueue: newQueue, processedUrls: newProcessed, pageStatuses: newStatuses,
+          progresses: newProgresses, pageIds: newPageIds, retryCounts: newRetryCounts, pastUrls: newPast, futureUrls: newFuture,
+          currentIndex: newCurrentIndex
+        });
+
+        toast.error(`Trang "${file.name}" đã hết hạn trên máy chủ và được tự động dọn dẹp khỏi giao diện.`);
+      }
+    } catch (err) {
+      console.error("Failed to verify image deletion:", err);
+    }
   },
 }));

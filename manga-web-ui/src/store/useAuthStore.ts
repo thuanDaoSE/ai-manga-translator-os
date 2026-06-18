@@ -29,7 +29,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       session,
       // Ép giữ lại số tiền cũ khi Supabase cập nhật Token để không bị mất hiển thị trên UI
       user: session?.user
-        ? { ...session.user, credits: currentUser?.credits, isPro: currentUser?.isPro }
+        ? { ...session.user, credits: currentUser?.credits, isPro: currentUser?.isPro, lensFreeRemaining: currentUser?.lensFreeRemaining }
         : null,
       loading: false
     });
@@ -45,7 +45,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const data = await mangaApi.getUserProfile();
       set((state) => ({
-        user: state.user ? { ...state.user, credits: data.credits, isPro: data.is_pro } : null
+        user: state.user ? { ...state.user, credits: data.credits, isPro: data.is_pro, lensFreeRemaining: data.lens_free_remaining } : null
       }));
     } catch (error) {
       console.error("Lỗi lấy thông tin ví tiền:", error);

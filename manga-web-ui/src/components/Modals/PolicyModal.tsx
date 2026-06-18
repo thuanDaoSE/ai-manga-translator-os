@@ -40,8 +40,9 @@ export default function PolicyModal({ isOpen, onClose }: Props) {
           <h3 className="text-white font-bold uppercase tracking-wider text-xs">{t('policyModal.sec1Title')}</h3>
           <p>
             <Trans i18nKey="policyModal.sec1Desc">
-              Hệ thống của chúng tôi (MangaAI Studio) chỉ lưu trữ tạm thời các tệp tin ảnh và bản dịch của bạn trên máy chủ để phục vụ quá trình làm việc. Hệ thống có <b>Bot dọn rác tự động</b> sẽ xóa vĩnh viễn toàn bộ dữ liệu dự án của bạn sau <b>6 giờ</b> không hoạt động nhằm bảo vệ quyền riêng tư và tuân thủ mô hình xử lý tức thời.
+              Hệ thống của chúng tôi (MangaAI Studio) chỉ lưu trữ tạm thời các tệp tin ảnh và bản dịch của bạn trên máy chủ để phục vụ quá trình làm việc. Hệ thống có <b>Bot dọn rác tự động</b> sẽ xóa vĩnh viễn toàn bộ dữ liệu dự án của bạn sau <b>2 giờ</b> không hoạt động nhằm bảo vệ quyền riêng tư và tuân thủ mô hình xử lý tức thời.
             </Trans>
+
           </p>
 
           <h3 className="text-white font-bold uppercase tracking-wider text-xs">{t('policyModal.sec2Title')}</h3>

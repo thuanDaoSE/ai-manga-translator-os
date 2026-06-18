@@ -23,6 +23,8 @@ export default function LensModal() {
       w: Math.max(Math.abs(scanModal.coords.x2 - scanModal.coords.x1), 80),
       h: Math.max(Math.abs(scanModal.coords.y2 - scanModal.coords.y1), 40),
       text: editedVie,
+      vietnamese: editedVie,
+      japanese: scanModal.jap,
       fontSize: useToolStore.getState().fontSize,
       fontColor: useToolStore.getState().fontColor,
       fontFamily: useToolStore.getState().fontFamily,

@@ -2,8 +2,16 @@ import React from 'react';
 import { useToolStore } from '../../store/useToolStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useProjectStore } from '../../store/useProjectStore';
+import { useAuthStore } from '../../store/useAuthStore';
 // 🚀 Thêm icon ScanLine vào đây
 import { MousePointer2, Eraser, Paintbrush, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff, Sparkles, Loader2 } from 'lucide-react';
+
+const BoltIcon = ({ className = "w-3 h-3 text-amber-500 fill-current" }: { className?: string }) => (
+  <svg className={`${className} inline-block align-middle`} viewBox="-11 0 32 32" xmlns="http://www.w3.org/2000/svg">
+    <path d="M1.84 26.24c-0.080 0-0.16 0-0.24-0.040-0.4-0.12-0.64-0.52-0.56-0.92l1.32-9.16h-1.52c-0.24 0-0.52-0.12-0.68-0.32s-0.2-0.48-0.16-0.72l2.32-8.68c0.080-0.36 0.44-0.64 0.8-0.64h5.56c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-2.6 5.12h1.24c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-6.24 12.48c-0.12 0.28-0.44 0.48-0.76 0.48zM1.92 14.44h1.4c0.24 0 0.48 0.12 0.64 0.28 0.16 0.2 0.24 0.44 0.2 0.68l-0.72 4.92 3.28-6.56h-1.24c-0.28 0-0.56-0.16-0.72-0.4s-0.16-0.56-0.040-0.8l2.6-5.12h-3.56l-1.84 7z"></path>
+  </svg>
+);
+
 export const FloatingCanvasToolbar: React.FC = () => {
   // 🚀 Lấy thêm showAiGuides, toggleAiGuides, isProcessing từ store
   const { 
@@ -17,7 +25,8 @@ export const FloatingCanvasToolbar: React.FC = () => {
     toggleAiGuides, 
     showText, 
     setShowText,
-    isProcessing
+    isProcessing,
+    isRedrawSessionActive
   } = useToolStore();
 
   const pageStatuses = useProjectStore((state) => state.pageStatuses);
@@ -25,6 +34,9 @@ export const FloatingCanvasToolbar: React.FC = () => {
   const isCurrentPageProcessing = pageStatuses[currentIndex] === 'processing' || pageStatuses[currentIndex] === 'waiting';
   
   const isBrushMode = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw';
+  
+  const user = useAuthStore((state) => state.user);
+  const lensFreeRemaining = user?.lensFreeRemaining !== undefined ? user.lensFreeRemaining : 20;
 
 
   const handleUndo = () => useCanvasStore.getState().undo();
@@ -80,13 +92,34 @@ export const FloatingCanvasToolbar: React.FC = () => {
           `}
         >
           <CurrentIcon size={20} strokeWidth={isActive ? 2.5 : 2} className={isButtonLoading ? "animate-spin" : ""} />
+          
+          {['erase', 'redraw', 'scan'].includes(mode) && (
+            <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
+              {mode === 'redraw' ? (isRedrawSessionActive ? '1' : '4') : mode === 'scan' ? (
+                lensFreeRemaining > 0 ? (
+                  <span className="text-emerald-400">{lensFreeRemaining} Free</span>
+                ) : (
+                  <>
+                    <span>1</span>
+                    <BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 fill-amber-400 shrink-0" />
+                  </>
+                )
+              ) : (
+                <>
+                  <span>1</span>
+                  <BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 fill-amber-400 shrink-0" />
+                </>
+              )}
+            </span>
+          )}
         </button>
       </div>
     );
   };
 
   return (
-    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3 z-[100] pointer-events-none">
+    <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3 z-[100] pointer-events-none transition-all duration-300
+      ${isCurrentPageProcessing ? 'opacity-0 translate-y-4 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
       
       {/* TẦNG 1: THANH SIZE CỌ VÀ CHẾ ĐỘ PHỤC HỒI */}
       <div className={`transition-all duration-300 transform pointer-events-auto flex flex-col gap-2.5 px-4 py-3 bg-panel/95 backdrop-blur-xl border border-border shadow-lg rounded-full

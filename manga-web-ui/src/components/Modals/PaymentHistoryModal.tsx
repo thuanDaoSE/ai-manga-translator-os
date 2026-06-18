@@ -3,6 +3,7 @@ import { X, CreditCard, Loader2, RefreshCw, Gem, AlertCircle } from 'lucide-reac
 import { mangaApi } from '../../services/api';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
+import CreditHistoryList from './CreditHistoryList';
 
 interface Transaction {
   order_code: number;
@@ -24,6 +25,9 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
   const [loading, setLoading] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState('');
+  
+  const [activeTab, setActiveTab] = useState<'payments' | 'credits'>('payments');
+  const [creditsRefreshKey, setCreditsRefreshKey] = useState(0);
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -41,10 +45,10 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
   };
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && activeTab === 'payments') {
       fetchHistory();
     }
-  }, [isOpen]);
+  }, [isOpen, activeTab]);
 
   if (!isOpen) return null;
 
@@ -91,29 +95,61 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
             <CreditCard size={22} />
           </div>
           <div className="flex-1">
-            <h2 className="text-lg font-black tracking-tight uppercase">{t('paymentHistory.title')}</h2>
-            <p className="text-[11px] text-text-muted mt-0.5">{t('paymentHistory.subtitle')}</p>
+            <h2 className="text-lg font-black tracking-tight uppercase">
+              {activeTab === 'payments' ? t('paymentHistory.title') : 'Lịch sử dùng xu'}
+            </h2>
+            <p className="text-[11px] text-text-muted mt-0.5">
+              {activeTab === 'payments' ? t('paymentHistory.subtitle') : 'Danh sách biến động số dư chi tiết của bạn'}
+            </p>
           </div>
           {/* Refresh Button */}
           <button
-            onClick={fetchHistory}
-            disabled={loading}
+            onClick={activeTab === 'payments' ? fetchHistory : () => setCreditsRefreshKey(prev => prev + 1)}
+            disabled={loading && activeTab === 'payments'}
             className="p-2 text-text-muted hover:text-text-main hover:bg-border/40 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
             title={t('paymentHistory.refreshTooltip')}
           >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={16} className={(loading && activeTab === 'payments') ? "animate-spin" : ""} />
+          </button>
+        </div>
+
+        {/* Tab Switcher */}
+        <div className="flex gap-2 mb-5 bg-[#16161a]/60 p-1 rounded-xl border border-border/50 select-none">
+          <button
+            type="button"
+            onClick={() => setActiveTab('payments')}
+            className={`flex-1 py-2 text-xs font-black rounded-lg transition-all duration-200 cursor-pointer ${
+              activeTab === 'payments'
+                ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                : 'text-text-muted hover:text-text-main hover:bg-white/5'
+            }`}
+          >
+            Lịch sử nạp tiền
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('credits')}
+            className={`flex-1 py-2 text-xs font-black rounded-lg transition-all duration-200 cursor-pointer ${
+              activeTab === 'credits'
+                ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                : 'text-text-muted hover:text-text-main hover:bg-white/5'
+            }`}
+          >
+            Lịch sử dùng xu
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar min-h-[300px] flex flex-col justify-center">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-12 gap-3">
+        <div className="flex-1 overflow-y-auto custom-scrollbar min-h-[300px] flex flex-col justify-start">
+          {activeTab === 'credits' ? (
+            <CreditHistoryList key={creditsRefreshKey} />
+          ) : loading ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3 flex-1">
               <Loader2 className="animate-spin text-primary" size={32} />
               <span className="text-sm font-bold text-text-muted">{t('paymentHistory.loadingText')}</span>
             </div>
           ) : error ? (
-            <div className="flex flex-col items-center justify-center py-12 gap-3 px-6 text-center">
+            <div className="flex flex-col items-center justify-center py-12 gap-3 px-6 text-center flex-1">
               <AlertCircle className="text-danger" size={36} />
               <span className="text-sm font-bold text-danger">{error}</span>
               <button
@@ -124,7 +160,7 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
               </button>
             </div>
           ) : transactions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <div className="flex flex-col items-center justify-center py-16 gap-3 flex-1">
               <div className="p-4 rounded-full bg-border/20 text-text-muted/40 mb-2">
                 <CreditCard size={44} />
               </div>

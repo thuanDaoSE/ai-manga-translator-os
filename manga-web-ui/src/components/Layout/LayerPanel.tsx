@@ -34,6 +34,8 @@ export default function LayerPanel() {
       w: Math.max(100, width),
       h: Math.max(40, height),
       text: editedVie,
+      vietnamese: editedVie,
+      japanese: scanModal.jap,
       fontSize: useToolStore.getState().fontSize,
       fontColor: useToolStore.getState().fontColor,
       fontFamily: useToolStore.getState().fontFamily,

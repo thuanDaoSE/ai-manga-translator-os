@@ -14,8 +14,11 @@ import toast from 'react-hot-toast';
 import { mangaApi } from '../../services/api';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
-
-
+const BoltIcon = ({ className = "w-3 h-3 text-amber-500 fill-current" }: { className?: string }) => (
+  <svg className={`${className} inline-block align-middle`} viewBox="-11 0 32 32" xmlns="http://www.w3.org/2000/svg">
+    <path d="M1.84 26.24c-0.080 0-0.16 0-0.24-0.040-0.4-0.12-0.64-0.52-0.56-0.92l1.32-9.16h-1.52c-0.24 0-0.52-0.12-0.68-0.32s-0.2-0.48-0.16-0.72l2.32-8.68c0.080-0.36 0.44-0.64 0.8-0.64h5.56c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-2.6 5.12h1.24c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-6.24 12.48c-0.12 0.28-0.44 0.48-0.76 0.48zM1.92 14.44h1.4c0.24 0 0.48 0.12 0.64 0.28 0.16 0.2 0.24 0.44 0.2 0.68l-0.72 4.92 3.28-6.56h-1.24c-0.28 0-0.56-0.16-0.72-0.4s-0.16-0.56-0.040-0.8l2.6-5.12h-3.56l-1.84 7z"></path>
+  </svg>
+);
 
 // =========================================
 // 1. COMPONENT CON: THẺ TRANG TRUYỆN (UI NÂNG CẤP)
@@ -103,13 +106,13 @@ function SortableItem({
         <div className={`flex flex-col gap-1 overflow-hidden flex-1 min-w-0 pl-3 justify-center transition-all duration-300 ${
           (status === 'processing' || status === 'waiting') 
             ? 'pr-12' 
-            : 'pr-[65px] group-hover:pr-[130px]'
+            : 'pr-[80px]'
         }`}>
           <span className={`text-xs font-bold truncate block w-full ${isActive || isSelected ? 'text-primary' : status === 'error' ? 'text-danger' : 'text-text-main'}`}>
             {file.name}
           </span>
           
-          {status === 'unprocessed' && <span className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold uppercase truncate"><Clock size={12} /> {t('sidebar.waiting')}</span>}
+          {(status === 'unprocessed' || status === 'cleaned' || status === 'translating') && <span className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold uppercase truncate"><Clock size={12} /> {t('sidebar.waiting')}</span>}
           {status === 'waiting' && <span className="flex items-center gap-1.5 text-[10px] text-amber-500 font-bold uppercase truncate animate-pulse"><Clock size={12} /> {t('sidebar.waitingQueue')}</span>}
           
           {status === 'processing' && (
@@ -132,6 +135,7 @@ function SortableItem({
           )}
           
           {status === 'completed' && <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-black uppercase truncate"><CheckCircle2 size={12} /> {t('sidebar.completed')}</span>}
+          {status === 'error' && <span className="flex items-center gap-1.5 text-[10px] text-danger font-bold uppercase truncate"><AlertTriangle size={12} className="shrink-0" /> {t('sidebar.transError', 'Lỗi Dịch')}</span>}
           {retryCount >= 3 && (
             <span className="flex items-center gap-1 text-[9.5px] text-orange-400 font-bold uppercase truncate mt-0.5" title="AI đã đạt giới hạn dịch tự động cho đoạn này. Vui lòng chỉnh sửa bản dịch thủ công để có kết quả tốt nhất.">
               <AlertTriangle size={11} className="shrink-0 text-orange-400 animate-pulse" /> Đạt giới hạn AI
@@ -142,7 +146,7 @@ function SortableItem({
         {/* ============================================================== */}
         {/* 🚀 BẢN VÁ UI 3: TĂNG KÍCH THƯỚC CÁC NÚT BẤM DỄ THAO TÁC HƠN */}
         {/* ============================================================== */}
-        {!isSelectionMode && status !== 'processing' && (
+        {!isSelectionMode && status !== 'processing' && status !== 'waiting' && (
           <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex flex-col items-end gap-2 
             opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20"
           >
@@ -156,48 +160,63 @@ function SortableItem({
               <Trash2 size={14} />
             </button>
 
-            {/* CÁC NÚT HÀNH ĐỘNG (Padding lớn hơn, chữ to hơn: text-[11px]) */}
-            {status === 'unprocessed' && (
-              <button
-                disabled={disabled}
-                onClick={(e) => { e.stopPropagation(); onTranslate(); }}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-              >
-                <Wand2 size={11} className="shrink-0" />
-                <span>{t('canvas.translateAction', 'Dịch')}</span>
-              </button>
+            {/* CÁC NÚT HÀNH ĐỘNG (Cải tiến bố cục giá xu ở góc dưới bên phải tránh chồng chữ) */}
+            {(status === 'unprocessed' || status === 'cleaned' || status === 'translating') && (
+              <div className="relative shrink-0">
+                <button
+                  disabled={disabled}
+                  onClick={(e) => { e.stopPropagation(); onTranslate(); }}
+                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                >
+                  <Wand2 size={11} className="shrink-0" />
+                  <span>{t('canvas.translateAction', 'Dịch')}</span>
+                </button>
+                <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
+                  1<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 fill-amber-400 shrink-0" />
+                </span>
+              </div>
             )}
 
             {status === 'error' && (
-              <button
-                disabled={disabled || (hasCleanUrl && retryCount >= 3)}
-                onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer shrink-0 ${(disabled || (hasCleanUrl && retryCount >= 3)) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`}
-              >
-                {hasCleanUrl ? (
-                  <>
-                    <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
-                    <span>Dịch lại AI</span>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={12} />
-                    <span>{t('sidebar.retrySingle')}</span>
-                  </>
-                )}
-              </button>
+              <div className="relative shrink-0">
+                <button
+                  disabled={disabled || (hasCleanUrl && retryCount >= 3)}
+                  onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }}
+                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${(disabled || (hasCleanUrl && retryCount >= 3)) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`}
+                >
+                  {hasCleanUrl ? (
+                    <>
+                      <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
+                      <span>Dịch lại</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw size={12} />
+                      <span>{t('sidebar.retrySingle')}</span>
+                    </>
+                  )}
+                </button>
+                <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
+                  1<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 fill-amber-400 shrink-0" />
+                </span>
+              </div>
             )}
 
             {status === 'completed' && (
-              <button 
-                disabled={disabled || retryCount >= 3}
-                onClick={(e) => { e.stopPropagation(); onRetry(); }} 
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer shrink-0 ${(disabled || retryCount >= 3) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`} 
-                title={t('sidebar.retranslate')}
-              >
-                <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
-                <span>Dịch lại AI</span>
-              </button>
+              <div className="relative shrink-0">
+                <button 
+                  disabled={disabled || retryCount >= 3}
+                  onClick={(e) => { e.stopPropagation(); onRetry(); }} 
+                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer ${(disabled || retryCount >= 3) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`} 
+                  title={t('sidebar.retranslate')}
+                >
+                  <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
+                  <span>Dịch lại</span>
+                </button>
+                <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
+                  1<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 fill-amber-400 shrink-0" />
+                </span>
+              </div>
             )}
           </div>
         )}
@@ -243,6 +262,8 @@ export default function Sidebar() {
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -848,8 +869,10 @@ export default function Sidebar() {
   const completedPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'completed').length;
   const errorPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'error').length;
   const processingPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'processing').length;
+  const waitingPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'waiting').length;
+  const unprocessedPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating').length;
   const progressPercent = totalPages === 0 ? 0 : ((completedPages + errorPages) / totalPages) * 100;
-  const hasUnprocessed = allProjectFiles.some(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'error');
+  const hasUnprocessed = allProjectFiles.some(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error');
   const isAnyProcessingOrWaiting = allProjectFiles.some(({ index }) => pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting');
 
   const isAllVisibleSelected = visibleFiles.length > 0 && visibleFiles.every(f => selectedPages.has(f.uniqueId));
@@ -861,7 +884,7 @@ export default function Sidebar() {
     // Lọc ra các trang cần dịch
     const pendingIndexes = visibleFiles
       .map(f => f.index)
-      .filter(index => projectStore.pageStatuses[index] === 'unprocessed' || projectStore.pageStatuses[index] === 'error');
+      .filter(index => projectStore.pageStatuses[index] === 'unprocessed' || projectStore.pageStatuses[index] === 'cleaned' || projectStore.pageStatuses[index] === 'translating' || projectStore.pageStatuses[index] === 'error');
 
     if (pendingIndexes.length === 0) return;
 
@@ -906,7 +929,7 @@ export default function Sidebar() {
     const selectedIndexes = visibleFiles
       .filter(({ uniqueId, index }) =>
         selectedPages.has(uniqueId) &&
-        (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'error')
+        (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error')
       )
       .map(f => f.index);
 
@@ -938,9 +961,19 @@ export default function Sidebar() {
   return (
     <>
       <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         className="bg-sidebar border-r border-border flex flex-col h-full shadow-2xl z-20 shrink-0 select-none relative"
         style={{ width: `${sidebarWidth}px` }} // 🚀 Bổ sung chiều rộng động
       >
+        {/* DRAG OVER OVERLAY */}
+        {isDragOver && (
+          <div className="absolute inset-0 bg-primary/20 backdrop-blur-sm border-2 border-dashed border-primary z-50 flex flex-col items-center justify-center pointer-events-none transition-all duration-200">
+            <Upload className="text-primary animate-bounce mb-2" size={32} />
+            <span className="text-sm font-bold text-primary">Thả ảnh tại đây để tải lên</span>
+          </div>
+        )}
 
         {/* 🚀 DRAG HANDLE - CỘT MỐC TÀNG HÌNH Ở MÉP PHẢI ĐỂ KÉO */}
         <div
@@ -951,49 +984,84 @@ export default function Sidebar() {
         </div>
 
         {/* ── ZONE 1: SLIM HEADER ─────────────────────────── */}
-        <div className="flex items-center justify-between px-3 pt-3 pb-2">
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-4 rounded-full bg-primary/60" />
-            <span className="text-[11px] font-extrabold text-text-muted uppercase tracking-wider">
-              DANH SÁCH TRANG ({totalPages > 0 ? currentIndex + 1 : 0}/{totalPages})
-            </span>
-          </div>
+        <div className="flex items-center justify-between px-3 pt-3 pb-2 min-h-[44px]">
+          {isSearchOpen ? (
+            <div className="flex-1 flex items-center gap-2 relative">
+              <Search size={14} className="text-text-muted/50 pointer-events-none" />
+              <input
+                type="text"
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm kiếm trang..."
+                className="flex-1 bg-transparent border-none text-text-main placeholder-text-muted/40 text-xs focus:outline-none font-medium pr-6"
+              />
+              <button
+                onClick={() => {
+                  setSearchQuery("");
+                  setIsSearchOpen(false);
+                }}
+                className="absolute right-0 text-text-muted/40 hover:text-text-muted transition-colors cursor-pointer"
+                title="Đóng tìm kiếm"
+              >
+                <X size={14} strokeWidth={2.5} />
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5 overflow-hidden">
+                <div className="w-1.5 h-4 rounded-full bg-primary/60 shrink-0" />
+                <span className="text-[11px] font-extrabold text-text-muted uppercase tracking-wider truncate">
+                  DANH SÁCH TRANG ({totalPages}/30)
+                </span>
+              </div>
 
-          <button
-            onClick={() => useToolStore.getState().toggleLeftPanel()}
-            className="p-1.5 text-text-muted hover:bg-border/40 hover:text-danger rounded-lg transition-colors cursor-pointer"
-            title="Đóng thanh bên trái"
-          >
-            <PanelLeftClose size={15} />
-          </button>
+              <div className="flex items-center gap-0.5">
+                {/* NÚT TÌM KIẾM (ICON KÍNH LÚP) */}
+                <button
+                  onClick={() => setIsSearchOpen(true)}
+                  className="p-1.5 text-text-muted hover:bg-border/45 hover:text-primary rounded-lg transition-colors cursor-pointer"
+                  title="Tìm kiếm trang"
+                >
+                  <Search size={15} />
+                </button>
+
+                {/* NÚT ĐÓNG THANH BÊN */}
+                <button
+                  onClick={() => useToolStore.getState().toggleLeftPanel()}
+                  className="p-1.5 text-text-muted hover:bg-border/45 hover:text-danger rounded-lg transition-colors cursor-pointer"
+                  title="Đóng thanh bên trái"
+                >
+                  <PanelLeftClose size={15} />
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
-        {/* ── ZONE 2: HERO UPLOAD BUTTON (DRAG & DROP ZONE) ── */}
-        <div className="px-3 pb-2">
-          <label
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={`
-              group w-full flex flex-col items-center justify-center gap-2.5
-              py-7 px-4 rounded-2xl cursor-pointer select-none
-              border-2 border-dashed transition-all duration-200
-              ${isDragOver 
-                ? 'border-primary bg-primary/10 scale-[1.01] shadow-md shadow-primary/5' 
-                : 'border-border/60 hover:border-primary/50 bg-[#16161a]/60 hover:bg-[#1a1a24]/40 hover:scale-[1.01]'
-              }
-            `}
+        {/* ── ZONE 2: COHESIVE PROGRESS & UPLOAD WIDGET ── */}
+        <div className="px-3 pb-2 shrink-0 flex flex-col gap-2.5">
+          {/* DEDICATED UPLOAD ZONE CARD - Tách biệt và làm to rõ ràng, tránh click nhầm */}
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            className="group relative flex flex-col items-center justify-center gap-1.5 py-4 bg-primary/5 hover:bg-primary/10 border border-dashed border-primary/30 hover:border-primary/60 rounded-2xl transition-all duration-300 cursor-pointer text-center select-none shadow-sm"
+            title="Nhấp để chọn ảnh truyện hoặc kéo thả file vào đây"
           >
-            <Upload size={24} strokeWidth={2} className={`transition-transform duration-200 group-hover:-translate-y-0.5 ${isDragOver ? 'text-primary scale-110' : 'text-text-muted/70 group-hover:text-primary/90'}`} />
-            <div className="flex flex-col items-center text-center">
-              <span className="text-[11px] font-medium text-text-muted/80">Kéo & thả hoặc bấm để</span>
-              <span className="text-[13px] font-extrabold text-text-main group-hover:text-primary transition-colors mt-0.5">Tải ảnh lên</span>
+            <div className="p-2.5 bg-primary/10 rounded-xl group-hover:bg-primary/20 text-primary transition-colors duration-300">
+              <Upload size={16} className="group-hover:scale-110 transition-transform duration-300" />
             </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-bold text-text-main group-hover:text-primary transition-colors">Tải ảnh truyện lên</span>
+              <span className="text-[10px] text-text-muted/70">Kéo thả ảnh hoặc click để chọn</span>
+            </div>
+            
+            {/* HIDDEN FILE INPUT */}
             <input
+              ref={fileInputRef}
               type="file"
               multiple
               className="hidden"
-              accept="image/jpeg, image/png, image/webp,.manga"
+              accept="image/jpeg, image/png, image/webp"
               onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
@@ -1007,52 +1075,20 @@ export default function Sidebar() {
                 e.target.value = '';
               }}
             />
-          </label>
-        </div>
+          </div>
 
-        {/* ── ZONE 4: PROGRESS BAR ───────────────────────── */}
-        <div className="mx-3 mb-3 bg-[#16161a]/60 rounded-2xl p-4 border border-border/50 flex flex-col gap-2.5">
-          <div className="flex justify-between items-center">
-            <span className="text-[11px] font-bold text-text-muted">
-              Hoàn thành: {completedPages}/{totalPages} trang
-            </span>
-          </div>
-          <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden">
-            <div className="bg-primary h-full transition-all duration-500 rounded-full" style={{ width: `${progressPercent}%` }} />
-          </div>
-          {(processingPages > 0 || errorPages > 0) && (
-            <div className="flex justify-between items-center text-[9px] font-extrabold tracking-wide uppercase pt-0.5">
-              {processingPages > 0 ? (
-                <span className="text-amber-400 animate-pulse flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
-                  Đang chạy: {processingPages}
-                </span>
-              ) : <span />}
-              {errorPages > 0 && <span className="text-danger">Lỗi: {errorPages}</span>}
+          {/* Hộp Tiến trình */}
+          <div className="flex items-center justify-between gap-2.5 px-2 py-0.5 select-none">
+            <span className="text-[10px] font-bold text-text-muted shrink-0">Tiến độ:</span>
+            <div className="flex-1 h-1.5 bg-black/45 rounded-full overflow-hidden border border-border/10 shadow-inner">
+              <div 
+                className="h-full bg-gradient-to-r from-primary to-indigo-500 transition-all duration-500 rounded-full" 
+                style={{ width: `${progressPercent}%` }} 
+              />
             </div>
-          )}
-        </div>
-
-        {/* ── ZONE 3: SEARCH BAR ─────────────────────────── */}
-        <div className="px-3 pb-3">
-          <div className="relative flex items-center">
-            <Search size={14} className="absolute left-3 text-text-muted/50 pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm kiếm trang..."
-              className="w-full bg-[#16161a]/60 border border-border/50 hover:border-border focus:border-primary/50 text-text-main placeholder-text-muted/40 text-xs rounded-xl pl-9 pr-8 py-2 focus:outline-none focus:ring-1 focus:ring-primary/10 transition-all font-medium"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2.5 text-text-muted/40 hover:text-text-muted transition-colors cursor-pointer"
-                title="Xóa tìm kiếm"
-              >
-                <X size={14} strokeWidth={2.5} />
-              </button>
-            )}
+            <span className="text-primary text-[10.5px] font-black shrink-0">
+              {Math.round(progressPercent)}%
+            </span>
           </div>
         </div>
 
@@ -1163,9 +1199,10 @@ export default function Sidebar() {
           <button
             onClick={handleTranslateAll}
             disabled={!hasUnprocessed || isAnyProcessingOrWaiting}
-            className={`w-full justify-center py-2.5 text-sm transition-all shadow-lg ${(hasUnprocessed && !isAnyProcessingOrWaiting)
-              ? 'btn-primary shadow-primary/20 hover:scale-[1.02]'
-              : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 rounded-md font-medium flex items-center gap-2'
+            className={`w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold
+              ${(hasUnprocessed && !isAnyProcessingOrWaiting)
+                ? 'bg-primary hover:bg-primary-hover text-white shadow-primary/20 hover:scale-[1.02] cursor-pointer pl-4 pr-12'
+                : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 font-medium'
               }`}
           >
             {isAnyProcessingOrWaiting ? (
@@ -1175,13 +1212,20 @@ export default function Sidebar() {
             ) : (
               <Sparkles size={16} />
             )}
-            {isAnyProcessingOrWaiting
-              ? t('sidebar.batchTranslating')
-              : errorPages > 0
-                ? t('sidebar.retryError', { count: errorPages })
-                : hasUnprocessed
-                  ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
-                  : t('sidebar.completedAll')}
+            <span>
+              {isAnyProcessingOrWaiting
+                ? t('sidebar.batchTranslating')
+                : errorPages > 0
+                  ? t('sidebar.retryError', { count: errorPages })
+                  : hasUnprocessed
+                    ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
+                    : t('sidebar.completedAll')}
+            </span>
+            {hasUnprocessed && !isAnyProcessingOrWaiting && (
+              <span className="absolute right-3 inline-flex items-center bg-black/20 px-1.5 py-0.5 rounded-md text-white/90 text-[10px] font-black whitespace-nowrap">
+                {visibleFiles.filter(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error').length * modeCost}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white/90 fill-white/90 shrink-0" />
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -1219,7 +1263,7 @@ export default function Sidebar() {
         {(() => {
           const selectedUnprocessedCount = visibleFiles.filter(({ uniqueId, index }) =>
             selectedPages.has(uniqueId) &&
-            (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'error')
+            (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error')
           ).length;
           const totalCost = selectedUnprocessedCount * modeCost;
           const hasEnough = currentCredits >= totalCost && totalCost > 0;
@@ -1230,7 +1274,8 @@ export default function Sidebar() {
               onClick={handleTranslateSelected}
               disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
               title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? `Cần ⚡${totalCost}, bạn có ⚡${currentCredits}` : `Dịch ${selectedUnprocessedCount} trang`}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
+              className={`relative flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
+                ${totalCost > 0 && hasEnough && !nothingToTranslate && !isAnyProcessingOrWaiting ? 'pl-4 pr-12' : 'px-4'}
                 ${nothingToTranslate || isAnyProcessingOrWaiting
                   ? 'bg-border/30 text-text-muted cursor-not-allowed'
                   : !hasEnough
@@ -1245,8 +1290,8 @@ export default function Sidebar() {
                 <>
                   <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size}</span>
                   {totalCost > 0 && (
-                    <span className="flex items-center gap-0.5 bg-black/15 px-1.5 py-0.5 rounded-full text-[11px] font-black">
-                      ⚡{totalCost}
+                    <span className="absolute right-3 inline-flex items-center bg-white/20 px-1.5 py-0.5 rounded-md text-black text-[10px] font-black whitespace-nowrap">
+                      {totalCost}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-black fill-black shrink-0" />
                     </span>
                   )}
                 </>

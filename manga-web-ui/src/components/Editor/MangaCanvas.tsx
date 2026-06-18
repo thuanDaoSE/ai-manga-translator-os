@@ -4,6 +4,7 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { useConfigStore } from '../../store/useConfigStore';
 import { useMangaEditorStore } from '../../store/useMangaEditorStore';
 import { mangaApi } from '../../services/api';
+import { useAuthStore } from '../../store/useAuthStore';
 import toast from 'react-hot-toast';
 
 interface Props {
@@ -316,9 +317,30 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
               isOpen: true, jap: result.japanese, vie: result.vietnamese,
               coords: { x1: scanStart.current.x, y1: scanStart.current.y, x2: pos.x, y2: pos.y }
             });
+
+            // Đồng bộ số dư và lượt free còn lại
+            useAuthStore.getState().fetchProfile().catch(console.error);
+
+            // Thông báo quota
+            if (result.charged_xu > 0) {
+              toast(`⚡ Đã trừ 1 xu (Lens dịch lần ${result.lens_used} hôm nay)`, {
+                icon: '💸', duration: 2500,
+                style: { background: '#1a1a2e', color: '#fbbf24', fontSize: '12px' }
+              });
+            } else if (result.lens_free_remaining <= 5 && result.lens_free_remaining > 0) {
+              toast(`🔔 Còn ${result.lens_free_remaining} lần Lens Dịch miễn phí hôm nay`, {
+                duration: 2500,
+                style: { background: '#1a1a2e', color: '#a78bfa', fontSize: '12px' }
+              });
+            }
           }
-        } catch (error) {
-          alert("Lỗi Lens Dịch!");
+        } catch (error: any) {
+          const msg = error?.message || '';
+          if (msg.includes('Không đủ Xu')) {
+            toast.error('Không đủ xu để dùng Lens Dịch. Vui lòng nạp thêm!');
+          } else {
+            toast.error('Lỗi Lens Dịch! Vui lòng thử lại.');
+          }
           useToolStore.getState().setScanModal(null);
         }
       }

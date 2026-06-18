@@ -125,7 +125,7 @@ import onnxruntime as ort
 # do tỷ lệ nhận diện sai quá cao (false positives) trên ảnh truyện tranh trắng đen.
 # Chúng ta dựa hoàn toàn vào bộ lọc NSFW của Kie.ai trên API request.
 DISABLE_LOCAL_NSFW = True
-KIE_POLLING_TIMEOUT = 80.0
+KIE_POLLING_TIMEOUT = 150.0
 nsfw_session = None
 
 print("🚀 [NSFW] Kiểm duyệt Local NSFW đã được TẮT hoàn toàn (Hardcoded DISABLE_LOCAL_NSFW=True).")
@@ -608,49 +608,44 @@ import base64
 import json
 from fastapi import Request, HTTPException
 
+
 # 🚀 CỬA KHẨU BẢO MẬT: Bóc tách JWT thuần túy (Chống crash 100% + Hỗ trợ Query Param cho tải file)
 async def get_current_user_id(request: Request):
     auth_header = request.headers.get("Authorization")
-    auth_header_masked = f"{auth_header[:25]}..." if auth_header and len(auth_header) > 25 else auth_header
-    print(f"🔑 [AUTH DEBUG] Request path: {request.url.path} | Authorization Header: {auth_header_masked}")
     token = None
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
     else:
         token = request.query_params.get("token")
-        
+
     if not token:
-        print("🔑 [AUTH DEBUG] No token found in header or query params!")
         raise HTTPException(status_code=401, detail="Bạn chưa đăng nhập!")
-    
+
     try:
         # JWT có 3 phần (Header, Payload, Signature) cách nhau bởi dấu chấm. Ta lấy phần giữa (Payload).
-        print(f"🔑 [AUTH DEBUG] Extracting token: {token[:15]}...{token[-15:] if len(token) > 30 else ''}")
         payload_b64 = token.split(".")[1]
-        
+
         # Thêm các dấu "=" vào cuối để chuẩn hóa định dạng Base64 nếu bị thiếu padding
         payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)
-        
+
         # Dịch ngược mã Base64 thành chuỗi JSON
         payload_json = base64.urlsafe_b64decode(payload_b64).decode('utf-8')
         payload = json.loads(payload_json)
-        
-        # Moi ID của User ra
+
         user_id = payload.get("sub")
-        print(f"🔑 [AUTH DEBUG] Decoded payload sub: {user_id} | email: {payload.get('email')}")
-        
+
         if not user_id:
-            print("🔑 [AUTH DEBUG] Token is missing 'sub' (User ID)!")
             raise HTTPException(status_code=401, detail="Token thiếu thông tin User ID!")
-            
+
         # Lưu email thật vào request.state để các API tạo User có thể lấy
         request.state.user_email = payload.get("email")
-        
+
         return user_id
 
     except Exception as e:
         print(f"🛑 [LỖI GIẢI MÃ TOKEN]: {e}")
         raise HTTPException(status_code=401, detail="Cấu trúc Token không hợp lệ hoặc bị hỏng!")
+
 
 # 🚀 HELPER: Đảm bảo User tồn tại trong DB trước khi tạo các ràng buộc khóa ngoại
 async def ensure_user_exists(db: AsyncSession, user_id: str, email: str = None):
@@ -851,9 +846,34 @@ async def upload_page_to_project(
     
     raw_path = f"{raw_dir}/{page_id}.{ext}"
     
-    # 3. Bây giờ mới được lưu file
-    with open(raw_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # 3. Bây giờ mới được lưu file (Áp dụng tiền xử lý chống alpha RGBA & tối ưu hóa dung lượng đầu ra)
+    from image_utils import preprocess_image as pil_preprocess_image, export_image
+    try:
+        file_bytes = await file.read()
+        
+        # Chạy tiền xử lý và nén ảnh (CPU-bound) trong ThreadPool để tránh block Event Loop
+        def process_and_export(data: bytes, ext_str: str):
+            processed_img = pil_preprocess_image(data)
+            format_type = "png" if ext_str == "png" else "jpg"
+            return export_image(processed_img, format_type, optimize=False)
+            
+        ext_lower = ext.lower()
+        optimized_bytes = await asyncio.to_thread(process_and_export, file_bytes, ext_lower)
+        
+        # Ghi file xuống đĩa (Blocking I/O) cũng chạy trong ThreadPool
+        def save_file(path: str, data: bytes):
+            with open(path, "wb") as buffer:
+                buffer.write(data)
+                
+        await asyncio.to_thread(save_file, raw_path, optimized_bytes)
+    except Exception as img_err:
+        print(f"❌ [UPLOAD PREPROCESS ERROR] Lỗi: {img_err}")
+        # Dự phòng: nếu tiền xử lý lỗi thì lưu trực tiếp file gốc để tránh gián đoạn trải nghiệm người dùng
+        file.file.seek(0)
+        def save_original():
+            with open(raw_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+        await asyncio.to_thread(save_original)
 
     # 4. Lưu thông tin vào Database
     db_page = models.Page(
@@ -1114,9 +1134,42 @@ from fastapi import HTTPException
 # ==========================================
 
 @app.post("/api/quick-scan")
-@limiter.limit("20/minute")
-async def quick_scan(request: Request, payload: QuickScanPayload): 
+@limiter.limit("60/minute")
+async def quick_scan(
+    request: Request,
+    payload: QuickScanPayload,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    # =====================================================
+    # 🚀 RATE LIMIT: 20 lần/ngày miễn phí, sau đó 1 xu/lần
+    # =====================================================
+    LENS_FREE_LIMIT = 20
+    today = __import__('datetime').date.today().isoformat()  # VD: "2025-06-19"
+    redis_key = f"lens_count:{user_id}:{today}"
+
     try:
+        lens_count = int(redis_client.get(redis_key) or 0)
+    except Exception:
+        lens_count = 0
+
+    cost = 0
+    if lens_count >= LENS_FREE_LIMIT:
+        # Hết quota miễn phí → trừ 1 xu
+        cost = 1
+        await check_and_deduct_credits(db, user_id, cost, f"Lens Dịch lần {lens_count + 1} trong ngày")
+
+    # Tăng counter (TTL 25 giờ để đảm bảo qua ngày mới sẽ reset)
+    try:
+        pipe = redis_client.pipeline()
+        pipe.incr(redis_key)
+        pipe.expire(redis_key, 90000)  # 25 giờ
+        pipe.execute()
+    except Exception:
+        pass
+
+    try:
+
         img_raw = payload.filename
         if img_raw.startswith("http://") or img_raw.startswith("https://"):
             image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
@@ -1189,9 +1242,19 @@ async def quick_scan(request: Request, payload: QuickScanPayload):
         ai_response = robust_json_parse(response.choices[0].message.content)
        
         translated_text = ai_response.get("translation") or ai_response.get("vietnamese") or "Lỗi"
-        result_data = {"status": "success", "japanese": japanese_text, "vietnamese": translated_text}
-        LENS_CACHE[cache_key] = result_data 
-        return result_data
+        result_data = {
+            "status": "success",
+            "japanese": japanese_text,
+            "vietnamese": translated_text,
+        }
+        LENS_CACHE[cache_key] = result_data
+        # Nhân thêm thông tin quota vào response (không cache quota info vì mỗi user khác nhau)
+        return {
+            **result_data,
+            "lens_used": lens_count + 1,
+            "lens_free_remaining": max(0, LENS_FREE_LIMIT - lens_count - 1),
+            "charged_xu": cost
+        }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1946,17 +2009,38 @@ async def auto_cleanup_workspace():
                 
                 for item in os.listdir(workspace_dir):
                     item_path = os.path.join(workspace_dir, item)
-                    
-                    # Kiểm tra thời gian chỉnh sửa cuối cùng của file/thư mục
-                    item_age = current_time - os.stat(item_path).st_mtime
-                    
-                    if item_age > EXPIRATION_TIME:
-                        if os.path.isfile(item_path):
-                            os.remove(item_path)
-                            deleted_count += 1
-                        elif os.path.isdir(item_path):
-                            shutil.rmtree(item_path)
-                            deleted_count += 1
+                    try:
+                        # Kiểm tra thời gian chỉnh sửa cuối cùng của file/thư mục
+                        item_age = current_time - os.stat(item_path).st_mtime
+                        
+                        if item_age > EXPIRATION_TIME:
+                            if os.path.isfile(item_path):
+                                os.remove(item_path)
+                                deleted_count += 1
+                            elif os.path.isdir(item_path):
+                                shutil.rmtree(item_path)
+                                deleted_count += 1
+                                
+                                if item != "fonts":
+                                    # Clean up database records for this project
+                                    try:
+                                        from database import AsyncSessionLocal
+                                        from sqlalchemy import delete
+                                        import db_models as models
+                                        
+                                        async with AsyncSessionLocal() as session:
+                                            # Explicitly delete child rows to be absolutely sure
+                                            await session.execute(delete(models.Terminology).where(models.Terminology.project_id == item))
+                                            await session.execute(delete(models.Character).where(models.Character.project_id == item))
+                                            await session.execute(delete(models.TranslationMemory).where(models.TranslationMemory.project_id == item))
+                                            await session.execute(delete(models.Page).where(models.Page.project_id == item))
+                                            await session.execute(delete(models.Project).where(models.Project.id == item))
+                                            await session.commit()
+                                            print(f"🧹 [CRONJOB] Đã xóa dữ liệu database của project {item}")
+                                    except Exception as db_err:
+                                        print(f"⚠️ [CRONJOB] Lỗi xóa dữ liệu DB cho project {item}: {db_err}")
+                    except Exception as item_err:
+                        print(f"⚠️ [CRONJOB] Lỗi xử lý file/thư mục {item} trong bot dọn rác: {item_err}")
                             
                 if deleted_count > 0:
                     print(f"🧹 [CRONJOB] Đã dọn dẹp sạch sẽ {deleted_count} file/thư mục rác quá hạn!")
@@ -2301,6 +2385,16 @@ async def cancel_page_translation(
             if user and not user.is_pro:
                 user.credits += 1
                 refunded = True
+                
+                # Ghi nhận lịch sử biến động số dư mới (CreditLog)
+                await log_credit_transaction(
+                    user_id=user_id,
+                    amount=1,
+                    action_type="REFUND",
+                    description=f"Hoàn trả 1 Xu do hủy tác vụ dịch trang {task_id}",
+                    db=db
+                )
+                
                 print(f"💰 [REFUND] Đã hoàn trả 1 credit cho user {user_id} do hủy task {task_id} thành công!")
                 
         await db.commit()
@@ -2716,7 +2810,7 @@ async def copilot_chat(req: CopilotRequest):
 # ========================================================
 from payos import PayOS
 from payos.types import CreatePaymentLinkRequest
-from db_models import User, Transaction, UserTransaction
+from db_models import User, Transaction, UserTransaction, CreditLog
 import time
 import os
 
@@ -2730,6 +2824,31 @@ payos_client = PayOS(
 # ========================================================
 # HÀM BỔ TRỢ: KIỂM TRA & TRỪ XU, HOÀN XU (CHỐNG RACE CONDITION)
 # ========================================================
+async def log_credit_transaction(
+    user_id: str,
+    amount: int,
+    action_type: str,
+    description: str,
+    db: AsyncSession
+) -> CreditLog:
+    """
+    Hàm tiện ích (Utility function) ghi nhận lịch sử biến động số dư (Credit Log) vào DB.
+    Được bọc trong try/except để chắc chắn không làm gián đoạn luồng chính nếu có lỗi xảy ra.
+    """
+    try:
+        new_log = CreditLog(
+            user_id=user_id,
+            amount=amount,
+            action_type=action_type,
+            description=description
+        )
+        db.add(new_log)
+        await db.flush()  # Đẩy dữ liệu xuống DB trước để lưu cùng transaction hiện tại
+        return new_log
+    except Exception as e:
+        print(f"⚠️ [LOG_CREDIT_ERROR] Lỗi khi ghi nhận lịch sử dùng xu: {e}")
+        return None
+
 async def check_and_deduct_credits(db: AsyncSession, user_id: str, amount: int, description: str) -> User:
     """
     Kiểm tra số dư và trừ Xu của người dùng. Sử dụng SELECT FOR UPDATE để khóa dòng CSDL.
@@ -2751,7 +2870,7 @@ async def check_and_deduct_credits(db: AsyncSession, user_id: str, amount: int, 
         
     user.credits -= amount
     
-    # Ghi nhận lịch sử giao dịch
+    # Ghi nhận lịch sử giao dịch cũ
     new_txn = UserTransaction(
         user_id=user.id,
         amount=-amount,
@@ -2759,6 +2878,21 @@ async def check_and_deduct_credits(db: AsyncSession, user_id: str, amount: int, 
         description=description
     )
     db.add(new_txn)
+    
+    # Tự động ghi nhận lịch sử biến động số dư mới (CreditLog)
+    desc_upper = description.upper()
+    action_type = "TRANSLATE_LAMA"
+    if any(keyword in desc_upper for keyword in ["RUNPOD", "VÀ NỀN", "INPAINT", "GROK", "OPENAI", "CHATGPT", "BANANA"]):
+        action_type = "VÀ_NỀN_RUNPOD"
+        
+    await log_credit_transaction(
+        user_id=user.id,
+        amount=-amount,
+        action_type=action_type,
+        description=description,
+        db=db
+    )
+    
     await db.flush() # Đẩy xuống DB trước để khóa tiếp nếu có, chưa commit vội
     return user
 
@@ -2781,6 +2915,16 @@ async def refund_credits(db: AsyncSession, user_id: str, amount: int, descriptio
                 description=description
             )
             db.add(new_txn)
+            
+            # Ghi nhận lịch sử biến động số dư mới (CreditLog)
+            await log_credit_transaction(
+                user_id=user_id,
+                amount=amount,
+                action_type="REFUND",
+                description=description,
+                db=db
+            )
+            
             await db.commit()
             print(f"🔄 [REFUND] Đã hoàn {amount} Xu cho user {user_id} ({description})")
     except Exception as e:
@@ -2968,6 +3112,16 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                         order_code=order_code
                     )
                     db.add(new_hist)
+                    
+                    # Ghi nhận lịch sử biến động số dư mới (CreditLog)
+                    await log_credit_transaction(
+                        user_id=user.id,
+                        amount=credits_to_add,
+                        action_type="DEPOSIT",
+                        description=f"Nạp {credits_to_add} Xu qua cổng PayOS (Số tiền: {amount_paid:,}đ)",
+                        db=db
+                    )
+                    
                     await db.commit()
                     print(f"💰 TING TING! Đã cộng {credits_to_add} Xu cho user {user.id} (Order: {order_code})")
                 else:
@@ -2989,24 +3143,52 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 @app.get("/api/payments/history")
 @app.get("/api/payment/history")
 async def get_payment_history(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
-    """API lấy lịch sử biến động số dư của người dùng hiện tại"""
-    stmt = select(UserTransaction).where(UserTransaction.user_id == user_id).order_by(UserTransaction.created_at.desc())
+    """API lấy lịch sử giao dịch nạp tiền PayOS của người dùng hiện tại"""
+    stmt = select(Transaction).where(Transaction.user_id == user_id).order_by(Transaction.created_at.desc())
     result = await db.execute(stmt)
     txns = result.scalars().all()
     
     return {
         "transactions": [
             {
-                "id": txn.id,
-                "amount": txn.amount,
-                "type": txn.type,
-                "description": txn.description,
                 "order_code": txn.order_code,
+                "package_name": txn.package_name,
+                "amount": txn.amount,
+                "credits_added": txn.credits_added,
+                "status": txn.status,
+                "checkout_url": txn.checkout_url,
                 "created_at": txn.created_at.isoformat() if txn.created_at else None
             }
             for txn in txns
         ]
     }
+
+# ==========================================
+# API 3.5: LẤY LỊCH SỬ BIẾN ĐỘNG SỐ DƯ (CREDIT LOGS) CỦA USER
+# ==========================================
+@app.get("/api/credits/history")
+async def get_credits_history(user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
+    """API lấy lịch sử dùng xu (biến động số dư) tối đa 50 bản ghi mới nhất"""
+    try:
+        stmt = select(CreditLog).where(CreditLog.user_id == user_id).order_by(CreditLog.created_at.desc()).limit(50)
+        result = await db.execute(stmt)
+        logs = result.scalars().all()
+        
+        return {
+            "credit_logs": [
+                {
+                    "id": log.id,
+                    "amount": log.amount,
+                    "action_type": log.action_type,
+                    "description": log.description,
+                    "created_at": log.created_at.isoformat() if log.created_at else None
+                }
+                for log in logs
+            ]
+        }
+    except Exception as e:
+        print(f"❌ [API CREDITS HISTORY ERROR] Lỗi: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi lấy lịch sử biến động số dư: {str(e)}")
 
 # ==========================================
 # QUẢN LÝ CREDITS: LẤY SỐ DƯ & TRỪ TIỀN
@@ -3018,11 +3200,21 @@ async def get_user_profile(request: Request, user_id: str = Depends(get_current_
     user = await ensure_user_exists(db, user_id, email)
     await db.commit()
         
+    LENS_FREE_LIMIT = 20
+    today = __import__('datetime').date.today().isoformat()
+    redis_key = f"lens_count:{user_id}:{today}"
+    try:
+        lens_count = int(redis_client.get(redis_key) or 0)
+    except Exception:
+        lens_count = 0
+    lens_free_remaining = max(0, LENS_FREE_LIMIT - lens_count)
+        
     return {
         "id": user.id,
         "credits": user.credits,
         "is_pro": user.is_pro,
-        "pro_until": user.pro_until
+        "pro_until": user.pro_until,
+        "lens_free_remaining": lens_free_remaining
     }
 
 @app.post("/api/users/me/deduct")
@@ -3191,15 +3383,10 @@ async def beta_translate(
             detail=f"Không thể đọc file đầu vào: {str(read_err)}"
         )
 
-    # Mở ảnh bằng Pillow
-    try:
-        image_pil = Image.open(io.BytesIO(image_bytes))
-        mask_pil = Image.open(io.BytesIO(mask_bytes))
-    except Exception as img_err:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Định dạng tệp ảnh không hợp lệ (hỗ trợ PNG/JPG): {str(img_err)}"
-        )
+    # Mở và tiền xử lý ảnh bằng Pillow (xử lý transparent kênh alpha RGBA/LA và convert sang RGB)
+    from image_utils import preprocess_image as pil_preprocess_image
+    image_pil = pil_preprocess_image(image_bytes)
+    mask_pil = pil_preprocess_image(mask_bytes)
 
     # 2. Kiểm duyệt Local NSFW sử dụng mô hình ViT ONNX đã load toàn cục
     nsfw_score = check_nsfw_score(image_pil)
@@ -3312,6 +3499,10 @@ async def beta_translate(
             detail=f"Không thể xử lý ảnh kết quả từ dịch vụ AI: {str(parse_err)}"
         )
 
+    # 7. Khôi phục kích thước ảnh gốc dùng tiện ích nếu AI làm snap/thay đổi kích thước
+    from image_utils import restore_original_dimensions
+    output_bytes = await asyncio.to_thread(restore_original_dimensions, image_bytes, output_bytes)
+
     # Trả về ảnh PNG đã xóa chữ dưới dạng StreamingResponse
     return StreamingResponse(io.BytesIO(output_bytes), media_type="image/png")
 
@@ -3351,6 +3542,13 @@ def calculate_price(output_format: str, quality_level: int) -> float:
     multiplier = {1: 1.0, 2: 1.5, 3: 2.0}.get(quality_level, 1.5)
     return base_price * multiplier
 
+DETAILED_REDRAW_PROMPT = (
+    "Remove all text bubbles and text from the image, preserve the author's original screentone, "
+    "do not draw additional elements, do not delete or add speech bubbles, do not erase character eyes, "
+    "preserve manga lineart style, redraw background seamlessly, "
+    "do not change the original colors, brightness, contrast, or saturation of the image"
+)
+
 async def call_grok_inpainting(original_b64: str, prompt: str) -> str:
     """Task A: Full-Image Redraw via xAI Grok API"""
     xai_key = XAI_API_KEY or os.getenv("XAI_API_KEY")
@@ -3358,7 +3556,7 @@ async def call_grok_inpainting(original_b64: str, prompt: str) -> str:
         raise Exception("Missing xAI API Key (XAI_API_KEY)")
 
     url = "https://api.x.ai/v1/images/edits"
-    system_prompt = f"{prompt}, Remove all text bubbles and text, preserve manga lineart style, redraw background seamlessly"
+    system_prompt = f"{prompt}, {DETAILED_REDRAW_PROMPT}"
     payload = {
         "model": "grok-imagine-image",
         "prompt": system_prompt,
@@ -3396,7 +3594,13 @@ async def call_grok_inpainting(original_b64: str, prompt: str) -> str:
             else:
                 raise Exception("Missing inpainted image data in xAI response")
 
-async def call_deepseek_translation(texts: List[str]) -> List[str]:
+async def call_deepseek_translation(
+    texts: List[str],
+    target_language: str = "Vietnamese",
+    genre: str = "Shonen",
+    tone: str = "Casual",
+    pronoun: str = "Default"
+) -> List[str]:
     """Task B: Translation via DeepSeek API"""
     deepseek_key = DEEPSEEK_API_KEY or os.getenv("DEEPSEEK_API_KEY")
     if not deepseek_key:
@@ -3408,8 +3612,9 @@ async def call_deepseek_translation(texts: List[str]) -> List[str]:
         "Content-Type": "application/json"
     }
     system_prompt = (
-        "You are a professional manga translator. Translate the array of lines into natural, "
-        "localized Vietnamese manga style, preserving the exact array ordering. "
+        f"You are a professional manga translator. Translate the array of lines into natural, "
+        f"localized {target_language} manga style, preserving the exact array ordering. "
+        f"Genre: {genre}. Tone: {tone}. Pronoun constraints: {pronoun}. "
         "Respond ONLY with a JSON object containing a 'translations' key mapping to a list of strings "
         "in the exact same length and order, e.g. {\"translations\": [\"dịch 1\", \"dịch 2\"]}. "
         "Do not include any explanation or markdown formatting."
@@ -3438,9 +3643,15 @@ async def ai_process(
     prompt: str = Form(..., description="Redraw instructions / context"),
     existing_bubbles: Optional[str] = Form(None, description="Serialized existing bubble data to bypass OCR detection"),
     output_format: str = Form("jpeg", description="Output format (png or jpg)"),
-    translation_mode: str = Form("fast", description="Translation mode: fast | deep | studio"),
+    translation_mode: str = Form("fast", description="Translation mode: fast | deep | studio | grok"),
     detect_only: bool = Form(False, description="Whether to stop after text detection and OCR"),
     page_id: Optional[str] = Form(None, description="Active page ID to save results"),
+    target_language: str = Form("Vietnamese"),
+    genre: str = Form("Shonen"),
+    tone: str = Form("Casual"),
+    pronoun: str = Form("Default"),
+    studio_model: Optional[str] = Form(None),
+    resolution: Optional[str] = Form("1K"),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ):
@@ -3463,8 +3674,25 @@ async def ai_process(
     # ==========================================
     # CREDIT COST MAP & PRE-FLIGHT DEDUCTION
     # ==========================================
-    MODE_COST = {"fast": 2, "deep": 8, "studio": 12}
-    required_credits = MODE_COST.get(translation_mode, 2)
+    if translation_mode == "studio":
+        base_prices = {
+            "google/nano-banana-edit": 8,
+            "gpt-image-2-image-to-image": 10,
+            "nano-banana-2": 10,
+            "nano-banana-pro": 15
+        }
+        base_price = base_prices.get(studio_model, 8)
+        resolution_addons = {
+            "1K": 0,
+            "2K": 3,
+            "4K": 6
+        }
+        resolution_addon = resolution_addons.get(resolution, 0)
+        format_addon = 2 if output_format.lower() == "png" else 0
+        required_credits = base_price + resolution_addon + format_addon
+    else:
+        MODE_COST = {"fast": 2, "deep": 8, "grok": 8}
+        required_credits = MODE_COST.get(translation_mode, 2)
     print(f"💰 [AI-PROCESS] Mode='{translation_mode}', Required credits={required_credits}")
 
     try:
@@ -3522,10 +3750,17 @@ async def ai_process(
         original_filename = None
         if translation_mode == "studio" and not detect_only:
             try:
+                # Preprocess image to convert transparent alpha channels to white RGB PNG
+                from image_utils import preprocess_image as pil_preprocess_image, export_image
+                def get_preprocessed_bytes(data: bytes) -> bytes:
+                    img_pil = pil_preprocess_image(data)
+                    return export_image(img_pil, "png")
+
+                preprocessed_bytes = await asyncio.to_thread(get_preprocessed_bytes, image_bytes)
                 original_filename = f"orig_{uuid.uuid4().hex}.png"
                 async def do_upload():
-                    print(f"🌐 [AI-PROCESS] Starting concurrent R2 upload...")
-                    return await upload_to_r2(image_bytes, original_filename, "image/png")
+                    print(f"🌐 [AI-PROCESS] Starting concurrent R2 upload of preprocessed image...")
+                    return await upload_to_r2(preprocessed_bytes, original_filename, "image/png")
                 upload_task = asyncio.create_task(do_upload())
             except Exception as upload_init_err:
                 await do_refund(f"R2 upload task initialization failed: {upload_init_err}")
@@ -3656,8 +3891,8 @@ async def ai_process(
                 img_b64 = None
 
                 if translation_mode == "studio":
-                    # ── STUDIO: Kie.ai Nano Banana (Generative AI, ⚡12) ──────────
-                    print("🎨 [AI-PROCESS] Studio mode → Kie.ai Nano Banana")
+                    # ── STUDIO: Kie.ai Nano Banana ──────────────────
+                    print(f"🎨 [AI-PROCESS] Studio mode → Kie.ai {studio_model or 'google/nano-banana-edit'}")
                     kie_key = os.getenv("KIE_API_KEY") or os.getenv("KIE_AI_API_KEY")
                     if not kie_key:
                         raise Exception("Missing Kie.ai API Key (KIE_API_KEY / KIE_AI_API_KEY)")
@@ -3680,19 +3915,32 @@ async def ai_process(
                         "Authorization": f"Bearer {kie_key}",
                         "Content-Type": "application/json"
                     }
-                    full_prompt = "loại bỏ chữ khỏi ảnh, giữ nguyên screentone của tác giả, không vẽ thêm, không xóa hoặc thêm bóng thoại mà trong ảnh không có, không xóa mắt của nhân vật"
-                    payload = {
-                        "model": "google/nano-banana-edit",
-                        "input": {
-                            "prompt": full_prompt,
-                            "image_urls": [original_url],
-                            "output_format": output_format,
-                            "aspect_ratio": "auto",
-                            "nsfw_checker": True
-                        }
+                    
+                    kie_model = studio_model or "google/nano-banana-edit"
+                    kie_prompt = f"{prompt}, {DETAILED_REDRAW_PROMPT}"
+
+                    input_payload = {
+                        "prompt": kie_prompt,
+                        "aspect_ratio": "auto",
+                        "resolution": resolution or "1K",
+                        "nsfw_checker": True
                     }
 
-                    print("📡 [AI-PROCESS] Calling Kie.ai createTask API...")
+                    if kie_model == "gpt-image-2-image-to-image":
+                        input_payload["input_urls"] = [original_url]
+                    elif kie_model == "google/nano-banana-edit":
+                        input_payload["image_urls"] = [original_url]
+                        input_payload["output_format"] = output_format.lower()
+                    else:
+                        input_payload["image_input"] = [original_url]
+                        input_payload["output_format"] = output_format.lower()
+
+                    payload = {
+                        "model": kie_model,
+                        "input": input_payload
+                    }
+
+                    print(f"📡 [AI-PROCESS] Calling Kie.ai createTask API for model {kie_model}...")
                     async with httpx.AsyncClient() as client:
                         response = await client.post(kie_url, json=payload, headers=kie_headers, timeout=60.0)
                         response.raise_for_status()
@@ -3711,7 +3959,7 @@ async def ai_process(
                         elapsed = asyncio.get_event_loop().time() - poll_start_time
                         if elapsed > KIE_POLLING_TIMEOUT:
                             raise Exception(
-                                "Yêu cầu xử lý ảnh (Kie.ai) bị quá thời gian (Timeout). "
+                                "Yêu cầu xử lý ảnh bị quá thời gian (Timeout). "
                                 "Có khả năng ảnh bạn gửi lên không đạt yêu cầu. Vui lòng thử lại sau."
                             )
                         await asyncio.sleep(3)
@@ -3746,7 +3994,7 @@ async def ai_process(
                                 err_detail = data_obj.get("errorMsg") or data_obj.get("errorMessage") or data_obj.get("error")
                             if not err_detail:
                                 err_detail = poll_json.get("message") or poll_json.get("error")
-                            err_msg = f"Kie.ai task failed: {err_detail}" if err_detail else f"Kie.ai task status '{state}' (task_id: {task_id})"
+                            err_msg = f"Tác vụ xử lý ảnh thất bại: {err_detail}" if err_detail else f"Trạng thái tác vụ xử lý ảnh '{state}' (task_id: {task_id})"
                             raise Exception(err_msg)
 
                     if original_filename:
@@ -3764,13 +4012,42 @@ async def ai_process(
                         final_bytes = dl_res.content
 
                     await queue.put({"status": "kie_progress", "state": "resizing"})
-                    img_b64 = base64.b64encode(final_bytes).decode("utf-8")
                     try:
-                        print(f"🔄 [AI-PROCESS] Resizing to {original_width}x{original_height}...")
-                        img_b64 = await asyncio.to_thread(resize_image_cv2, img_b64, original_width, original_height)
+                        print(f"🔄 [AI-PROCESS] Resizing to original dimensions {original_width}x{original_height} using restore_original_dimensions...")
+                        from image_utils import restore_original_dimensions
+                        resized_bytes = await asyncio.to_thread(restore_original_dimensions, image_bytes, final_bytes)
+                        img_b64 = base64.b64encode(resized_bytes).decode("utf-8")
                         print("✅ [AI-PROCESS] Resize complete.")
                     except Exception as resize_err:
                         print(f"⚠️ [AI-PROCESS] Resize failed, using raw output: {resize_err}")
+                        img_b64 = base64.b64encode(final_bytes).decode("utf-8")
+
+                    await queue.put({"status": "kie_progress", "state": "success"})
+                    await queue.put({"status": "image_ready", "image_base64": img_b64})
+
+                elif translation_mode == "grok":
+                    # ── GROK: xAI Grok API (⚡15) ──────────
+                    print("🎨 [AI-PROCESS] Grok mode → call_grok_inpainting")
+                    await queue.put({"status": "kie_progress", "state": "submitting"})
+
+                    original_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+                    try:
+                        inpainted_b64 = await call_grok_inpainting(original_b64, prompt)
+                    except Exception as grok_err:
+                        raise Exception(f"Grok inpainting failed: {grok_err}")
+
+                    await queue.put({"status": "kie_progress", "state": "resizing"})
+                    try:
+                        print(f"🔄 [AI-PROCESS] Resizing to original dimensions {original_width}x{original_height} using restore_original_dimensions...")
+                        from image_utils import restore_original_dimensions
+                        inpainted_bytes = base64.b64decode(inpainted_b64)
+                        resized_bytes = await asyncio.to_thread(restore_original_dimensions, image_bytes, inpainted_bytes)
+                        img_b64 = base64.b64encode(resized_bytes).decode("utf-8")
+                        print("✅ [AI-PROCESS] Resize complete.")
+                    except Exception as resize_err:
+                        print(f"⚠️ [AI-PROCESS] Resize failed, using raw output: {resize_err}")
+                        img_b64 = inpainted_b64
 
                     await queue.put({"status": "kie_progress", "state": "success"})
                     await queue.put({"status": "image_ready", "image_base64": img_b64})
@@ -3892,7 +4169,7 @@ async def ai_process(
                     await queue.put({"status": "translation_ready", "translations": []})
                     return
                 await queue.put({"status": "translating_text"})
-                translations = await call_deepseek_translation(texts)
+                translations = await call_deepseek_translation(texts, target_language, genre, tone, pronoun)
                 await queue.put({"status": "translation_ready", "translations": translations})
             except Exception as e:
                 await queue.put({"status": "translation_failed", "error": str(e)})
@@ -3921,4 +4198,250 @@ async def ai_process(
 
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# ==========================================
+# 🚀 KIE.AI INTEGRATED PROCESSING API
+# ==========================================
+from kie_ai_service import KieAIService
+from fastapi.responses import Response
+import httpx
+import uuid
+
+kie_service = KieAIService()
+
+@app.post("/api/kie/process")
+async def kie_process_image(
+    file: UploadFile = File(...),
+    model: str = Form(...),
+    prompt: str = Form(...),
+    resolution: str = Form("1K"),
+    aspect_ratio: str = Form("auto"),
+    output_format: str = Form("jpg"),
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    """
+    FastAPI Endpoint to handle Kie.ai model generation:
+    1. Pre-process input image file (check size <= 30MB, handle transparency/alpha).
+    2. Upload image temporarily to CF R2 storage to get public URL.
+    3. Verify and verify user credit balance.
+    4. Call createTask, poll status, download result image, and delete temporary file from R2.
+    5. Deduct user credits on success.
+    6. Post-process result image (optimize PNG or quality JPG) and return image file.
+    """
+    # Verify model parameter
+    valid_models = ["google/nano-banana-edit", "gpt-image-2-image-to-image", "nano-banana-2", "nano-banana-pro"]
+    if model not in valid_models:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Model '{model}' không được hỗ trợ. Vui lòng chọn một trong: {', '.join(valid_models)}"
+        )
+
+    # Verify resolution parameter
+    if resolution not in ["1K", "2K"]:
+        raise HTTPException(status_code=400, detail="Resolution hợp lệ: '1K', '2K'")
+
+    # Verify output_format parameter
+    if output_format.lower() not in ["jpg", "png"]:
+        raise HTTPException(status_code=400, detail="Output format hợp lệ: 'jpg', 'png'")
+
+    prompt = f"{prompt}, {DETAILED_REDRAW_PROMPT}"
+
+    # Calculate Total Cost
+    base_prices = {
+        "google/nano-banana-edit": 8,
+        "gpt-image-2-image-to-image": 10,
+        "nano-banana-2": 8,
+        "nano-banana-pro": 15
+    }
+    
+    base_price = base_prices[model]
+    
+    resolution_addons = {
+        "1K": 0,
+        "2K": 3,
+        "4K": 6
+    }
+    resolution_addon = resolution_addons[resolution]
+    
+    format_addon = 2 if output_format.lower() == "png" else 0
+    total_cost = base_price + resolution_addon + format_addon
+
+    # Read original uploaded file bytes
+    file_bytes = await file.read()
+
+    # Preprocess image
+    processed_bytes = await kie_service.preprocess_image(file_bytes)
+
+    # Check credit balance before starting (Lock user and verify, but don't deduct yet)
+    # Get user to verify balance
+    stmt = select(User).where(User.id == user_id)
+    res = await db.execute(stmt)
+    user = res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng.")
+
+    if not user.is_pro and user.credits < total_cost:
+        raise HTTPException(
+            status_code=402, 
+            detail=f"Không đủ Xu! Cần {total_cost} Xu nhưng bạn chỉ có {user.credits} Xu. Vui lòng nạp thêm."
+        )
+
+    # Upload processed bytes temporarily to Cloudflare R2
+    temp_filename = f"kie_temp_{uuid.uuid4().hex}.png"
+    try:
+        temp_url = await upload_to_r2(processed_bytes, temp_filename, "image/png")
+    except Exception as upload_err:
+        print(f"❌ [KIE API ERROR] R2 upload failed: {upload_err}")
+        raise HTTPException(status_code=500, detail=f"Không thể lưu tạm ảnh lên bộ lưu trữ máy chủ: {str(upload_err)}")
+
+    result_bytes = None
+    try:
+        # Create createTask in Kie.ai
+        task_id = await kie_service.createTask(
+            model=model,
+            image_url=temp_url,
+            prompt=prompt,
+            resolution=resolution,
+            aspect_ratio=aspect_ratio,
+            output_format=output_format
+        )
+
+        # Poll task until complete
+        result_url = await kie_service.pollTask(task_id)
+
+        # Download result image
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(result_url)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=500, detail="Không thể tải xuống ảnh kết quả từ đối tác.")
+            result_bytes = resp.content
+
+    except Exception as run_err:
+        print(f"❌ [KIE API ERROR] Kie.ai run failed: {run_err}")
+        if isinstance(run_err, HTTPException):
+            raise run_err
+        raise HTTPException(status_code=500, detail=f"Lỗi xử lý AI: {str(run_err)}")
+    finally:
+        # Guarantee cleanup of temporary file on CF R2
+        try:
+            await delete_from_r2(temp_filename)
+        except Exception as cleanup_err:
+            print(f"⚠️ [KIE API WARNING] Failed to clean up temp R2 file {temp_filename}: {cleanup_err}")
+
+    # Deduct credits on success
+    try:
+        await check_and_deduct_credits(db, user_id, total_cost, f"Sử dụng mô hình {model} ({resolution}) trên Kie.ai")
+        await db.commit()
+    except Exception as deduct_err:
+        # If deduction fails (e.g. database locked/db error), log it but don't fail the return
+        print(f"⚠️ [KIE API WARNING] Credit deduction failed after success: {deduct_err}")
+
+    # Restore original dimensions using image_utils (resizes AI result back to original size)
+    from image_utils import restore_original_dimensions
+    try:
+        result_bytes = restore_original_dimensions(file_bytes, result_bytes)
+    except Exception as dim_err:
+        print(f"⚠️ [KIE API WARNING] Dimension restore failed: {dim_err}")
+
+    # Post-process image
+    final_image_bytes = await kie_service.postprocess_image(result_bytes, output_format)
+
+    media_type = "image/png" if output_format.lower() == "png" else "image/jpeg"
+    return Response(content=final_image_bytes, media_type=media_type)
+
+
+class AIExtractPayload(BaseModel):
+    text: str
+
+@app.post("/api/translation/ai-extract")
+async def ai_extract_config(
+    payload: AIExtractPayload,
+    db: AsyncSession = Depends(get_db),
+    user_id: str = Depends(get_current_user_id)
+):
+    text = payload.text
+    if not text or not text.strip():
+        raise HTTPException(status_code=400, detail="Vui lòng nhập nội dung văn bản để phân tích.")
+        
+    # Check if the user has already performed the AI analysis
+    stmt = select(UserTransaction).where(
+        UserTransaction.user_id == user_id,
+        UserTransaction.description.like("%Phân tích cấu hình dịch bằng AI%")
+    )
+    res = await db.execute(stmt)
+    has_analyzed = res.scalars().first() is not None
+    
+    cost = 1 if has_analyzed else 0
+    desc = "Phân tích cấu hình dịch bằng AI" if has_analyzed else "Phân tích cấu hình dịch bằng AI (Lần đầu miễn phí)"
+    
+    # Deduct credits
+    try:
+        await check_and_deduct_credits(db, user_id, cost, desc)
+    except HTTPException as credit_err:
+        raise credit_err
+        
+    # Call DeepSeek API to perform extraction
+    deepseek_key = DEEPSEEK_API_KEY or os.getenv("DEEPSEEK_API_KEY")
+    if not deepseek_key:
+        # If key is missing, refund and fail
+        await refund_credits(db, user_id, cost, "Hoàn xu do lỗi hệ thống (Thiếu API Key)")
+        await db.commit()
+        raise HTTPException(status_code=500, detail="Dịch vụ AI chưa cấu hình API Key trên máy chủ.")
+        
+    system_prompt = (
+        "You are a professional manga localization assistant. Analyze the provided Japanese manga text "
+        "and extract: \n"
+        "1. Important terminology (nouns, fantasy names, attack moves, special terms) with their natural Vietnamese translations.\n"
+        "2. Character relations and pronouns (who is talking to whom, and what pronouns they use: self_ref for 'I' and target_ref for 'you' in Vietnamese).\n"
+        "Respond ONLY with a JSON object in this format:\n"
+        "{\n"
+        "  \"terminology\": [\n"
+        "    {\"source\": \"螺旋丸\", \"target\": \"Rasengan\"}\n"
+        "  ],\n"
+        "  \"relational_matrix\": [\n"
+        "    {\"speaker\": \"ナルト\", \"listener\": \"サスケ\", \"self_ref\": \"Tớ\", \"target_ref\": \"Cậu\"}\n"
+        "  ]\n"
+        "}\n"
+        "Do not include any explanation or markdown formatting."
+    )
+    
+    url = "https://api.deepseek.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {deepseek_key}",
+        "Content-Type": "application/json"
+    }
+    api_payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.3
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            response = await client.post(url, json=api_payload, headers=headers)
+            response.raise_for_status()
+            res_json = response.json()
+            content = res_json["choices"][0]["message"]["content"]
+            result_data = json.loads(content)
+            
+            # Commit the credit deduction
+            await db.commit()
+            return result_data
+            
+    except Exception as api_err:
+        print(f"❌ [AI-EXTRACT ERROR] DeepSeek call failed: {api_err}")
+        # Refund credits on failure
+        try:
+            await refund_credits(db, user_id, cost, f"Hoàn xu do lỗi gọi dịch vụ AI: {str(api_err)}")
+            await db.commit()
+        except Exception as ref_err:
+            print(f"⚠️ [AI-EXTRACT WARNING] Refund failed: {ref_err}")
+            
+        raise HTTPException(status_code=500, detail=f"Lỗi phân tích AI từ DeepSeek: {str(api_err)}")
 

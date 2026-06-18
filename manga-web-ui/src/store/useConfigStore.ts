@@ -24,8 +24,18 @@ interface ConfigState {
   customPronoun: string;
   glossary: string;
   targetLanguage: string;
-  translationMode: 'fast' | 'deep' | 'studio';
-  setTranslationMode: (mode: 'fast' | 'deep' | 'studio') => void;
+  translationMode: 'fast' | 'studio' | 'grok' | 'openai';
+  setTranslationMode: (mode: 'fast' | 'studio' | 'grok' | 'openai') => void;
+  grokSubModel: 'grok-2' | 'grok-imagine';
+  setGrokSubModel: (model: 'grok-2' | 'grok-imagine') => void;
+  openaiSubModel: 'gpt-4o';
+  setOpenaiSubModel: (model: 'gpt-4o') => void;
+  studioSubModel: 'google/nano-banana-edit' | 'gpt-image-2-image-to-image' | 'nano-banana-2' | 'nano-banana-pro';
+  setStudioSubModel: (model: 'google/nano-banana-edit' | 'gpt-image-2-image-to-image' | 'nano-banana-2' | 'nano-banana-pro') => void;
+  kieResolution: '1K' | '2K' | '4K';
+  setKieResolution: (res: '1K' | '2K' | '4K') => void;
+  kieOutputFormat: 'jpg' | 'png';
+  setKieOutputFormat: (format: 'jpg' | 'png') => void;
 
   // Các hàm cập nhật
   setConfig: (field: string, value: string) => void;
@@ -46,8 +56,18 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   customPronoun: '',
   glossary: '',
   targetLanguage: 'Tiếng Việt',
-  translationMode: 'fast' as 'fast' | 'deep' | 'studio',
+  translationMode: 'studio' as 'fast' | 'studio' | 'grok' | 'openai',
   setTranslationMode: (mode) => set({ translationMode: mode }),
+  grokSubModel: 'grok-imagine' as 'grok-2' | 'grok-imagine',
+  setGrokSubModel: (model) => set({ grokSubModel: model }),
+  openaiSubModel: 'gpt-4o' as 'gpt-4o',
+  setOpenaiSubModel: (model) => set({ openaiSubModel: model }),
+  studioSubModel: 'gpt-image-2-image-to-image' as 'google/nano-banana-edit' | 'gpt-image-2-image-to-image' | 'nano-banana-2' | 'nano-banana-pro',
+  setStudioSubModel: (model) => set({ studioSubModel: model }),
+  kieResolution: '1K' as '1K' | '2K' | '4K',
+  setKieResolution: (res) => set({ kieResolution: res }),
+  kieOutputFormat: 'jpg' as 'jpg' | 'png',
+  setKieOutputFormat: (format) => set({ kieOutputFormat: format }),
 
   setConfig: (field, value) => set({ [field]: value }),
 
@@ -58,6 +78,13 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         const parsed = JSON.parse(saved);
         if (parsed.targetLanguage && !VALID_LANGUAGES.includes(parsed.targetLanguage)) {
           parsed.targetLanguage = 'Tiếng Việt';
+        }
+        if (parsed.translationMode === 'fast') {
+          parsed.translationMode = 'studio';
+        }
+        // Migrate old studioSubModel to nano-banana-2
+        if (parsed.studioSubModel === 'nano-banana-v1' || parsed.studioSubModel === 'nano-banana-v2') {
+          parsed.studioSubModel = 'nano-banana-2';
         }
         set({ ...parsed });
       } catch (err) {
@@ -73,7 +100,13 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       tone: state.tone, customTone: state.customTone,
       pronoun: state.pronoun, customPronoun: state.customPronoun,
       glossary: state.glossary,
-      targetLanguage: state.targetLanguage
+      targetLanguage: state.targetLanguage,
+      translationMode: state.translationMode,
+      grokSubModel: state.grokSubModel,
+      openaiSubModel: state.openaiSubModel,
+      studioSubModel: state.studioSubModel,
+      kieResolution: state.kieResolution,
+      kieOutputFormat: state.kieOutputFormat
     };
     localStorage.setItem('manga_trans_settings', JSON.stringify(dataToSave));
     set({ isModalOpen: false }); // Đóng modal sau khi lưu

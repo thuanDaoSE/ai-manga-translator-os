@@ -272,7 +272,7 @@ export const MangaProcessor: React.FC = () => {
                 { key: 'uploading', label: 'Image Base64 Encoded' },
                 { key: 'nsfw_passed', label: 'NSFW Content Checked' },
                 { key: 'text_detected', label: 'RunPod Text & Bounding Boxes OCR' },
-                { key: 'image_ready', label: 'xAI Grok Clean Redraw (Inpaint)' },
+                { key: 'image_ready', label: 'Grok Imagine Clean Redraw (Inpaint)' },
                 { key: 'done', label: 'DeepSeek Vietnamese Translation' },
               ].map((step, idx) => (
                 <div

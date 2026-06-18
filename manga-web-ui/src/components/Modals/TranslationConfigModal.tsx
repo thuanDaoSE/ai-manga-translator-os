@@ -7,6 +7,8 @@ import {
 import toast from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
 import { useTranslation } from 'react-i18next';
+import { getAuthHeaders } from '../../services/api';
+import { useAuthStore } from '../../store/useAuthStore';
 
 interface GlossaryItem { id: string; source: string; target: string; }
 interface RelationItem { id: string; speaker: string; listener: string; self_ref: string; target_ref: string; }
@@ -204,17 +206,50 @@ export default function TranslationConfigModal() {
     toast.success(t('configModal.exportJsonSuccess'));
   };
 
-  const executeAIExtract = () => {
+  const executeAIExtract = async () => {
     if (!aiInputText.trim()) { toast.error(t('configModal.aiInputEmptyError')); return; }
     setIsAIExtracting(true);
     const toastId = toast.loading(t('configModal.aiExtractingLoading'));
-    setTimeout(() => {
-      setGlossaryList(prev => [{ id: uuidv4(), source: "新技", target: "Chiêu mới" }, ...prev]);
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const authHeaders = await getAuthHeaders(false);
+      const response = await fetch(`${baseUrl}/api/translation/ai-extract`, {
+        method: 'POST',
+        headers: {
+          ...authHeaders,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text: aiInputText })
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server error: ${response.status}`);
+      }
+      const data = await response.json();
+      const newGlossary = (data.terminology || []).map((t: any) => ({
+        id: uuidv4(),
+        source: t.source || "",
+        target: t.target || ""
+      }));
+      const newRelations = (data.relational_matrix || []).map((r: any) => ({
+        id: uuidv4(),
+        speaker: r.speaker || "",
+        listener: r.listener || "",
+        self_ref: r.self_ref || "",
+        target_ref: r.target_ref || ""
+      }));
+      setGlossaryList(prev => [...newGlossary, ...prev]);
+      setRelationList(prev => [...newRelations, ...prev]);
       setIsAIExtracting(false);
       setShowAIInput(false);
       setAiInputText("");
       toast.success(t('configModal.aiExtractSuccess'), { id: toastId });
-    }, 2000);
+      await useAuthStore.getState().fetchProfile();
+    } catch (err: any) {
+      console.error(err);
+      setIsAIExtracting(false);
+      toast.error(err.message || "Lỗi kết nối hoặc xử lý AI.", { id: toastId });
+    }
   };
 
   const handleSave = () => {
@@ -370,17 +405,11 @@ export default function TranslationConfigModal() {
         </div>
 
         {/* FOOTER */}
-        <div className="px-6 py-4 bg-panel border-t border-border flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <span className="flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
-            <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">PostgreSQL Synced</span>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => config.setModalOpen(false)} className="px-4 py-2 rounded-xl text-[11px] font-bold text-text-muted hover:text-text-main hover:bg-border/60 transition-colors cursor-pointer">{t('configModal.cancel')}</button>
-            <button onClick={handleSave} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-[11px] font-bold text-white bg-primary hover:bg-primary/95 shadow-md shadow-primary/20 transition-all active:scale-95 cursor-pointer">
-              <Save size={14} /> {t('configModal.saveConfig')}
-            </button>
-          </div>
+        <div className="px-6 py-4 bg-panel border-t border-border flex justify-end items-center gap-2">
+          <button onClick={() => config.setModalOpen(false)} className="px-4 py-2 rounded-xl text-[11px] font-bold text-text-muted hover:text-text-main hover:bg-border/60 transition-colors cursor-pointer">{t('configModal.cancel')}</button>
+          <button onClick={handleSave} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-[11px] font-bold text-white bg-primary hover:bg-primary/95 shadow-md shadow-primary/20 transition-all active:scale-95 cursor-pointer">
+            <Save size={14} /> {t('configModal.saveConfig')}
+          </button>
         </div>
       </div>
     </div>

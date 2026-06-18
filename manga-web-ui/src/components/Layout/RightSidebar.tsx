@@ -543,6 +543,36 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
   };
 
   // =====================================
+  // 🚀 LĂN CHUỘT ĐỂ ĐIỀU CHỈNH CỠ CHỮ NHANH
+  // =====================================
+  const fontSizeContainerRef = useRef<HTMLDivElement>(null);
+  const handleUpdateRef = useRef(handleUpdate);
+  handleUpdateRef.current = handleUpdate;
+
+  const currentFontSizeRef = useRef(currentFontSize);
+  currentFontSizeRef.current = currentFontSize;
+
+  useEffect(() => {
+    const el = fontSizeContainerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      // Cuộn lên (deltaY < 0) -> tăng cỡ chữ, cuộn xuống (deltaY > 0) -> giảm cỡ chữ
+      // Giữ Shift để đổi bước nhảy (5px thay vì 1px)
+      const step = e.shiftKey ? 5 : 1;
+      const direction = e.deltaY < 0 ? 1 : -1;
+      const newSize = Math.max(6, Math.min(144, currentFontSizeRef.current + direction * step));
+      handleUpdateRef.current('fontSize', newSize);
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
+
+  // =====================================
   // 🚀 CHÈN THÊM LOGIC TẠO DÁNG CHỮ Ở ĐÂY
   // =====================================
   const applyTextShape = (shape: 'diamond' | 'block' | 'pyramid' | 'funnel') => {
@@ -813,7 +843,11 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
 
             {/* Dãy nút Căn lề & Kích thước */}
             <div className="flex items-center gap-2">
-              <div className="flex-1 flex items-center bg-background border border-border rounded-lg shadow-sm px-2 py-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/50 transition-all">
+              <div
+                ref={fontSizeContainerRef}
+                className="flex-1 flex items-center bg-background border border-border rounded-lg shadow-sm px-2 py-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/50 transition-all cursor-ns-resize"
+                title={t('rightSidebar.fontSizeWheelTooltip', 'Cuộn chuột tại đây để tăng/giảm cỡ chữ nhanh (Giữ Shift để đổi bước nhảy)')}
+              >
                 <Type className="w-3.5 h-3.5 text-text-muted mr-2" />
                 <input
                   type="number"
