@@ -2803,13 +2803,15 @@ async def activate_redraw_tool(
 # API 1: TẠO MÃ QR/LINK THANH TOÁN CHO NGƯỜI DÙNG
 # ==========================================
 def calculate_credits(amount_vnd: int) -> int:
-    base_xu = amount_vnd // 100
-    if amount_vnd >= 200000:
-        bonus = int(base_xu * 0.20)
-    elif amount_vnd >= 100000:
-        bonus = int(base_xu * 0.10)
-    elif amount_vnd >= 50000:
-        bonus = int(base_xu * 0.05)
+    base_xu = amount_vnd // 250
+    if amount_vnd == 25000:
+        bonus = 0
+    elif amount_vnd == 50000:
+        bonus = 20
+    elif amount_vnd == 100000:
+        bonus = 60
+    elif amount_vnd == 150000:
+        bonus = 100
     else:
         bonus = 0
     return base_xu + bonus
@@ -2827,8 +2829,8 @@ async def create_payment_link(
 ):
     try:
         amount = payload.amount
-        if amount < 20000:
-            raise HTTPException(status_code=400, detail="Số tiền nạp tối thiểu là 20.000 VNĐ")
+        if amount < 25000:
+            raise HTTPException(status_code=400, detail="Số tiền nạp tối thiểu là 25.000 VNĐ")
     
         # Quy đổi kèm bonus
         credits_to_add = calculate_credits(amount)

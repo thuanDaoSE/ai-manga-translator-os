@@ -11,18 +11,21 @@ interface PaywallDrawerProps {
 }
 
 const calculateXu = (vnd: number) => {
-  const baseXu = Math.floor(vnd / 100);
+  const baseXu = Math.floor(vnd / 250);
   let bonusXu = 0;
   let bonusPercent = 0;
-  if (vnd >= 200000) {
-    bonusPercent = 20;
-    bonusXu = Math.floor(baseXu * 0.20);
-  } else if (vnd >= 100000) {
+  if (vnd === 25000) {
+    bonusPercent = 0;
+    bonusXu = 0;
+  } else if (vnd === 50000) {
     bonusPercent = 10;
-    bonusXu = Math.floor(baseXu * 0.10);
-  } else if (vnd >= 50000) {
-    bonusPercent = 5;
-    bonusXu = Math.floor(baseXu * 0.05);
+    bonusXu = 20;
+  } else if (vnd === 100000) {
+    bonusPercent = 15;
+    bonusXu = 60;
+  } else if (vnd === 150000) {
+    bonusPercent = 16;
+    bonusXu = 100;
   }
   return {
     base: baseXu,
@@ -46,10 +49,10 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const predefinedAmounts = [
-    { value: 20000, label: '20.000đ' },
-    { value: 50000, label: '50.000đ' },
-    { value: 100000, label: '100.000đ' },
-    { value: 200000, label: '200.000đ' },
+    { value: 25000, label: '25.000đ', name: 'Trà Đá' },
+    { value: 50000, label: '50.000đ', name: 'Cày Cuốc' },
+    { value: 100000, label: '100.000đ', name: 'Dân Pro' },
+    { value: 150000, label: '150.000đ', name: 'Studio' },
   ];
 
   const finalAmount = customAmount ? parseInt(customAmount) || 0 : selectedAmount;
@@ -78,7 +81,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   }, [isOpen]);
 
   const handleGeneratePayment = async () => {
-    if (finalAmount < 20000) {
+    if (finalAmount < 25000) {
       return toast.error(t('paywall.minAmountError'));
     }
 
@@ -179,6 +182,9 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                           </span>
                         )}
                         <div className="flex flex-col gap-0.5 mt-1">
+                          <span className="text-xs font-bold text-indigo-400 block mb-1">
+                            {pkg.name}
+                          </span>
                           <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
                             {t('paywall.receiveCreditsShort', { count: total })}
                           </span>
@@ -228,12 +234,12 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                           : `${t('paywall.willReceive', { count: equivalentXu })} ${t('paywall.rateNotice')}`}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {t('paywall.valueEquivalent', { translate: Math.floor(equivalentXu / 3), redraw: Math.floor(equivalentXu / 4) })}
+                    <p className="text-xs text-yellow-500 font-semibold mt-1">
+                      💡 Tương đương: ~{Math.floor(equivalentXu / 2)} trang Dịch Nhanh (LaMa) HOẶC ~{Math.floor(equivalentXu / 8)} trang Vá Nền (AI)
                     </p>
                   </div>
                 )}
-                {finalAmount < 20000 && finalAmount > 0 && (
+                {finalAmount < 25000 && finalAmount > 0 && (
                   <div className="text-[11px] text-red-400 font-bold flex items-center gap-1.5 px-1">
                     <AlertCircle size={12} className="text-red-400 shrink-0 animate-pulse" />
                     <span>{t('paywall.minRechargeWarning')}</span>
@@ -305,7 +311,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
           <div className="p-5 border-t border-gray-800/60 bg-black/10 flex flex-col gap-3">
             <button
               onClick={handleGeneratePayment}
-              disabled={isLoading || finalAmount < 20000}
+              disabled={isLoading || finalAmount < 25000}
               className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all duration-200 cursor-pointer active:scale-[0.98] shadow-[0_4px_15px_rgba(79,70,229,0.3)]"
             >
               {isLoading ? (
