@@ -532,6 +532,13 @@ export default function Sidebar() {
                   toast.error(`Trang ${pageIndex + 1} gặp lỗi xử lý dịch thuật!`);
                 } else {
                   projectStore.setPageStatus(pageIndex, "completed"); // Xanh tuyệt đối!
+                  const posthog = (window as any).posthog;
+                  if (posthog) {
+                    posthog.capture('translation_successful', {
+                      action_type: 'Page_Translate',
+                      status: 'success'
+                    });
+                  }
                 }
 
                 await mangaApi.savePageResults(pageId, result.clean_url, newBubbles)
@@ -679,6 +686,13 @@ export default function Sidebar() {
           useProjectStore.getState().setPageStatus(pageIndex, "error");
         } else {
           useProjectStore.getState().setPageStatus(pageIndex, "completed");
+          const posthog = (window as any).posthog;
+          if (posthog) {
+            posthog.capture('translation_successful', {
+              action_type: 'Page_Retry_Translate',
+              status: 'success'
+            });
+          }
         }
       } catch (err: any) {
         toast.error(err.message, { id: loadId });

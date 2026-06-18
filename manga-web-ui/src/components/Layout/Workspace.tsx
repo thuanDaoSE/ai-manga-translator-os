@@ -987,6 +987,15 @@ export default function Workspace() {
 
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       toast.success("Đã xóa nền thông minh thành công!", { id: toastId });
+      
+      const posthog = (window as any).posthog;
+      if (posthog) {
+        posthog.capture('translation_successful', {
+          action_type: 'Erase_Mask',
+          status: 'success'
+        });
+      }
+
       setActiveMode("none");
     } catch (e: any) { 
       toast.error(e.message || "Xử lý xóa nền thất bại!", { id: toastId }); 
@@ -1036,6 +1045,15 @@ export default function Workspace() {
 
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       toast.success("Vẽ lại vùng chọn bằng AI thành công!");
+      
+      const posthog = (window as any).posthog;
+      if (posthog) {
+        posthog.capture('translation_successful', {
+          action_type: 'Redraw_Mask',
+          status: 'success'
+        });
+      }
+
       setActiveMode("none");
       setRedrawPrompt("");
       // Lưu lại trạng thái vẽ lại hoạt động vào localStorage
