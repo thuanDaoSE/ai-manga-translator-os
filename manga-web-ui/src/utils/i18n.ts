@@ -19,12 +19,16 @@ const getInitialLanguage = () => {
     return savedLang;
   }
 
-  // Ưu tiên 2: "Đọc vị" Trình duyệt (Browser Language)
+  // Tạm dừng cơ chế chọn ngôn ngữ tự động của trình duyệt để mặc định là Việt Nam
+  /*
   const browserLang = navigator.language || (navigator.languages && navigator.languages[0]) || '';
   if (browserLang.toLowerCase().startsWith('vi')) {
     return 'vi';
   }
   return 'en';
+  */
+
+  return 'vi';
 };
 
 const initialLang = getInitialLanguage();
