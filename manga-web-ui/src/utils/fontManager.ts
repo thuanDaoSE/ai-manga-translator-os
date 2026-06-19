@@ -5,28 +5,21 @@
 
 export const MANGA_FONTS = {
   dialogue: [
-    { name: 'Comic Neue', url: '/fonts/ComicNeue-Regular.woff2' },
     { name: 'Playpen Sans', url: '/fonts/PlaypenSans-Regular.woff2' },
     { name: 'Itim', url: '/fonts/Itim-Regular.woff2' },
     { name: 'Be Vietnam Pro', url: '/fonts/BeVietnamPro-Regular.woff2' }
   ],
   thought: [
     { name: 'Patrick Hand', url: '/fonts/PatrickHand-Regular.woff2' },
-    { name: 'Balsamiq Sans', url: '/fonts/BalsamiqSans-Regular.woff2' },
     { name: 'Playwrite VN', url: '/fonts/PlaywriteVN-Regular.woff2' },
     { name: 'Caveat', url: '/fonts/Caveat-Regular.woff2' }
   ],
   shouting: [
     { name: 'Bangers', url: '/fonts/Bangers-Regular.woff2' },
     { name: 'Bungee', url: '/fonts/Bungee-Regular.woff2' },
-    { name: 'Sedgwick Ave Display', url: '/fonts/SedgwickAveDisplay-Regular.woff2' },
-    { name: 'Fredoka', url: '/fonts/Fredoka-Regular.woff2' }
+    { name: 'Sedgwick Ave Display', url: '/fonts/SedgwickAveDisplay-Regular.woff2' }
   ],
-  sfx: [
-    { name: 'Caveat Brush', url: '/fonts/CaveatBrush-Regular.woff2' },
-    { name: 'Rubik Wet Paint', url: '/fonts/RubikWetPaint-Regular.woff2' },
-    { name: 'Rubik Glitch', url: '/fonts/RubikGlitch-Regular.woff2' }
-  ]
+  sfx: []
 };
 
 // Bộ nhớ đệm giữ các font đã load để không phải load lại

@@ -1092,6 +1092,8 @@ async def save_results(
         
         page.clean_url = clean_url
         page.status = "completed"
+        if data:
+            page.bubbles_data = json.dumps(data)
         await db.commit()
             
         return {"status": "success"}
@@ -2592,11 +2594,15 @@ async def retry_text_translation(
         if not page.bubbles_data or page.bubbles_data == "[]":
             raise HTTPException(status_code=400, detail="Trang này không phát hiện được chữ nào! Sếp hãy bấm nút [Quét lại ảnh] hình cây đũa phép ở góc phải nhé.")
 
-        extracted_data = json.loads(page.bubbles_data)
-
         ocr_batch_payload = []
         for item in extracted_data:
             jap_text = item.get("japanese", "").strip()
+            if not jap_text:
+                # 🚀 BẢN VÁ PHÒNG THỦ: Cứu sinh nếu phím japanese bị thất lạc
+                jap_text = item.get("text", "").strip()
+            if not jap_text:
+                jap_text = item.get("vietnamese", "").strip()
+                
             if jap_text:
                 ocr_batch_payload.append({"id": item["id"], "japanese": jap_text})
 
@@ -2734,8 +2740,14 @@ async def export_batch(
                 elif export_type == "psd":
                     if not os.path.exists(clean_path): clean_path = raw_path
                     psd_temp_path = f"workspace/temp_{page.id}.psd"
+                    page_bubbles = []
+                    if page.bubbles_data:
+                        try:
+                            page_bubbles = json.loads(page.bubbles_data)
+                        except Exception as e:
+                            print(f"Lỗi đọc JSON bubbles ở export-batch: {e}")
                     try:
-                        create_manga_psd(raw_path, clean_path, psd_temp_path)
+                        create_manga_psd(raw_path, clean_path, psd_temp_path, page_bubbles)
                         zipf.write(psd_temp_path, arcname=f"{safe_name}.psd")
                     except Exception as e:
                         print(f"Lỗi tạo PSD trang {page.id}: {e}")
@@ -4170,6 +4182,53 @@ async def ai_process(
                     return
                 await queue.put({"status": "translating_text"})
                 translations = await call_deepseek_translation(texts, target_language, genre, tone, pronoun)
+                
+                # If page_id is provided, construct bubbles and save to DB
+                if page_id:
+                    try:
+                        import time
+                        import uuid
+                        from database import AsyncSessionLocal
+                        async with AsyncSessionLocal() as page_db:
+                            result = await page_db.execute(select(models.Page).where(models.Page.id == page_id))
+                            page_obj = result.scalars().first()
+                            if page_obj:
+                                bubbles_list = []
+                                for idx, box in enumerate(boxes):
+                                    x = box.get("x1", 0)
+                                    y = box.get("y1", 0)
+                                    w = box.get("x2", 0) - x
+                                    h = box.get("y2", 0) - y
+                                    
+                                    jap_txt = texts[idx] if idx < len(texts) else ""
+                                    vi_txt = translations[idx] if idx < len(translations) else ""
+                                    
+                                    bubble_id = f"bubble_{int(time.time() * 1000)}_{idx}_{uuid.uuid4().hex[:7]}"
+                                    bubbles_list.append({
+                                        "id": bubble_id,
+                                        "x": x,
+                                        "y": y,
+                                        "w": w,
+                                        "h": h,
+                                        "text": vi_txt,
+                                        "vietnamese": vi_txt,
+                                        "japanese": jap_txt,
+                                        "fontSize": 20,
+                                        "fontFamily": "Playpen Sans",
+                                        "rotation": 0,
+                                        "boxX": x,
+                                        "boxY": y,
+                                        "boxW": w,
+                                        "boxH": h,
+                                        "outlineWidth": 5,
+                                        "outlineColor": "#ffffff"
+                                    })
+                                page_obj.bubbles_data = json.dumps(bubbles_list)
+                                await page_db.commit()
+                                print(f"✅ [AI-PROCESS] Page {page_id} bubbles_data saved to DB with {len(bubbles_list)} bubbles.")
+                    except Exception as db_err:
+                        print(f"⚠️ [AI-PROCESS] Failed to save bubbles to database in run_task_b: {db_err}")
+
                 await queue.put({"status": "translation_ready", "translations": translations})
             except Exception as e:
                 await queue.put({"status": "translation_failed", "error": str(e)})

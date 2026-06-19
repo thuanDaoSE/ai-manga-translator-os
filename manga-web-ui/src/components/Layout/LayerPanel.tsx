@@ -28,6 +28,8 @@ export default function LayerPanel() {
     const centerX = Math.min(x1, x2) + width / 2;
     const centerY = Math.min(y1, y2) + height / 2;
 
+    const toolState = useToolStore.getState();
+    const safeColor = toolState.fontColor || '#000000';
     addBubble({
       x: centerX - width / 2,
       y: centerY - height / 2,
@@ -36,10 +38,12 @@ export default function LayerPanel() {
       text: editedVie,
       vietnamese: editedVie,
       japanese: scanModal.jap,
-      fontSize: useToolStore.getState().fontSize,
-      fontColor: useToolStore.getState().fontColor,
-      fontFamily: useToolStore.getState().fontFamily,
-      rotation: 0
+      fontSize: toolState.fontSize,
+      fontColor: safeColor,
+      fontFamily: toolState.fontFamily,
+      rotation: 0,
+      outlineWidth: toolState.outlineWidth,
+      outlineColor: safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000'
     });
     setScanModal(null);
     setActiveMode('none');

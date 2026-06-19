@@ -91,7 +91,6 @@ async function createPsd() {
         console.error("LỖI: Trong template.psd sếp phải tạo 1 layer chữ đặt tên chuẩn là 'TemplateText'");
         process.exit(1);
     }
-    delete sampleLayer.canvas;
 
     const measureCanvas = createCanvas(100, 100);
     const ctx = measureCanvas.getContext('2d');
@@ -105,11 +104,9 @@ async function createPsd() {
         let y = Number(bubble.y) || 0;
         let w = Number(bubble.w) || 100;
         let h = Number(bubble.h) || 100;
-        let outlineW = Number(bubble.outlineWidth) || 0;
+        let outlineW = (bubble.outlineWidth !== undefined && bubble.outlineWidth !== null) ? Number(bubble.outlineWidth) : 5;
         let fontSize = Number(bubble.fontSize) || 24;
         let fontCurrent = bubble.fontFamily || 'Arial';
-        // Chuẩn hóa tên font (xóa dấu nháy và fallback như 'Comic Neue', cursive -> Comic Neue)
-        fontCurrent = fontCurrent.replace(/['"]/g, '').split(',')[0].trim();
         let psFontName = 'ArialMT'; // Mặc định nếu không khớp font nào
 
         // Chuyển hết về chữ thường để so sánh cho chuẩn, tránh lệch hoa thường, dấu cách
@@ -133,11 +130,11 @@ async function createPsd() {
         } else if (cleanFontTarget.includes('wild')) {
             psFontName = "WildWords-Regular";
         } else {
+            // Nếu không rơi vào danh sách font manga đặc biệt, dùng bảng map mặc định hoặc giữ nguyên
             psFontName = FONT_POSTSCRIPT_MAP[fontCurrent] || fontCurrent || 'ArialMT';
         }
 
-        // 🚀 BẢN VÁ TỐI THƯỢNG: Nhân bản SÂU layer mẫu để giữ lại toàn bộ metadata gốc của Photoshop
-        let newLayer = JSON.parse(JSON.stringify(sampleLayer));
+        let newLayer = { ...sampleLayer };
         delete newLayer.canvas;
         delete newLayer.id;
 
@@ -148,46 +145,65 @@ async function createPsd() {
         newLayer.right = x + w;
         newLayer.bottom = y + h;
 
-        const wrappedText = autoWrapText(ctx, bubble.text, w, fontSize, fontCurrent);
+
+        // BẢN VÁ 1: Ép chuẩn NFC (Dựng sẵn) để Photoshop không bị ngu
+        const safeText = bubble.text.normalize('NFC');
+        const wrappedText = autoWrapText(ctx, safeText, w, fontSize, fontCurrent);
+        // =========================================================================
+        // 🚀 BẢN VÁ TOÁN HỌC: CHUYỂN ĐỔI TỌA ĐỘ GÓC TRÁI TRÊN THÀNH TỌA ĐỘ TÂM
+        // Vì Photoshop coi [tx, ty] trong transform của Box Text là TÂM của Box
+        // =========================================================================
         let centerX = x + (w / 2);
         let centerY = y + (h / 2);
 
-        newLayer.text.text = wrappedText;
-        newLayer.text.bounds = {
-            left: { value: 0, units: 'Pixels' },
-            top: { value: 0, units: 'Pixels' },
-            right: { value: w, units: 'Pixels' },
-            bottom: { value: h, units: 'Pixels' }
+        newLayer.text = {
+            text: wrappedText,
+            shape: 'box',
+            bounds: {
+                left: { value: 0, units: 'Pixels' },
+                top: { value: 0, units: 'Pixels' },
+                right: { value: w, units: 'Pixels' },
+                bottom: { value: h, units: 'Pixels' }
+            },
+            transform: [1, 0, 0, 1, centerX, centerY], // <--- CẬP NHẬT GỐC TỌA ĐỘ TÂM VÀO ĐÂY
+            style: {
+                font: { name: psFontName },
+                fontSize: fontSize,
+                fillColor: hexToRgb(bubble.fontColor || '#000000')
+            },
+            paragraphStyle: {
+                justification: bubble.textAlign || 'center'
+            }
         };
-        newLayer.text.transform = [1, 0, 0, 1, centerX, centerY];
 
-        if (!newLayer.text.style) newLayer.text.style = {};
-        newLayer.text.style.font = { name: psFontName };
-        newLayer.text.style.fontSize = fontSize;
-        newLayer.text.style.fillColor = hexToRgb(bubble.fontColor || '#000000');
+        let outlineColor = bubble.outlineColor || (bubble.fontColor?.toLowerCase() === '#000000' ? '#FFFFFF' : '#000000');
 
-        if (!newLayer.text.paragraphStyle) newLayer.text.paragraphStyle = {};
-        newLayer.text.paragraphStyle.justification = bubble.textAlign || 'center';
+        if (sampleLayer.effects && sampleLayer.effects.stroke && sampleLayer.effects.stroke[0]) {
+            newLayer.effects = { ...sampleLayer.effects };
+            let targetStroke = { ...sampleLayer.effects.stroke[0] };
 
-        delete newLayer.text.styleRuns;
-        delete newLayer.text.paragraphStyleRuns;
+            targetStroke.size = { value: outlineW > 0 ? outlineW : 3, units: 'Pixels' };
+            targetStroke.color = hexToRgb(outlineColor);
+            targetStroke.enabled = outlineW > 0;
 
-        if (outlineW > 0) {
-            if (!newLayer.effects) newLayer.effects = {};
-            newLayer.effects.disabled = false;
-            newLayer.effects.stroke = [{
-                enabled: true,
-                position: 'outside',
-                fillType: 'solid',
-                blendMode: 'normal',
-                opacity: 1.0,
-                size: outlineW,
-                color: hexToRgb(bubble.outlineColor || '#FFFFFF'),
-                present: true,
-                showInDialog: true
-            }];
+            newLayer.effects.stroke = [targetStroke];
         } else {
-            if (newLayer.effects) delete newLayer.effects.stroke;
+            if (outlineW > 0) {
+                newLayer.effects = {
+                    disabled: false,
+                    stroke: [{
+                        enabled: true,
+                        position: 'outside',
+                        fillType: 'color',
+                        blendMode: 'normal',
+                        opacity: 1.0,
+                        size: { value: outlineW, units: 'Pixels' },
+                        color: hexToRgb(outlineColor)
+                    }]
+                };
+            } else {
+                newLayer.effects = undefined;
+            }
         }
 
         textLayers.push(newLayer);

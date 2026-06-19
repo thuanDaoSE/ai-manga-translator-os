@@ -39,13 +39,16 @@ export const useGlobalShortcuts = () => {
 
       if (key === 't') {
         const toolState = useToolStore.getState();
+        const safeColor = toolState.fontColor || '#000000';
         useCanvasStore.getState().addBubble({
           x: 200, y: 200, w: 200, h: 80,
           text: "Gõ chữ vào đây...",
           fontSize: toolState.fontSize || 20,
-          fontColor: toolState.fontColor || '#000000',
+          fontColor: safeColor,
           fontFamily: toolState.fontFamily || "'Comic Neue', cursive",
-          rotation: 0
+          rotation: 0,
+          outlineWidth: toolState.outlineWidth,
+          outlineColor: safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000'
         });
         useToolStore.getState().setActiveMode('none');
         return;

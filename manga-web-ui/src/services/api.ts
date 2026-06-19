@@ -308,7 +308,7 @@ export const mangaApi = {
 
   downloadFontPack: () => {
     const link = document.createElement('a');
-    link.href = `${API_URL}/fonts/download-pack`;
+    link.href = "/Manga_Fonts_Pack.zip";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

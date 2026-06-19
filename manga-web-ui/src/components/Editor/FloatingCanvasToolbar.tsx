@@ -43,20 +43,23 @@ export const FloatingCanvasToolbar: React.FC = () => {
   const handleRedo = () => useCanvasStore.getState().redo();
   // 🚀 TÍNH NĂNG MỚI: HÀM THÊM CHỮ THỦ CÔNG[cite: 12]
   const handleAddText = () => {
-    const toolState = useToolStore.getState(); //[cite: 12]
+    const toolState = useToolStore.getState(); 
+    const safeColor = toolState.fontColor || '#000000';
     useCanvasStore.getState().addBubble({
-      x: 200, //[cite: 12]
-      y: 200, //[cite: 12]
-      w: 200, //[cite: 12]
-      h: 80, //[cite: 12]
-      text: "Gõ chữ vào đây...", //[cite: 12]
-      fontSize: toolState.fontSize || 20, //[cite: 12]
-      fontColor: toolState.fontColor || '#000000', //[cite: 12]
-      fontFamily: toolState.fontFamily || "'Comic Neue', cursive", //[cite: 12]
-      rotation: 0 //[cite: 12]
+      x: 200, 
+      y: 200, 
+      w: 200, 
+      h: 80, 
+      text: "Gõ chữ vào đây...", 
+      fontSize: toolState.fontSize || 20, 
+      fontColor: safeColor, 
+      fontFamily: toolState.fontFamily || "'Comic Neue', cursive", 
+      rotation: 0,
+      outlineWidth: toolState.outlineWidth,
+      outlineColor: safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000'
     });
-    // Tự động chuyển về con trỏ chuột để sếp có thể kéo chữ luôn[cite: 12]
-    setActiveMode('none');  //[cite: 12]
+    // Tự động chuyển về con trỏ chuột để sếp có thể kéo chữ luôn
+    setActiveMode('none');  
   };
 
   const ToolButton = ({ mode, icon: Icon, label, shortLabel }: { mode: any, icon: any, label: string, shortLabel: string }) => {

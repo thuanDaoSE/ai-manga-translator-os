@@ -828,14 +828,12 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                 className="w-full appearance-none bg-background border border-border rounded-lg py-2 pl-3 pr-8 text-[12px] font-bold text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all shadow-sm cursor-pointer"
               >
                 <optgroup label={t('rightSidebar.fontGroupDialogue')}>
-                  <option value="Comic Neue">Comic Neue</option>
                   <option value="Playpen Sans">Playpen Sans</option>
                   <option value="Itim">Itim</option>
                   <option value="Be Vietnam Pro">Be Vietnam Pro</option>
                 </optgroup>
                 <optgroup label={t('rightSidebar.fontGroupMonologue')}>
                   <option value="Patrick Hand">Patrick Hand</option>
-                  <option value="Balsamiq Sans">Balsamiq Sans</option>
                   <option value="Playwrite VN">Playwrite VN</option>
                   <option value="Caveat">Caveat</option>
                 </optgroup>
@@ -843,12 +841,6 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                   <option value="Bangers">Bangers</option>
                   <option value="Bungee">Bungee</option>
                   <option value="Sedgwick Ave Display">Sedgwick Ave Display</option>
-                  <option value="Fredoka">Fredoka</option>
-                </optgroup>
-                <optgroup label={t('rightSidebar.fontGroupSfx')}>
-                  <option value="Caveat Brush">Caveat Brush</option>
-                  <option value="Rubik Wet Paint">Rubik Wet Paint</option>
-                  <option value="Rubik Glitch">Rubik Glitch</option>
                 </optgroup>
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />

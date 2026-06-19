@@ -17,6 +17,8 @@ export default function LensModal() {
   if (!scanModal?.isOpen) return null;
 
   const handleApply = () => {
+    const toolState = useToolStore.getState();
+    const safeColor = toolState.fontColor || '#000000';
     addBubble({
       x: Math.min(scanModal.coords.x1, scanModal.coords.x2),
       y: Math.min(scanModal.coords.y1, scanModal.coords.y2),
@@ -25,10 +27,12 @@ export default function LensModal() {
       text: editedVie,
       vietnamese: editedVie,
       japanese: scanModal.jap,
-      fontSize: useToolStore.getState().fontSize,
-      fontColor: useToolStore.getState().fontColor,
-      fontFamily: useToolStore.getState().fontFamily,
-      rotation: 0
+      fontSize: toolState.fontSize,
+      fontColor: safeColor,
+      fontFamily: toolState.fontFamily,
+      rotation: 0,
+      outlineWidth: toolState.outlineWidth,
+      outlineColor: safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000'
     });
     setScanModal(null);
     setActiveMode('none');

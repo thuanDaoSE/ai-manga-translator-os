@@ -191,9 +191,11 @@ function SortableItem({
                     </>
                   )}
                 </button>
-                <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                  1<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
-                </span>
+                {!hasCleanUrl && (
+                  <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
+                    1<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
+                  </span>
+                )}
               </div>
             )}
 
@@ -208,9 +210,6 @@ function SortableItem({
                   <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
                   <span>Dịch lại</span>
                 </button>
-                <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                  1<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
-                </span>
               </div>
             )}
           </div>

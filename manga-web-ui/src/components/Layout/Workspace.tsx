@@ -289,6 +289,7 @@ export default function Workspace() {
                     const y = box.y1;
                     const w = box.x2 - box.x1;
                     const h = box.y2 - box.y1;
+                    const safeColor = toolState.fontColor || "#000000";
                     return {
                       id: `bubble_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 9)}`,
                       x,
@@ -299,13 +300,14 @@ export default function Workspace() {
                       vietnamese: "",
                       japanese: detectedTexts[idx] || "",
                       fontSize: toolState.fontSize || 20,
-                      fontColor: toolState.fontColor || "#000000",
-                      fontFamily: toolState.fontFamily || "'Comic Neue', cursive",
+                      fontFamily: toolState.fontFamily || "Playpen Sans",
                       rotation: 0,
                       boxX: x,
                       boxY: y,
                       boxW: w,
-                      boxH: h
+                      boxH: h,
+                      outlineWidth: toolState.outlineWidth,
+                      outlineColor: safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000'
                     };
                   });
                   useCanvasStore.getState().setBubbles(tempBubbles);
@@ -361,6 +363,7 @@ export default function Workspace() {
                     const w = box.x2 - box.x1;
                     const h = box.y2 - box.y1;
  
+                    const safeColor = toolState.fontColor || "#000000";
                     return {
                       id: `bubble_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 9)}`,
                       x,
@@ -371,13 +374,14 @@ export default function Workspace() {
                       vietnamese: translations[index] || "",
                       japanese: detectedTexts[index] || "",
                       fontSize: toolState.fontSize || 20,
-                      fontColor: toolState.fontColor || "#000000",
-                      fontFamily: toolState.fontFamily || "'Comic Neue', cursive",
+                      fontFamily: toolState.fontFamily || "Playpen Sans",
                       rotation: 0,
                       boxX: x,
                       boxY: y,
                       boxW: w,
-                      boxH: h
+                      boxH: h,
+                      outlineWidth: toolState.outlineWidth,
+                      outlineColor: safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000'
                     };
                   });
  
@@ -634,6 +638,7 @@ export default function Workspace() {
 
           const toolState = useToolStore.getState();
 
+          const safeColor = b.fontColor || toolState.fontColor || "#000000";
           return {
             ...b,
             x,
@@ -644,14 +649,15 @@ export default function Workspace() {
             japanese: b.japanese || "",
             vietnamese: b.vietnamese || b.text || "",
             fontSize: b.fontSize || toolState.fontSize || 20,
-            fontColor: b.fontColor || toolState.fontColor || "#000000",
-            fontFamily: b.fontFamily || toolState.fontFamily || "'Comic Neue', cursive",
+            fontFamily: b.fontFamily || toolState.fontFamily || "Playpen Sans",
             rotation: b.rotation !== undefined ? b.rotation : 0,
             sfxClass: b.sfxClass || "",
             boxX: b.boxX !== undefined ? b.boxX : x,
             boxY: b.boxY !== undefined ? b.boxY : y,
             boxW: b.boxW !== undefined ? b.boxW : w,
             boxH: b.boxH !== undefined ? b.boxH : h,
+            outlineWidth: b.outlineWidth !== undefined ? b.outlineWidth : toolState.outlineWidth,
+            outlineColor: b.outlineColor || (safeColor.toLowerCase() === '#000000' ? '#ffffff' : '#000000')
           };
         });
         useCanvasStore.getState().setBubbles(loadedBubbles);

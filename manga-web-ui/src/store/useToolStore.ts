@@ -85,7 +85,7 @@ export const useToolStore = create<ToolState>((set) => ({
   setFontSize: (size) => set({ fontSize: Math.max(8, Math.min(size, 150)) }),
   fontColor: '#000000',
   setFontColor: (color) => set({ fontColor: color }),
-  fontFamily: "'Comic Neue', cursive",
+  fontFamily: "Playpen Sans",
   setFontFamily: (font) => set({ fontFamily: font }),
   textAlign: 'center',
   outlineWidth: 5,
