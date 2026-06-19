@@ -3104,9 +3104,10 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         print(f"❌ [WEBHOOK] Xác thực chữ ký thất bại: {e}")
         raise HTTPException(status_code=400, detail="Chữ ký không hợp lệ")
 
-    order_code = webhook_data.order_code
-    status = webhook_data.status
-    amount_paid = webhook_data.amount
+    # Trích xuất dữ liệu phòng thủ (cứu sinh nếu SDK thiếu trường hoặc sai map)
+    order_code = getattr(webhook_data, "order_code", None) or body.get("data", {}).get("orderCode")
+    status = getattr(webhook_data, "status", None) or body.get("data", {}).get("status")
+    amount_paid = getattr(webhook_data, "amount", None) or body.get("data", {}).get("amount")
     
     try:
         # Lớp 2: Kiểm tra Idempotency chống cộng đúp
