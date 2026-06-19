@@ -64,7 +64,7 @@ export const FloatingCanvasToolbar: React.FC = () => {
 
   const ToolButton = ({ mode, icon: Icon, label, shortLabel }: { mode: any, icon: any, label: string, shortLabel: string }) => {
     const isActive = activeMode === mode;
-    const isButtonLoading = mode === activeMode && isCurrentPageProcessing;
+    const isButtonLoading = mode === activeMode && (isCurrentPageProcessing || isProcessing);
     const CurrentIcon = isButtonLoading ? Loader2 : Icon;
 
     return (
@@ -84,13 +84,13 @@ export const FloatingCanvasToolbar: React.FC = () => {
         </div>
 
         <button
-          onClick={() => !isCurrentPageProcessing && setActiveMode(mode)}
-          disabled={isCurrentPageProcessing}
+          onClick={() => !(isCurrentPageProcessing || isProcessing) && setActiveMode(mode)}
+          disabled={isCurrentPageProcessing || isProcessing}
           className={`w-10 h-10 rounded-full transition-all duration-200 flex items-center justify-center relative
             ${isActive 
               ? 'bg-primary text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]' 
               : 'text-text-muted hover:bg-border hover:text-text-main'}
-            ${isCurrentPageProcessing && !isButtonLoading ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
+            ${(isCurrentPageProcessing || isProcessing) && !isButtonLoading ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
             ${isButtonLoading ? 'bg-amber-500 text-amber-950 animate-pulse border border-amber-400/30' : ''}
           `}
         >
@@ -137,20 +137,20 @@ export const FloatingCanvasToolbar: React.FC = () => {
           {activeMode === 'restore' && (
             <div className="flex items-center gap-1 bg-background/50 p-1 rounded-lg border border-border mr-1 shadow-inner">
               <button
-                disabled={isCurrentPageProcessing}
+                disabled={isCurrentPageProcessing || isProcessing}
                 onClick={() => restoreType !== 'raw' && toggleRestoreType()}
                 className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
                   restoreType === 'raw' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main hover:bg-border'
-                } ${isCurrentPageProcessing ? 'opacity-40 cursor-not-allowed' : ''}`}
+                } ${(isCurrentPageProcessing || isProcessing) ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
                 Bản Gốc
               </button>
               <button
-                disabled={isCurrentPageProcessing}
+                disabled={isCurrentPageProcessing || isProcessing}
                 onClick={() => restoreType !== 'clean' && toggleRestoreType()}
                 className={`px-3 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
                   restoreType === 'clean' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main hover:bg-border'
-                } ${isCurrentPageProcessing ? 'opacity-40 cursor-not-allowed' : ''}`}
+                } ${(isCurrentPageProcessing || isProcessing) ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
                 Bản Sạch
               </button>
@@ -159,7 +159,7 @@ export const FloatingCanvasToolbar: React.FC = () => {
 
           <div className="w-1.5 h-1.5 bg-text-muted rounded-full"></div>
           <input 
-            type="range" min="1" max="150" value={brushSize} disabled={isCurrentPageProcessing} onChange={(e) => setBrushSize(Number(e.target.value))}
+            type="range" min="1" max="150" value={brushSize} disabled={isCurrentPageProcessing || isProcessing} onChange={(e) => setBrushSize(Number(e.target.value))}
             className="w-32 h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-primary border border-border disabled:opacity-40 disabled:cursor-not-allowed"
           />
           <div className="w-3 h-3 bg-text-muted rounded-full"></div>
@@ -173,9 +173,9 @@ export const FloatingCanvasToolbar: React.FC = () => {
         <div className="flex items-center gap-1 mr-2 pr-2 border-r border-border">
           <button 
             onClick={handleUndo} 
-            disabled={isCurrentPageProcessing} 
+            disabled={isCurrentPageProcessing || isProcessing} 
             className={`w-10 h-10 rounded-full flex items-center justify-center text-text-muted transition-colors ${
-              isCurrentPageProcessing ? 'opacity-40 cursor-not-allowed' : 'hover:bg-border hover:text-text-main cursor-pointer'
+              (isCurrentPageProcessing || isProcessing) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-border hover:text-text-main cursor-pointer'
             }`} 
             title="Hoàn tác (Ctrl+Z)"
           >
@@ -183,9 +183,9 @@ export const FloatingCanvasToolbar: React.FC = () => {
           </button>
           <button 
             onClick={handleRedo} 
-            disabled={isCurrentPageProcessing} 
+            disabled={isCurrentPageProcessing || isProcessing} 
             className={`w-10 h-10 rounded-full flex items-center justify-center text-text-muted transition-colors ${
-              isCurrentPageProcessing ? 'opacity-40 cursor-not-allowed' : 'hover:bg-border hover:text-text-main cursor-pointer'
+              (isCurrentPageProcessing || isProcessing) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-border hover:text-text-main cursor-pointer'
             }`} 
             title="Làm lại (Ctrl+Y)"
           >
@@ -204,9 +204,9 @@ export const FloatingCanvasToolbar: React.FC = () => {
             </div>
             <button
               onClick={handleAddText}
-              disabled={isCurrentPageProcessing}
+              disabled={isCurrentPageProcessing || isProcessing}
               className={`w-10 h-10 rounded-full text-text-muted transition-colors duration-200 flex items-center justify-center relative ${
-                isCurrentPageProcessing ? 'opacity-40 cursor-not-allowed' : 'hover:bg-border hover:text-text-main cursor-pointer'
+                (isCurrentPageProcessing || isProcessing) ? 'opacity-40 cursor-not-allowed' : 'hover:bg-border hover:text-text-main cursor-pointer'
               }`}
             >
               <Type size={20} strokeWidth={2} />
@@ -230,12 +230,12 @@ export const FloatingCanvasToolbar: React.FC = () => {
             </div>
             <button
               onClick={toggleAiGuides}
-              disabled={isCurrentPageProcessing}
+              disabled={isCurrentPageProcessing || isProcessing}
               className={`w-10 h-10 rounded-full transition-colors duration-200 flex items-center justify-center relative
                 ${showAiGuides 
                   ? 'bg-red-500/10 text-red-500 border border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]' 
                   : 'text-text-muted hover:bg-border hover:text-text-main'}
-                ${isCurrentPageProcessing ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                ${(isCurrentPageProcessing || isProcessing) ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
             >
               <ScanLine size={20} strokeWidth={showAiGuides ? 2.5 : 2} className={showAiGuides ? "animate-pulse" : ""} />
             </button>
