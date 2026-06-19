@@ -1210,7 +1210,13 @@ async def quick_scan(
         
         async with httpx.AsyncClient() as client:
             res = await client.post(runpod_url, json={"input": {"action": "scan", "image_base64": crop_b64}}, headers=headers, timeout=10.0)
-            japanese_text = res.json().get('output', {}).get('text', '')
+            res.raise_for_status()
+            res_json = res.json()
+            output_data = res_json.get('output')
+            if isinstance(output_data, dict):
+                japanese_text = output_data.get('text', '')
+            else:
+                japanese_text = ''
 
         if not japanese_text: 
             return {
@@ -1287,7 +1293,15 @@ async def quick_scan(
             "charged_xu": cost
         }
         
+    except HTTPException as http_exc:
+        import traceback
+        traceback.print_exc()
+        print(f"❌ [LENS HTTP ERROR]: {http_exc.detail}", flush=True)
+        raise http_exc
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"❌ [LENS ERROR]: {str(e)}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
     
 class MaskPayload(BaseModel):
