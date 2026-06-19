@@ -359,7 +359,7 @@ export default function Sidebar() {
       const token = localStorage.getItem("token");
       // 🚀 Truyền danh sách ID đã chọn lên API (Backend có thể đọc query này để lọc file)
       const selectedIdsParam = Array.from(selectedPages).join(',');
-      const url = `${import.meta.env.VITE_API_URL}/projects/${projectStore.projectId}/export-batch?export_type=${type}&page_ids=${selectedIdsParam}`;
+      const url = `${API_URL}/projects/${projectStore.projectId}/export-batch?export_type=${type}&page_ids=${selectedIdsParam}`;
 
       const response = await fetch(url, {
         method: 'GET',
