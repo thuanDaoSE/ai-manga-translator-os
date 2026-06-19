@@ -41,11 +41,11 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   const user = useAuthStore((state) => state.user);
   const fetchProfile = useAuthStore((state) => state.fetchProfile);
   const [selectedAmount, setSelectedAmount] = useState<number>(50000);
-  const [customAmount, setCustomAmount] = useState<string>('');
   const [isPolicyOpen, setIsPolicyOpen] = useState(false);
   
   const [isLoading, setIsLoading] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [qrCode, setQrCode] = useState<string | null>(null);
   const [orderCode, setOrderCode] = useState<number | null>(null);
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -57,9 +57,9 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
     { value: 150000, label: '150.000đ', name: 'Studio' },
   ];
 
-  const finalAmount = customAmount ? parseInt(customAmount) || 0 : selectedAmount;
+  const finalAmount = selectedAmount;
   const { total: equivalentXu, bonus: bonusXu } = calculateXu(finalAmount);
-
+  
   // Clear polling on unmount or close
   const stopPolling = () => {
     if (pollIntervalRef.current) {
@@ -76,8 +76,8 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
     if (!isOpen) {
       stopPolling();
       setCheckoutUrl(null);
+      setQrCode(null);
       setOrderCode(null);
-      setCustomAmount('');
       setSelectedAmount(50000);
     }
   }, [isOpen]);
@@ -93,6 +93,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
       const data = await mangaApi.createPaymentLink(finalAmount);
       if (data.checkoutUrl && data.orderCode) {
         setCheckoutUrl(data.checkoutUrl);
+        setQrCode(data.qrCode || '');
         setOrderCode(data.orderCode);
         toast.success(t('paywall.qrSuccess'), { id: toastId });
         
@@ -163,14 +164,13 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                 <div className="grid grid-cols-2 gap-3">
                   {predefinedAmounts.map((pkg) => {
                     const { total, bonus, percent } = calculateXu(pkg.value);
-                    const isSelected = selectedAmount === pkg.value && !customAmount;
+                    const isSelected = selectedAmount === pkg.value;
                     return (
                       <button
                         key={pkg.value}
                         type="button"
                         onClick={() => {
                           setSelectedAmount(pkg.value);
-                          setCustomAmount('');
                         }}
                         className={`p-4 rounded-2xl border text-left flex flex-col justify-between transition-all relative overflow-hidden cursor-pointer ${
                           isSelected
@@ -202,52 +202,6 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                   })}
                 </div>
               </div>
-
-              {/* Nhập số tiền tùy chỉnh */}
-              <div className="space-y-2">
-                <label htmlFor="custom-amount-input" className="text-xs font-bold text-gray-400 uppercase tracking-wider block">
-                  {t('paywall.customAmountLabel')}
-                </label>
-                <div className="relative">
-                  <input
-                    id="custom-amount-input"
-                    type="text"
-                    inputMode="numeric"
-                    value={customAmount}
-                    onChange={(e) => {
-                      const cleanVal = e.target.value.replace(/\D/g, '');
-                      setCustomAmount(cleanVal);
-                      setSelectedAmount(0);
-                    }}
-                    placeholder={t('paywall.customAmountInputPlaceholder')}
-                    className="w-full px-4 py-3.5 bg-neutral-900 border border-gray-800 rounded-xl focus:outline-none focus:border-indigo-500 text-sm font-semibold text-white placeholder-gray-600 transition-all"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-500">
-                    VNĐ
-                  </span>
-                </div>
-                {finalAmount > 0 && (
-                  <div className="flex flex-col gap-1 px-1">
-                    <div className="text-[11px] text-yellow-500 font-bold flex items-center gap-1.5">
-                      <Sparkles size={12} className="text-yellow-400 shrink-0 animate-pulse" />
-                      <span>
-                        {bonusXu > 0 
-                          ? t('paywall.willReceiveWithBonus', { total: equivalentXu, bonus: bonusXu })
-                          : `${t('paywall.willReceive', { count: equivalentXu })} ${t('paywall.rateNotice')}`}
-                      </span>
-                    </div>
-                    <p className="text-xs text-yellow-500 font-semibold mt-1">
-                      💡 Tương đương: ~{Math.floor(equivalentXu / 2)} trang Dịch Nhanh HOÀC ~{Math.floor(equivalentXu / 8)} trang Dịch AI (Grok/GPT)
-                    </p>
-                  </div>
-                )}
-                {finalAmount < 25000 && finalAmount > 0 && (
-                  <div className="text-[11px] text-red-400 font-bold flex items-center gap-1.5 px-1">
-                    <AlertCircle size={12} className="text-red-400 shrink-0 animate-pulse" />
-                    <span>{t('paywall.minRechargeWarning')}</span>
-                  </div>
-                )}
-              </div>
             </>
           ) : (
             // BƯỚC 2: HIỂN THỊ VIETQR VÀ MÃ THANH TOÁN
@@ -263,7 +217,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
               {/* Render QR code */}
               <div className="relative p-4 bg-white rounded-2xl shadow-xl flex items-center justify-center border border-gray-100">
                 <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(checkoutUrl)}`} 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrCode || checkoutUrl || '')}`} 
                   alt="VietQR Code" 
                   className="w-[200px] h-[200px] block"
                 />
@@ -271,7 +225,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
 
               <div className="flex flex-col gap-2.5 w-full">
                 <a 
-                  href={checkoutUrl}
+                  href={checkoutUrl || ''}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-[0.98] shadow-md shadow-indigo-600/10"
