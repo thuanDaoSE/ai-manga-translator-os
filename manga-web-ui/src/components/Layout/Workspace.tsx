@@ -1276,18 +1276,18 @@ export default function Workspace() {
 
           {actionPosition && activeMode === 'erase' && (
             <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-1.5 p-1.5 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto">
-              <button onClick={() => handleFillColor('white')} disabled={isCurrentPageProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-white text-black hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer shadow-sm">⬜ Trắng</button>
-              <button onClick={() => handleFillColor('black')} disabled={isCurrentPageProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-50 transition-colors cursor-pointer border border-white/10 shadow-sm">⬛ Đen</button>
+              <button onClick={() => handleFillColor('white')} disabled={isCurrentPageProcessing || isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-white text-black hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer shadow-sm">⬜ Trắng</button>
+              <button onClick={() => handleFillColor('black')} disabled={isCurrentPageProcessing || isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-50 transition-colors cursor-pointer border border-white/10 shadow-sm">⬛ Đen</button>
               <div className="w-px h-8 bg-border mx-1"></div>
               <button 
                 onClick={handleErase} 
-                disabled={isCurrentPageProcessing} 
+                disabled={isCurrentPageProcessing || isProcessing} 
                 className={`relative flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm
-                  ${!isCurrentPageProcessing ? 'pl-4 pr-12' : 'px-4'}`}
+                  ${!(isCurrentPageProcessing || isProcessing) ? 'pl-4 pr-12' : 'px-4'}`}
               >
-                {isCurrentPageProcessing ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
-                <span>{isCurrentPageProcessing ? dynamicLoadingText : "✨ Xóa nền thông minh"}</span>
-                {!isCurrentPageProcessing && (
+                {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
+                <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa nền thông minh"}</span>
+                {!(isCurrentPageProcessing || isProcessing) && (
                   <span className="absolute right-3 inline-flex items-center bg-primary/10 group-hover:bg-black/20 px-1.5 py-0.5 rounded-md text-primary group-hover:text-white text-[10px] font-black transition-all">
                     1<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-primary fill-primary group-hover:text-white group-hover:fill-white transition-all shrink-0" />
                   </span>
