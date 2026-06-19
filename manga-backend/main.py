@@ -2594,6 +2594,7 @@ async def retry_text_translation(
         if not page.bubbles_data or page.bubbles_data == "[]":
             raise HTTPException(status_code=400, detail="Trang này không phát hiện được chữ nào! Sếp hãy bấm nút [Quét lại ảnh] hình cây đũa phép ở góc phải nhé.")
 
+        extracted_data = json.loads(page.bubbles_data)
         ocr_batch_payload = []
         for item in extracted_data:
             jap_text = item.get("japanese", "").strip()
