@@ -3105,7 +3105,7 @@ async def get_payment_status(order_code: int, db: AsyncSession = Depends(get_db)
 
         # 2. Nếu vẫn là PENDING, gọi trực tiếp API PayOS để đối soát thời gian thực (Cứu sinh khi Webhook sập)
         try:
-            payment_info = payos_client.payment_requests.get_payment_link_information(order_code)
+            payment_info = payos_client.payment_requests.get(order_code)
             real_status = payment_info.status # "PAID", "PENDING", "CANCELLED"
             
             if real_status == "PAID" and txn.status == "PENDING":
