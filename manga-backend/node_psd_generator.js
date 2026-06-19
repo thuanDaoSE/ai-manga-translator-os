@@ -187,7 +187,7 @@ async function createPsd() {
                 showInDialog: true
             }];
         } else {
-            if (newLayer.effects) newLayer.effects.stroke = undefined;
+            if (newLayer.effects) delete newLayer.effects.stroke;
         }
 
         textLayers.push(newLayer);
