@@ -101,17 +101,22 @@ export default function WelcomeScreen() {
             <ul className="list-disc pl-4 space-y-1.5 text-gray-400 text-[10px]">
               <li>
                 <Trans i18nKey="paywall.disclaimerItem1">
-                  (1) Mọi nội dung tải lên đều thuộc <strong>quyền sở hữu/sử dụng hợp pháp</strong> của tôi.
+                  (1) <strong>Trách nhiệm của bạn:</strong> Tôi xác nhận có quyền sử dụng hợp pháp đối với các hình ảnh tải lên. Deepkoma được miễn trừ mọi rắc rối về tranh chấp bản quyền bên thứ ba.
                 </Trans>
               </li>
               <li>
                 <Trans i18nKey="paywall.disclaimerItem2">
-                  (2) Tôi hoàn toàn <strong>tự chịu trách nhiệm trước pháp luật Việt Nam</strong>.
+                  (2) <strong>Cam kết của Deepkoma:</strong> Chúng tôi KHÔNG lưu trữ vĩnh viễn, KHÔNG tuyên bố sở hữu và KHÔNG phân phối lại dữ liệu của bạn. Mọi tệp tin sẽ bị xóa tự động sau <strong>2</strong> giờ để bảo vệ quyền riêng tư tuyệt đối.
                 </Trans>
               </li>
               <li>
                 <Trans i18nKey="paywall.disclaimerItem3">
-                  (3) Nghiêm cấm sử dụng để xử lý ảnh/truyện <strong>đồi trụy (18+), phản động</strong>. Hệ thống sẽ tự động xóa dữ liệu sau 6 giờ.
+                  (3) Tôi hoàn toàn <strong>tự chịu trách nhiệm trước pháp luật Việt Nam</strong>.
+                </Trans>
+              </li>
+              <li>
+                <Trans i18nKey="paywall.disclaimerItem4">
+                  (4) Nghiêm cấm sử dụng để xử lý ảnh/truyện <strong>đồi trụy (18+), phản động</strong>. Hệ thống sẽ tự động xóa dữ liệu sau <strong>2</strong> giờ.
                 </Trans>
               </li>
             </ul>
