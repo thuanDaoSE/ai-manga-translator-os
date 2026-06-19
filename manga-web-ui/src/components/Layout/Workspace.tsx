@@ -990,7 +990,6 @@ export default function Workspace() {
     isEraseProcessingRef.current = true;
     setIsProcessing(true);
     setActionPosition(null);
-    const toastId = toast.loading("Bắt đầu xử lý xóa nền thông minh...");
     try {
       const maskBase64 = drawCanvas.toDataURL("image/png");
       const pageId = projectStore.pageIds[currentIndex];
@@ -1011,7 +1010,7 @@ export default function Workspace() {
       projectStore.setProcessedUrl(currentIndex, newUrl);
 
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-      toast.success("Đã xóa nền thông minh thành công!", { id: toastId });
+      toast.success("Đã xóa nền thông minh thành công!");
       
       const posthog = (window as any).posthog;
       if (posthog) {
@@ -1023,7 +1022,7 @@ export default function Workspace() {
 
       setActiveMode("none");
     } catch (e: any) { 
-      toast.error(e.message || "Xử lý xóa nền thất bại!", { id: toastId }); 
+      toast.error(e.message || "Xử lý xóa nền thất bại!"); 
     } finally { 
       isEraseProcessingRef.current = false;
       setIsProcessing(false); 
