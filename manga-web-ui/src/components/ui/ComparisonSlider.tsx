@@ -59,19 +59,29 @@ export const ComparisonSlider: React.FC = () => {
         }
       }}
     >
-      {/* Base Layer: Raw Japanese Manga Visualization */}
-      <div className="absolute inset-0 bg-neutral-950 bg-[url('/raw_manga.png')] bg-cover bg-center pointer-events-none">
-        <span className="absolute top-4 right-4 bg-black/80 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white/95 border border-white/10 tracking-wider">
+      {/* Base Layer: Raw Japanese Manga (Always occupies full space at the bottom) */}
+      <div className="absolute inset-0 pointer-events-none">
+        <img
+          src="/000_test3_RAW.jpg"
+          alt="Raw Japanese Manga"
+          className="w-full h-full object-cover"
+        />
+        <span className="absolute top-4 right-4 bg-black/80 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white/95 border border-white/10 tracking-wider z-10">
           {t('landing.rawMangaLabel')}
         </span>
       </div>
 
-      {/* Dynamic Overlay Layer: Translated & Typeset Vietnamese Visualization */}
+      {/* Dynamic Overlay Layer: Translated Vietnamese (Always occupies full space, but cropped by clipPath) */}
       <div
-        className="absolute inset-0 bg-neutral-950 overflow-hidden bg-[url('/translated_manga.png')] bg-cover bg-center pointer-events-none"
-        style={{ width: `${sliderPosition}%` }}
+        className="absolute inset-0 pointer-events-none"
+        style={{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }}
       >
-        <span className="absolute top-4 left-4 bg-indigo-600/95 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white whitespace-nowrap border border-indigo-400/30 tracking-wider">
+        <img
+          src="/deepkoma-1781828133102.jpg"
+          alt="Translated Vietnamese Manga"
+          className="w-full h-full object-cover"
+        />
+        <span className="absolute top-4 left-4 bg-indigo-600/95 backdrop-blur-md px-4 py-1.5 rounded-full text-xs font-semibold text-white whitespace-nowrap border border-indigo-400/30 tracking-wider z-10">
           {t('landing.translatedMangaLabel')}
         </span>
       </div>
