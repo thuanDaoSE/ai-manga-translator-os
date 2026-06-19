@@ -3023,15 +3023,27 @@ async def create_payment_link(
     
         order_code = int(time.time() * 1000)
         
-        # Cấu hình domain động từ backend base_url thay vì localhost cố định
-        base_url = get_base_url().rstrip('/')
-        forwarded_proto = request.headers.get("x-forwarded-proto") or request.headers.get("X-Forwarded-Proto")
-        if "deepkoma.pro" in base_url or forwarded_proto == "https":
-            if base_url.startswith("http://"):
-                base_url = "https://" + base_url[7:]
+        # Lấy Origin hoặc Referer của frontend gửi yêu cầu để chuyển hướng chính xác về Frontend
+        origin = request.headers.get("origin")
+        if not origin:
+            referer = request.headers.get("referer")
+            if referer:
+                parts = referer.split("/")
+                if len(parts) >= 3:
+                    origin = parts[0] + "//" + parts[2]
+        
+        # Nếu không lấy được từ header, tự động chuyển đổi từ backend base_url (bỏ cổng 8000 của backend)
+        if not origin:
+            origin = get_base_url().rstrip('/')
+            if ":8000" in origin:
+                origin = origin.replace(":8000", "")
                 
-        cancel_url = f"{base_url}/workspace?payment=failed"
-        return_url = f"{base_url}/workspace?payment=success"
+        # Chuẩn hóa HTTPS cho môi trường production
+        if "deepkoma.pro" in origin and origin.startswith("http://"):
+            origin = "https://" + origin[7:]
+            
+        cancel_url = f"{origin}/workspace?payment=failed"
+        return_url = f"{origin}/workspace?payment=success"
         
         payment_request = CreatePaymentLinkRequest(
             order_code=order_code,
@@ -3079,12 +3091,82 @@ async def create_payment_link(
 @app.get("/api/payments/status/{order_code}")
 @app.get("/api/payment/status/{order_code}")
 async def get_payment_status(order_code: int, db: AsyncSession = Depends(get_db)):
-    stmt = select(Transaction).where(Transaction.order_code == order_code)
-    res = await db.execute(stmt)
-    txn = res.scalar_one_or_none()
-    if not txn:
-        raise HTTPException(status_code=404, detail="Giao dịch không tồn tại")
-    return {"status": txn.status}
+    try:
+        # 1. Tìm giao dịch trong DB cục bộ và khóa dòng bằng with_for_update() để an toàn giao dịch
+        stmt = select(Transaction).where(Transaction.order_code == order_code).with_for_update()
+        res = await db.execute(stmt)
+        txn = res.scalar_one_or_none()
+        if not txn:
+            raise HTTPException(status_code=404, detail="Giao dịch không tồn tại")
+            
+        # Nếu đã ở trạng thái PAID hoặc CANCELLED trong DB, trả về luôn để tránh gọi API ngoài phí phạm
+        if txn.status in ["PAID", "CANCELLED"]:
+            return {"status": txn.status}
+
+        # 2. Nếu vẫn là PENDING, gọi trực tiếp API PayOS để đối soát thời gian thực (Cứu sinh khi Webhook sập)
+        try:
+            payment_info = payos_client.payment_requests.get_payment_link_information(order_code)
+            real_status = payment_info.status # "PAID", "PENDING", "CANCELLED"
+            
+            if real_status == "PAID" and txn.status == "PENDING":
+                # Kích hoạt cộng tiền thủ công (Copy nguyên mẫu logic cộng tiền của Webhook nhưng bảo vệ 2 lớp)
+                txn.status = "PAID"
+                
+                # Khóa dòng User để cộng tiền an toàn
+                stmt_user = select(User).where(User.id == txn.user_id).with_for_update()
+                user_res = await db.execute(stmt_user)
+                user = user_res.scalar_one_or_none()
+                
+                if user:
+                    # Tính toán lượng xu cần cộng
+                    credits_to_add = txn.credits_added if txn.credits_added else calculate_credits(txn.amount)
+                    user.credits += credits_to_add
+                    
+                    # Ghi lịch sử biến động số dư
+                    new_hist = UserTransaction(
+                        user_id=user.id,
+                        amount=credits_to_add,
+                        type="TOPUP",
+                        description=f"Nạp {credits_to_add} Xu qua cổng PayOS (Số tiền: {txn.amount:,}đ - Polling)",
+                        order_code=order_code
+                    )
+                    db.add(new_hist)
+                    
+                    # Ghi nhận lịch sử biến động số dư mới (CreditLog)
+                    await log_credit_transaction(
+                        user_id=user.id,
+                        amount=credits_to_add,
+                        action_type="DEPOSIT",
+                        description=f"Nạp {credits_to_add} Xu qua cổng PayOS (Số tiền: {txn.amount:,}đ - Polling)",
+                        db=db
+                    )
+                    
+                    await db.commit()
+                    print(f"💰 [POLLING] TING TING! Đã cộng {credits_to_add} Xu cho user {user.id} (Order: {order_code})")
+                else:
+                    await db.commit()
+            elif real_status == "CANCELLED" and txn.status == "PENDING":
+                txn.status = "CANCELLED"
+                await db.commit()
+                print(f"❌ [POLLING] Giao dịch {order_code} đã bị HỦY từ cổng PayOS")
+            else:
+                # Nếu PayOS vẫn trả về PENDING, hoặc trạng thái khác, ta giữ nguyên và commit nhẹ nhàng
+                await db.commit()
+                
+        except Exception as payos_err:
+            # Nếu gọi PayOS bị lỗi, ghi log và commit db hiện tại
+            await db.commit()
+            print(f"⚠️ [POLLING ERROR] Không thể lấy thông tin từ PayOS cho đơn {order_code}: {payos_err}")
+
+        # Trả về trạng thái cập nhật mới nhất
+        return {"status": txn.status}
+
+    except Exception as e:
+        await db.rollback()
+        if isinstance(e, HTTPException):
+            raise e
+        print(f"❌ [STATUS POLLING ERROR]: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
 # API 2: WEBHOOK LẮNG NGHE TIỀN VỀ (BẢO VỆ 2 LỚP)
