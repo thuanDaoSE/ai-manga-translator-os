@@ -490,6 +490,21 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
   // ===============================
   const containerRef = useRef<HTMLDivElement>(null);
   const [effectiveId, setEffectiveId] = useState(activeId);
+  const [customFontsList, setCustomFontsList] = useState<string[]>([]);
+  const fontInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchCustomFonts = useCallback(async () => {
+    try {
+      const data = await mangaApi.getFonts();
+      setCustomFontsList(data.fonts || []);
+    } catch (e) {
+      console.error("Failed to load custom fonts list", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCustomFonts();
+  }, [fetchCustomFonts]);
 
   useEffect(() => {
     if (activeId) {
@@ -552,6 +567,49 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
           updateBubble(bubble.id, { [key]: value }, true);
         });
       }
+    }
+  };
+
+  const handleFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.ttf') && !file.name.toLowerCase().endsWith('.otf')) {
+      toast.error(t('rightSidebar.fontFormatError', 'Chỉ hỗ trợ file .ttf hoặc .otf'));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error(t('rightSidebar.fontSizeError', 'Dung lượng file tối đa là 5MB'));
+      return;
+    }
+
+    const loadId = toast.loading(t('rightSidebar.uploadingFont', 'Đang tải font lên...'));
+    try {
+      const res = await mangaApi.uploadFont(file);
+      if (res.status === 'success') {
+        toast.success(t('rightSidebar.uploadFontSuccess', 'Tải font lên thành công!'), { id: loadId });
+        
+        const fontName = res.filename;
+        const familyName = fontName.replace(/\.[^/.]+$/, "");
+        const fontUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/fonts/${fontName}`;
+        
+        const newFont = new FontFace(familyName, `url(${fontUrl})`);
+        try {
+          const loadedFace = await newFont.load();
+          (document.fonts as any).add(loadedFace);
+          handleUpdate('fontFamily', familyName);
+        } catch (fontErr) {
+          console.error("Lỗi khi load Font mới tải lên:", fontErr);
+        }
+
+        fetchCustomFonts();
+      } else {
+        toast.error(t('rightSidebar.uploadFontError', 'Tải font thất bại'), { id: loadId });
+      }
+    } catch (err: any) {
+      toast.error(err.message || t('rightSidebar.uploadFontError', 'Tải font thất bại'), { id: loadId });
+    } finally {
+      if (fontInputRef.current) fontInputRef.current.value = "";
     }
   };
 
@@ -819,31 +877,61 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
           <SectionHeader title={t('rightSidebar.typographyTitle')} />
 
           <div className="space-y-2">
-            {/* Dropdown Chọn Font */}
-            {/* Dropdown Chọn Font (Phân nhóm chuyên nghiệp) */}
-            <div className="relative group">
-              <select
-                value={currentFontFamily}
-                onChange={(e) => handleUpdate('fontFamily', e.target.value)}
-                className="w-full appearance-none bg-background border border-border rounded-lg py-2 pl-3 pr-8 text-[12px] font-bold text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all shadow-sm cursor-pointer"
+            {/* Dropdown Chọn Font & Nút Tải Font */}
+            <div className="flex gap-2">
+              <div className="relative flex-1 group">
+                <select
+                  value={currentFontFamily}
+                  onChange={(e) => handleUpdate('fontFamily', e.target.value)}
+                  className="w-full appearance-none bg-background border border-border rounded-lg py-2 pl-3 pr-8 text-[12px] font-bold text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all shadow-sm cursor-pointer"
+                >
+                  <optgroup label={t('rightSidebar.fontGroupDialogue')}>
+                    <option value="Playpen Sans">Playpen Sans</option>
+                    <option value="Itim">Itim</option>
+                    <option value="Be Vietnam Pro">Be Vietnam Pro</option>
+                  </optgroup>
+                  <optgroup label={t('rightSidebar.fontGroupMonologue')}>
+                    <option value="Patrick Hand">Patrick Hand</option>
+                    <option value="Playwrite VN">Playwrite VN</option>
+                    <option value="Caveat">Caveat</option>
+                  </optgroup>
+                  <optgroup label={t('rightSidebar.fontGroupShouting')}>
+                    <option value="Bangers">Bangers</option>
+                    <option value="Bungee">Bungee</option>
+                    <option value="Sedgwick Ave Display">Sedgwick Ave Display</option>
+                  </optgroup>
+                  {customFontsList.length > 0 && (
+                    <optgroup label={t('rightSidebar.fontGroupCustom', 'Font Đã Tải Lên')}>
+                      {customFontsList.map(fontName => {
+                        const familyName = fontName.replace(/\.[^/.]+$/, "");
+                        return (
+                          <option key={fontName} value={familyName}>
+                            {familyName}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />
+              </div>
+
+              {/* Nút Upload Font */}
+              <button
+                type="button"
+                onClick={() => fontInputRef.current?.click()}
+                className="p-2 bg-background border border-border rounded-lg text-text-muted hover:text-primary hover:border-primary/30 flex items-center justify-center transition-all cursor-pointer shadow-sm shrink-0 hover:scale-105 active:scale-95"
+                title={t('rightSidebar.uploadFontTooltip', 'Tải lên Font chữ mới (.ttf, .otf)')}
               >
-                <optgroup label={t('rightSidebar.fontGroupDialogue')}>
-                  <option value="Playpen Sans">Playpen Sans</option>
-                  <option value="Itim">Itim</option>
-                  <option value="Be Vietnam Pro">Be Vietnam Pro</option>
-                </optgroup>
-                <optgroup label={t('rightSidebar.fontGroupMonologue')}>
-                  <option value="Patrick Hand">Patrick Hand</option>
-                  <option value="Playwrite VN">Playwrite VN</option>
-                  <option value="Caveat">Caveat</option>
-                </optgroup>
-                <optgroup label={t('rightSidebar.fontGroupShouting')}>
-                  <option value="Bangers">Bangers</option>
-                  <option value="Bungee">Bungee</option>
-                  <option value="Sedgwick Ave Display">Sedgwick Ave Display</option>
-                </optgroup>
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />
+                <Upload className="w-4 h-4" />
+              </button>
+              <input
+                ref={fontInputRef}
+                type="file"
+                accept=".ttf,.otf"
+                className="hidden"
+                onChange={handleFontUpload}
+              />
             </div>
 
             {/* Dãy nút Căn lề & Kích thước */}
