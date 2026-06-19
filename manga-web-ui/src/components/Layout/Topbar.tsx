@@ -3,7 +3,7 @@ import { toJpeg } from "html-to-image";
 import {
   CloudCheck, Download, Zap, User, Settings, LogOut, ChevronDown,
   Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages,
-  FileText, Globe
+  FileText, Globe, Image
 } from "lucide-react";
 import toast from 'react-hot-toast';
 import { useConfigStore } from "../../store/useConfigStore";
@@ -181,6 +181,59 @@ export default function Topbar() {
     setIsExporting(false);
   };
 
+  const handleExportCleanImage = async () => {
+    const idx = projectStore.currentIndex;
+    if (idx === -1) return toast.error("Chưa có trang truyện nào được chọn!");
+    setIsExporting(true);
+    setIsExportMenuOpen(false);
+    const loadId = toast.loading("Đang xuất ảnh Clean...");
+
+    try {
+      const pageId = projectStore.pageIds[idx];
+      const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
+      const serverRawUrl = pageId
+        ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+        : null;
+      const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
+      if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
+
+      // Tải ảnh chính vào Image
+      const loadImg = (src: string): Promise<HTMLImageElement> =>
+        new Promise((res, rej) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => res(img);
+          img.onerror = () => rej(new Error('Không tải được ảnh.'));
+          img.src = src;
+        });
+
+      const baseImg = await loadImg(displayUrl);
+      const w = baseImg.naturalWidth;
+      const h = baseImg.naturalHeight;
+
+      // Tạo canvas tổng hợp
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = w;
+      exportCanvas.height = h;
+      const ctx = exportCanvas.getContext('2d')!;
+
+      // Chỉ vẽ ảnh nền (đây là ảnh đã inpaint/sạch chữ)
+      ctx.drawImage(baseImg, 0, 0, w, h);
+
+      // Xuất JPEG
+      exportCanvas.toBlob((blob) => {
+        if (!blob) throw new Error('Không tạo được file ảnh.');
+        saveAs(blob, `deepkoma-clean-${Date.now()}.jpg`);
+        toast.success('Xuất ảnh sạch thành công!', { id: loadId });
+        setIsExporting(false);
+      }, 'image/jpeg', 0.95);
+      return;
+    } catch (e: any) {
+      toast.error(e.message || 'Lỗi khi xuất ảnh!', { id: loadId });
+    }
+    setIsExporting(false);
+  };
+
   const handleExportPSD = async () => {
     const pageId = projectStore.pageIds[projectStore.currentIndex];
     if (!pageId) return toast.error("Chưa có trang truyện nào được chọn!");
@@ -300,6 +353,7 @@ export default function Topbar() {
           {isExportMenuOpen && (
             <div className="absolute top-[calc(100%+8px)] right-0 w-52 bg-panel border border-border rounded-xl shadow-2xl overflow-hidden py-1 animate-in fade-in slide-in-from-top-2" style={{ zIndex: 99999 }}>
               <button onClick={handleExportImage} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors cursor-pointer"><ImageDown size={14} className="text-emerald-500" /> {t('sidebar.exportJpg')}</button>
+              <button onClick={handleExportCleanImage} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors cursor-pointer border-t border-border/50"><Image size={14} className="text-sky-500" /> {t('sidebar.exportCleanJpg', 'Tải ảnh Clean (Đã xóa chữ)')}</button>
               <button onClick={handleExportPSD} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors border-y border-border/50 cursor-pointer"><Palette size={14} className="text-indigo-500" /> {t('sidebar.exportPsd')}</button>
               <button onClick={handleExportText} className="w-full flex items-center gap-3 px-4 py-2.5 text-[12px] font-semibold text-text-main hover:bg-background transition-colors cursor-pointer"><FileText size={14} className="text-amber-500" /> {t('sidebar.exportText')}</button>
             </div>
