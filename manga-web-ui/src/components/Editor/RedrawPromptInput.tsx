@@ -129,17 +129,25 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
     if (isTranslating || isProcessing) return;
 
     setIsTranslating(true);
+    let promptResult = null;
     try {
-      const result = await mangaApi.processRedrawPrompt(vietnameseText, selectedTags, mode);
-      await onSubmit({
-        positive: result.finalPositivePrompt,
-        negative: result.finalNegativePrompt
-      });
+      promptResult = await mangaApi.processRedrawPrompt(vietnameseText, selectedTags, mode);
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || t('redrawInput.failedToTranslate'));
-    } finally {
       setIsTranslating(false);
+      return;
+    }
+
+    setIsTranslating(false);
+
+    try {
+      await onSubmit({
+        positive: promptResult.finalPositivePrompt,
+        negative: promptResult.finalNegativePrompt
+      });
+    } catch (err: any) {
+      console.error(err);
     }
   };
 
