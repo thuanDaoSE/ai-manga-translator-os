@@ -571,7 +571,7 @@ export default function Workspace() {
       // Xóa URL param cho sạch đẹp
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (paymentStatus === 'failed') {
-      toast.error('❌ Giao dịch đã bị hủy hoặc thất bại.');
+      toast.error('Giao dịch đã bị hủy hoặc thất bại.');
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);

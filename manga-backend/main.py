@@ -618,12 +618,15 @@ async def get_current_user_id(request: Request):
     else:
         token = request.query_params.get("token")
 
-    if not token:
+    if not token or token == "null" or token == "undefined":
         raise HTTPException(status_code=401, detail="Bạn chưa đăng nhập!")
 
     try:
         # JWT có 3 phần (Header, Payload, Signature) cách nhau bởi dấu chấm. Ta lấy phần giữa (Payload).
-        payload_b64 = token.split(".")[1]
+        parts = token.split(".")
+        if len(parts) < 3:
+            raise HTTPException(status_code=401, detail="Token không đúng định dạng JWT!")
+        payload_b64 = parts[1]
 
         # Thêm các dấu "=" vào cuối để chuẩn hóa định dạng Base64 nếu bị thiếu padding
         payload_b64 += "=" * ((4 - len(payload_b64) % 4) % 4)

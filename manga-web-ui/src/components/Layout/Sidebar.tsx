@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search } from 'lucide-react';
+import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search, Zap } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
@@ -14,11 +14,6 @@ import toast from 'react-hot-toast';
 import { mangaApi } from '../../services/api';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
-const BoltIcon = ({ className = "w-3 h-3 text-amber-500 fill-current" }: { className?: string }) => (
-  <svg className={`${className} inline-block align-middle`} viewBox="-11 0 32 32" xmlns="http://www.w3.org/2000/svg">
-    <path d="M1.84 26.24c-0.080 0-0.16 0-0.24-0.040-0.4-0.12-0.64-0.52-0.56-0.92l1.32-9.16h-1.52c-0.24 0-0.52-0.12-0.68-0.32s-0.2-0.48-0.16-0.72l2.32-8.68c0.080-0.36 0.44-0.64 0.8-0.64h5.56c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-2.6 5.12h1.24c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-6.24 12.48c-0.12 0.28-0.44 0.48-0.76 0.48zM1.92 14.44h1.4c0.24 0 0.48 0.12 0.64 0.28 0.16 0.2 0.24 0.44 0.2 0.68l-0.72 4.92 3.28-6.56h-1.24c-0.28 0-0.56-0.16-0.72-0.4s-0.16-0.56-0.040-0.8l2.6-5.12h-3.56l-1.84 7z"></path>
-  </svg>
-);
 
 // =========================================
 // 1. COMPONENT CON: THẺ TRANG TRUYỆN (UI NÂNG CẤP)
@@ -172,7 +167,7 @@ function SortableItem({
                   <span>{t('canvas.translateAction', 'Dịch')}</span>
                 </button>
                 <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                  1<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 fill-amber-400 shrink-0" />
+                  1<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
                 </span>
               </div>
             )}
@@ -197,7 +192,7 @@ function SortableItem({
                   )}
                 </button>
                 <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                  1<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 fill-amber-400 shrink-0" />
+                  1<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
                 </span>
               </div>
             )}
@@ -214,7 +209,7 @@ function SortableItem({
                   <span>Dịch lại</span>
                 </button>
                 <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                  1<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 fill-amber-400 shrink-0" />
+                  1<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
                 </span>
               </div>
             )}
@@ -356,10 +351,10 @@ export default function Sidebar() {
     const loadingToast = toast.loading(`📦 Đang đóng gói ${selectedPages.size} file ${type.toUpperCase()}...`);
 
     try {
-      const token = localStorage.getItem("token");
+      const token = useAuthStore.getState().session?.access_token || "";
       // 🚀 Truyền danh sách ID đã chọn lên API (Backend có thể đọc query này để lọc file)
       const selectedIdsParam = Array.from(selectedPages).join(',');
-      const url = `${API_URL}/projects/${projectStore.projectId}/export-batch?export_type=${type}&page_ids=${selectedIdsParam}`;
+      const url = `${import.meta.env.VITE_API_URL}/api/projects/${projectStore.projectId}/export-batch?export_type=${type}&page_ids=${selectedIdsParam}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -378,10 +373,10 @@ export default function Sidebar() {
       a.remove();
       window.URL.revokeObjectURL(objectUrl);
 
-      toast.success("✅ Tải file thành công!", { id: loadingToast });
+      toast.success("Tải file thành công!", { id: loadingToast });
       clearSelection(); // Reset UI sau khi tải xong
     } catch (error: any) {
-      toast.error(`❌ Tải thất bại: ${error.message}`, { id: loadingToast });
+      toast.error(`Tải thất bại: ${error.message}`, { id: loadingToast });
     }
   };
 
@@ -1237,7 +1232,7 @@ export default function Sidebar() {
             </span>
             {hasUnprocessed && !isAnyProcessingOrWaiting && (
               <span className="absolute right-3 inline-flex items-center bg-black/20 px-1.5 py-0.5 rounded-md text-white/90 text-[10px] font-black whitespace-nowrap">
-                {visibleFiles.filter(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error').length * modeCost}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white/90 fill-white/90 shrink-0" />
+                {visibleFiles.filter(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error').length * modeCost}<Zap size={10} className="fill-white/90 text-white/90 shrink-0 ml-[1px]" />
               </span>
             )}
           </button>
@@ -1304,8 +1299,8 @@ export default function Sidebar() {
                 <>
                   <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size}</span>
                   {totalCost > 0 && (
-                    <span className="absolute right-3 inline-flex items-center bg-white/20 px-1.5 py-0.5 rounded-md text-black text-[10px] font-black whitespace-nowrap">
-                      {totalCost}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-black fill-black shrink-0" />
+                    <span className="absolute right-3 inline-flex items-center bg-black/10 px-1.5 py-0.5 rounded-md text-black text-[10px] font-black whitespace-nowrap">
+                      {totalCost}<Zap size={10} className="fill-black text-black shrink-0 ml-[1px]" />
                     </span>
                   )}
                 </>

@@ -213,7 +213,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem("token")}`
+          'Authorization': `Bearer ${useAuthStore.getState().session?.access_token || ""}`
         },
         body: JSON.stringify({ local_prompt: localPrompt })
       });
