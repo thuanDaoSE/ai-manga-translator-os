@@ -1244,7 +1244,10 @@ async def quick_scan(
             f"Văn phong: {payload.tone}\n"
             f"Xưng hô: {payload.pronouns}\n"
             f"{f'TỪ ĐIỂN: {payload.glossary}' if payload.glossary else ''}\n\n"
-            f"Yêu cầu: Giữ nguyên văn phong truyện tranh tự nhiên. "
+            f"Yêu cầu quan trọng: Bạn BẮT BUỘC phải dịch hoàn toàn sang {target_language}. "
+            f"Tuyệt đối KHÔNG giữ nguyên chữ tiếng Nhật, tiếng Trung gốc (như chữ Hán, Kanji, Hanzi) hoặc chữ tiếng Anh trong kết quả dịch. "
+            f"Nếu là từ ngắn hay hiệu ứng (SFX), hãy dịch nghĩa hoặc phiên âm Việt hóa tự nhiên. "
+            f"Giữ nguyên văn phong truyện tranh tự nhiên. "
             f"Nếu {target_language} là tiếng Anh, hãy dùng tiếng lóng (slang) tự nhiên. "
             f"Nếu {target_language} là Tiếng Việt, giữ cấu trúc kính ngữ phù hợp.\n\n"
             f"TRẢ VỀ JSON: {{\"context_reasoning\": \"...\", \"translation\": \"...\"}}"
@@ -1252,7 +1255,17 @@ async def quick_scan(
         
         response = deepseek_client.chat.completions.create(
             model="deepseek-chat",
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Dịch: {japanese_text}"}],
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a professional manga translator. "
+                        f"You must translate the text strictly and fully to {target_language}. "
+                        "Do not output Chinese, Japanese, or keep the original characters under any circumstances."
+                    )
+                },
+                {"role": "user", "content": f"Dịch đoạn thoại sau (Bắt buộc dịch sang {target_language}, không được giữ nguyên chữ gốc): {japanese_text}"}
+            ],
             response_format={"type": "json_object"}, temperature=0.4 
         )
         
@@ -2615,7 +2628,12 @@ async def retry_text_translation(
             target_language = "Tiếng Việt"
 
         # 2. GOM LÊN DEEPSEEK TRÊN VPS VỚI PROMPT MẠNH HƠN
-        prompt = f"Bạn là biên dịch viên Manga chuyên nghiệp. Dịch mảng JSON sau sang {target_language}. Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"translation\\\": \\\"bản dịch\\\"}}]}}. Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+        prompt = (
+            f"Nhiệm vụ của bạn là dịch mảng JSON sau sang {target_language}.\n"
+            f"Bạn BẮT BUỘC phải dịch hoàn toàn sang {target_language}. Tuyệt đối KHÔNG giữ nguyên chữ tiếng Nhật, tiếng Trung gốc (Kanji, Hanzi, chữ Hán) hoặc chữ tiếng Anh trong kết quả dịch.\n"
+            f"Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"translation\\\": \\\"bản dịch\\\"}}]}}.\n"
+            f"Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+        )
         if payload and payload.local_prompt:
             prompt += f"\n\nChỉ thị bổ sung từ người dùng (Hãy làm theo chỉ thị này một cách nghiêm ngặt): {payload.local_prompt}"
         
@@ -2626,7 +2644,15 @@ async def retry_text_translation(
                 response = deepseek_client.chat.completions.create(
                     model="deepseek-chat",
                     messages=[
-                        {"role": "system", "content": "You output strict JSON containing a 'translations' array of dicts with 'id' and 'translation'."},
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a professional manga translator. "
+                                f"You must translate the text strictly and fully to {target_language}. "
+                                "Do not output Chinese, Japanese, or keep the original characters under any circumstances. "
+                                "You output strict JSON containing a 'translations' array of dicts with 'id' and 'translation'."
+                            )
+                        },
                         {"role": "user", "content": prompt}
                     ],
                     response_format={'type': 'json_object'}
