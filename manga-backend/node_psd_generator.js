@@ -91,6 +91,7 @@ async function createPsd() {
         console.error("LỖI: Trong template.psd sếp phải tạo 1 layer chữ đặt tên chuẩn là 'TemplateText'");
         process.exit(1);
     }
+    delete sampleLayer.canvas;
 
     const measureCanvas = createCanvas(100, 100);
     const ctx = measureCanvas.getContext('2d');
@@ -107,6 +108,8 @@ async function createPsd() {
         let outlineW = Number(bubble.outlineWidth) || 0;
         let fontSize = Number(bubble.fontSize) || 24;
         let fontCurrent = bubble.fontFamily || 'Arial';
+        // Chuẩn hóa tên font (xóa dấu nháy và fallback như 'Comic Neue', cursive -> Comic Neue)
+        fontCurrent = fontCurrent.replace(/['"]/g, '').split(',')[0].trim();
         let psFontName = 'ArialMT'; // Mặc định nếu không khớp font nào
 
         // Chuyển hết về chữ thường để so sánh cho chuẩn, tránh lệch hoa thường, dấu cách
@@ -130,11 +133,11 @@ async function createPsd() {
         } else if (cleanFontTarget.includes('wild')) {
             psFontName = "WildWords-Regular";
         } else {
-            // Nếu không rơi vào danh sách font manga đặc biệt, dùng bảng map mặc định hoặc giữ nguyên
             psFontName = FONT_POSTSCRIPT_MAP[fontCurrent] || fontCurrent || 'ArialMT';
         }
 
-        let newLayer = { ...sampleLayer };
+        // 🚀 BẢN VÁ TỐI THƯỢNG: Nhân bản SÂU layer mẫu để giữ lại toàn bộ metadata gốc của Photoshop
+        let newLayer = JSON.parse(JSON.stringify(sampleLayer));
         delete newLayer.canvas;
         delete newLayer.id;
 
@@ -146,60 +149,45 @@ async function createPsd() {
         newLayer.bottom = y + h;
 
         const wrappedText = autoWrapText(ctx, bubble.text, w, fontSize, fontCurrent);
-
-        // =========================================================================
-        // 🚀 BẢN VÁ TOÁN HỌC: CHUYỂN ĐỔI TỌA ĐỘ GÓC TRÁI TRÊN THÀNH TỌA ĐỘ TÂM
-        // Vì Photoshop coi [tx, ty] trong transform của Box Text là TÂM của Box
-        // =========================================================================
         let centerX = x + (w / 2);
         let centerY = y + (h / 2);
 
-        newLayer.text = {
-            text: wrappedText,
-            shape: 'box',
-            bounds: {
-                left: { value: 0, units: 'Pixels' },
-                top: { value: 0, units: 'Pixels' },
-                right: { value: w, units: 'Pixels' },
-                bottom: { value: h, units: 'Pixels' }
-            },
-            transform: [1, 0, 0, 1, centerX, centerY], // <--- CẬP NHẬT GỐC TỌA ĐỘ TÂM VÀO ĐÂY
-            style: {
-                font: { name: psFontName },
-                fontSize: fontSize,
-                fillColor: hexToRgb(bubble.fontColor || '#000000')
-            },
-            paragraphStyle: {
-                justification: bubble.textAlign || 'center'
-            }
+        newLayer.text.text = wrappedText;
+        newLayer.text.bounds = {
+            left: { value: 0, units: 'Pixels' },
+            top: { value: 0, units: 'Pixels' },
+            right: { value: w, units: 'Pixels' },
+            bottom: { value: h, units: 'Pixels' }
         };
+        newLayer.text.transform = [1, 0, 0, 1, centerX, centerY];
 
-        if (sampleLayer.effects && sampleLayer.effects.stroke && sampleLayer.effects.stroke[0]) {
-            newLayer.effects = { ...sampleLayer.effects };
-            let targetStroke = { ...sampleLayer.effects.stroke[0] };
+        if (!newLayer.text.style) newLayer.text.style = {};
+        newLayer.text.style.font = { name: psFontName };
+        newLayer.text.style.fontSize = fontSize;
+        newLayer.text.style.fillColor = hexToRgb(bubble.fontColor || '#000000');
 
-            targetStroke.size = { value: outlineW > 0 ? outlineW : 3, units: 'Pixels' };
-            targetStroke.color = hexToRgb(bubble.outlineColor || '#FFFFFF');
-            targetStroke.enabled = outlineW > 0;
+        if (!newLayer.text.paragraphStyle) newLayer.text.paragraphStyle = {};
+        newLayer.text.paragraphStyle.justification = bubble.textAlign || 'center';
 
-            newLayer.effects.stroke = [targetStroke];
+        delete newLayer.text.styleRuns;
+        delete newLayer.text.paragraphStyleRuns;
+
+        if (outlineW > 0) {
+            if (!newLayer.effects) newLayer.effects = {};
+            newLayer.effects.disabled = false;
+            newLayer.effects.stroke = [{
+                enabled: true,
+                position: 'outside',
+                fillType: 'solid',
+                blendMode: 'normal',
+                opacity: 1.0,
+                size: outlineW,
+                color: hexToRgb(bubble.outlineColor || '#FFFFFF'),
+                present: true,
+                showInDialog: true
+            }];
         } else {
-            if (outlineW > 0) {
-                newLayer.effects = {
-                    disabled: false,
-                    stroke: [{
-                        enabled: true,
-                        position: 'outside',
-                        fillType: 'color',
-                        blendMode: 'normal',
-                        opacity: 1.0,
-                        size: { value: outlineW, units: 'Pixels' },
-                        color: hexToRgb(bubble.outlineColor || '#FFFFFF')
-                    }]
-                };
-            } else {
-                newLayer.effects = undefined;
-            }
+            if (newLayer.effects) newLayer.effects.stroke = undefined;
         }
 
         textLayers.push(newLayer);
