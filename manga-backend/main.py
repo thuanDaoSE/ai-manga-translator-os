@@ -1209,7 +1209,7 @@ async def quick_scan(
         headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
         
         async with httpx.AsyncClient() as client:
-            res = await client.post(runpod_url, json={"input": {"action": "scan", "image_base64": crop_b64}}, headers=headers, timeout=10.0)
+            res = await client.post(runpod_url, json={"input": {"action": "scan", "image_base64": crop_b64}}, headers=headers, timeout=30.0)
             res.raise_for_status()
             res_json = res.json()
             output_data = res_json.get('output')
@@ -1264,11 +1264,7 @@ async def quick_scan(
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "You are a professional manga translator. "
-                        f"You must translate the text strictly and fully to {target_language}. "
-                        "Do not output Chinese, Japanese, or keep the original characters under any circumstances."
-                    )
+                    "content": system_prompt
                 },
                 {"role": "user", "content": f"Dịch đoạn thoại sau (Bắt buộc dịch sang {target_language}, không được giữ nguyên chữ gốc): {japanese_text}"}
             ],
