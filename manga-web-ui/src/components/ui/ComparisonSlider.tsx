@@ -77,7 +77,7 @@ export const ComparisonSlider: React.FC = () => {
         style={{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }}
       >
         <img
-          src="/deepkoma-1781828133102.jpg"
+          src="/deepkoma-1781829265901.jpg"
           alt="Translated Vietnamese Manga"
           className="w-full h-full object-cover"
         />

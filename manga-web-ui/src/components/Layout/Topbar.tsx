@@ -159,7 +159,7 @@ export default function Topbar() {
       ctx.drawImage(baseImg, 0, 0, w, h);
 
       // Layer 2: vẽ Fabric canvas (text layer) nếu có
-      const fabricCanvasEl = document.querySelector('#workspace-container canvas.upper-canvas') as HTMLCanvasElement
+      const fabricCanvasEl = document.querySelector('#workspace-container canvas.lower-canvas') as HTMLCanvasElement
         || document.querySelector('#workspace-container canvas') as HTMLCanvasElement;
       if (fabricCanvasEl) {
         ctx.drawImage(fabricCanvasEl, 0, 0, w, h);
