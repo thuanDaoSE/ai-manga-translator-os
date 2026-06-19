@@ -152,6 +152,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
         };
       });
     } catch (error: any) {
+      // 🚀 BẢN VÁ: Khôi phục lại trạng thái cũ để xóa bỏ các file ma đang "ĐANG KHỞI ĐỘNG AI..."
+      set({
+        fileQueue: currentState.fileQueue,
+        pageStatuses: currentState.pageStatuses,
+        retryCounts: currentState.retryCounts,
+        currentIndex: currentState.currentIndex
+      });
+
       // Chỉ báo lỗi nếu không phải là lỗi 401 (vì 401 đã hiện toast ở api.ts rồi)
       if (error.message !== "Phiên đăng nhập đã hết hạn!") {
         toast.error(error.message || "Không thể khởi tạo dự án!");
