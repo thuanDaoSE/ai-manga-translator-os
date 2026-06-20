@@ -22,7 +22,7 @@ function SortableItem({
   id, file, isActive, status, displayImg, progress,
   onClick, onTranslate, onDelete, onCancel, onRetry,
   isSelected, isSelectionMode, onToggleSelection, hasCleanUrl,
-  isProcessing, disabled, retryCount
+  isProcessing, disabled, retryCount, modeCost
 }: any) {
 
   const {
@@ -167,7 +167,7 @@ function SortableItem({
                   <span>{t('canvas.translateAction', 'Dịch')}</span>
                 </button>
                 <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                  1<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
+                  {modeCost}<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
                 </span>
               </div>
             )}
@@ -193,7 +193,7 @@ function SortableItem({
                 </button>
                 {!hasCleanUrl && (
                   <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                    1<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
+                    {modeCost}<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
                   </span>
                 )}
               </div>
@@ -241,7 +241,8 @@ export default function Sidebar() {
   const user = useAuthStore((state) => state.user);
   const currentCredits = user?.credits || 0;
 
-  const modeCost = 1; // Chi phí dịch chạy ngầm Celery mặc định là 1 Xu/trang
+  const unrestrictedMode = useConfigStore((s) => s.unrestrictedMode);
+  const modeCost = unrestrictedMode ? 2 : 1; // Chi phí dịch chạy ngầm Celery mặc định là 1 Xu/trang, hoặc 2 Xu nếu bật chế độ không giới hạn
 
   const [previews, setPreviews] = useState<Record<number, string>>({});
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -431,7 +432,8 @@ export default function Sidebar() {
           tone: configStore.tone,
           pronouns: configStore.pronoun,
           glossary: configStore.glossary,
-          targetLanguage: configStore.targetLanguage || "Tiếng Việt"
+          targetLanguage: configStore.targetLanguage || "Tiếng Việt",
+          unrestrictedMode: configStore.unrestrictedMode
         });
 
         if (data.task_id) {
@@ -440,8 +442,8 @@ export default function Sidebar() {
           // Kiểm tra xem có phải là cache hit không (nếu là cache hit thì taskId bắt đầu bằng cached_)
           const isCacheHit = taskId.startsWith("cached_");
           if (!isCacheHit) {
-            toast("Đã trừ 1 Xu", { icon: "💰", duration: 2000 });
-            useAuthStore.getState().deductLocalCredits(1);
+            toast(`Đã trừ ${modeCost} Xu`, { icon: "💰", duration: 2000 });
+            useAuthStore.getState().deductLocalCredits(modeCost);
           }
 
           // 🚀 Chỉ mở 1 đường truyền SSE duy nhất
@@ -1194,6 +1196,7 @@ export default function Sidebar() {
                       isProcessing={index === currentIndex && isProcessing}
                       disabled={isAnyProcessingOrWaiting}
                       retryCount={retryCounts[index] || 0} // 🚀 Truyền số lần dịch lại
+                      modeCost={modeCost}
                     />
                   );
                 })}

@@ -36,6 +36,8 @@ interface ConfigState {
   setKieResolution: (res: '1K' | '2K' | '4K') => void;
   kieOutputFormat: 'jpg' | 'png';
   setKieOutputFormat: (format: 'jpg' | 'png') => void;
+  unrestrictedMode: boolean;
+  setUnrestrictedMode: (val: boolean) => void;
 
   // Các hàm cập nhật
   setConfig: (field: string, value: string) => void;
@@ -68,6 +70,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   setKieResolution: (res) => set({ kieResolution: res }),
   kieOutputFormat: 'jpg' as 'jpg' | 'png',
   setKieOutputFormat: (format) => set({ kieOutputFormat: format }),
+  unrestrictedMode: false,
+  setUnrestrictedMode: (val) => set({ unrestrictedMode: val }),
 
   setConfig: (field, value) => set({ [field]: value }),
 
@@ -106,7 +110,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       openaiSubModel: state.openaiSubModel,
       studioSubModel: state.studioSubModel,
       kieResolution: state.kieResolution,
-      kieOutputFormat: state.kieOutputFormat
+      kieOutputFormat: state.kieOutputFormat,
+      unrestrictedMode: state.unrestrictedMode
     };
     localStorage.setItem('manga_trans_settings', JSON.stringify(dataToSave));
     set({ isModalOpen: false }); // Đóng modal sau khi lưu

@@ -185,6 +185,7 @@ export default function Workspace() {
       formData.append('genre', configState.genre);
       formData.append('tone', configState.tone);
       formData.append('pronoun', configState.pronoun);
+      formData.append('unrestricted_mode', configState.unrestrictedMode ? 'true' : 'false');
 
       if (translationMode === 'studio') {
         formData.append('studio_model', studioSubModel);

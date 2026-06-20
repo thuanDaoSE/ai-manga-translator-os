@@ -2,13 +2,15 @@ import React, { useEffect, useState, useRef, memo, useCallback } from 'react';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
 import { 
   X, Database, Users, Save, Plus, Trash2, 
-  ArrowRight, UploadCloud, Download, Wand2, Loader2, FileJson, Sparkles, ChevronDown
+  ArrowRight, UploadCloud, Download, Wand2, Loader2, FileJson, Sparkles, ChevronDown,
+  ShieldAlert, Zap
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
 import { useTranslation } from 'react-i18next';
 import { getAuthHeaders } from '../../services/api';
 import { useAuthStore } from '../../store/useAuthStore';
+import UnrestrictedDisclaimerModal from './UnrestrictedDisclaimerModal';
 
 interface GlossaryItem { id: string; source: string; target: string; }
 interface RelationItem { id: string; speaker: string; listener: string; self_ref: string; target_ref: string; }
@@ -141,25 +143,42 @@ export default function TranslationConfigModal() {
   const [isAIExtracting, setIsAIExtracting] = useState(false);
   const [showAIInput, setShowAIInput] = useState(false);
   const [aiInputText, setAiInputText] = useState("");
+  const [showUnrestrictedDisclaimer, setShowUnrestrictedDisclaimer] = useState(false);
+  const [unrestrictedModeLocal, setUnrestrictedModeLocal] = useState(false);
+  const [showConfirmCloseModal, setShowConfirmCloseModal] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const initialUnrestrictedMode = useRef(false);
+  const initialGlossaryList = useRef<GlossaryItem[]>([]);
+  const initialRelationList = useRef<RelationItem[]>([]);
 
-  // 1. CHẠY USE_EFFECT ĐỌC DỮ LIỆU CŨ
+  // 1. CHẠY USE_EFFECT ĐỌC DỮ LIỆU CŨ VÀ ĐỒNG BỘ STATE
   useEffect(() => {
     if (config.isModalOpen) {
+      setUnrestrictedModeLocal(config.unrestrictedMode);
+      initialUnrestrictedMode.current = config.unrestrictedMode;
+
+      let initGlossary: GlossaryItem[] = [];
+      let initRelations: RelationItem[] = [];
+
       const saved = localStorage.getItem('manga_trans_settings');
       if (saved) {
         try {
           const parsedConf = JSON.parse(saved);
           if (parsedConf.glossary && parsedConf.glossary.trim().startsWith('{')) {
             const parsedData = JSON.parse(parsedConf.glossary);
-            setGlossaryList(parsedData.terminology || []);
-            setRelationList(parsedData.relational_matrix || []);
+            initGlossary = parsedData.terminology || [];
+            initRelations = parsedData.relational_matrix || [];
           }
         } catch (e) { console.warn("Dữ liệu trống."); }
       }
+
+      setGlossaryList(initGlossary);
+      setRelationList(initRelations);
+      initialGlossaryList.current = initGlossary;
+      initialRelationList.current = initRelations;
     }
-  }, [config.isModalOpen]);
+  }, [config.isModalOpen, config.unrestrictedMode]);
 
   // 2. KHAI BÁO TẤT CẢ CÁC HOOKS USE_CALLBACK (TRƯỚC KHI RETURN)
   const handleUpdateGlossary = useCallback((updatedItem: GlossaryItem) => setGlossaryList(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item)), []);
@@ -257,13 +276,49 @@ export default function TranslationConfigModal() {
     const cleanRelations = relationList.filter(r => r.speaker.trim() !== '' && r.listener.trim() !== '');
     const exportString = JSON.stringify({ terminology: cleanGlossary, relational_matrix: cleanRelations }, null, 2);
     config.setConfig('glossary', exportString);
+    config.setUnrestrictedMode(unrestrictedModeLocal);
     config.saveToLocal();
     toast.success(t('configModal.saveConfigSuccess'), { icon: '💾' });
     config.setModalOpen(false);
   };
 
+  const hasChanges = () => {
+    if (unrestrictedModeLocal !== initialUnrestrictedMode.current) return true;
+
+    // So sánh danh sách thuật ngữ
+    if (glossaryList.length !== initialGlossaryList.current.length) return true;
+    for (let i = 0; i < glossaryList.length; i++) {
+      const a = glossaryList[i];
+      const b = initialGlossaryList.current[i];
+      if (a.source !== b.source || a.target !== b.target) return true;
+    }
+
+    // So sánh ma trận xưng hô
+    if (relationList.length !== initialRelationList.current.length) return true;
+    for (let i = 0; i < relationList.length; i++) {
+      const a = relationList[i];
+      const b = initialRelationList.current[i];
+      if (
+        a.speaker !== b.speaker ||
+        a.listener !== b.listener ||
+        a.self_ref !== b.self_ref ||
+        a.target_ref !== b.target_ref
+      ) return true;
+    }
+
+    return false;
+  };
+
+  const handleCloseAttempt = () => {
+    if (hasChanges()) {
+      setShowConfirmCloseModal(true);
+    } else {
+      config.setModalOpen(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/80 animate-in fade-in duration-200">
       <div className="bg-panel w-full max-w-4xl max-h-[85vh] rounded-3xl border border-border shadow-2xl flex flex-col overflow-hidden text-text-main font-sans">
         
         {/* HEADER & TABS */}
@@ -278,7 +333,7 @@ export default function TranslationConfigModal() {
                 <p className="text-[11px] text-text-muted">{t('configModal.subtitle')}</p>
               </div>
             </div>
-            <button onClick={() => config.setModalOpen(false)} className="p-2 text-text-muted hover:text-text-main hover:bg-border/50 rounded-xl transition-colors cursor-pointer"><X size={18} /></button>
+            <button onClick={handleCloseAttempt} className="p-2 text-text-muted hover:text-text-main hover:bg-border/50 rounded-xl transition-colors cursor-pointer"><X size={18} /></button>
           </div>
 
           <div className="flex items-center justify-between px-6 bg-background border-t border-border/50">
@@ -345,7 +400,60 @@ export default function TranslationConfigModal() {
         )}
 
         {/* BODY TABS */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar bg-background p-5">
+        <div className="flex-1 overflow-y-auto custom-scrollbar bg-background p-5 flex flex-col gap-4">
+          
+          {/* ⚠️ CHẾ ĐỘ DỊCH KHÔNG GIỚI HẠN (UNRESTRICTED TRANSLATION MODE) */}
+          <div className={`p-4 rounded-2xl border transition-all duration-200 shrink-0 ${
+            unrestrictedModeLocal 
+              ? 'bg-red-500/5 border-red-500/20' 
+              : 'bg-panel/30 border-border/40 hover:bg-panel/50'
+          } flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
+            <div className="flex items-start gap-3.5">
+              <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 transition-colors ${
+                unrestrictedModeLocal 
+                  ? 'bg-red-950/20 border-red-500/30 text-red-500' 
+                  : 'bg-background/80 border-border text-text-muted'
+              }`}>
+                <ShieldAlert className={unrestrictedModeLocal ? 'animate-pulse' : ''} size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-text-main">Chế độ không giới hạn (NSFW)</h4>
+                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border uppercase tracking-wider flex items-center gap-0.5 ${
+                    unrestrictedModeLocal 
+                      ? 'bg-red-500/10 border-red-500/20 text-red-400' 
+                      : 'bg-background border-border text-text-muted'
+                  }`}>
+                    <Zap size={10} className="fill-current text-amber-500" /> 2 Xu / Trang
+                  </span>
+                </div>
+                <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
+                  Sử dụng mô hình Grok để dịch sát nghĩa 100%, bỏ qua bộ lọc kiểm duyệt từ ngữ để giữ nguyên sắc thái nguyên tác.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  if (unrestrictedModeLocal) {
+                    setUnrestrictedModeLocal(false);
+                    toast.success("Đã tắt Chế độ không giới hạn (NSFW) (Nhấn Lưu cấu hình để áp dụng)");
+                  } else {
+                    setShowUnrestrictedDisclaimer(true);
+                  }
+                }}
+                className={`w-full sm:w-auto px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all select-none cursor-pointer border ${
+                  unrestrictedModeLocal 
+                    ? 'bg-red-500 text-white border-red-500 hover:bg-red-600 shadow-lg shadow-red-500/15' 
+                    : 'bg-panel/80 hover:bg-border/60 hover:text-text-main text-text-muted border-border/60'
+                }`}
+              >
+                {unrestrictedModeLocal ? "Đang bật" : "Kích hoạt"}
+              </button>
+            </div>
+          </div>
+
           {activeTab === 'glossary' && (
             <div className="animate-in fade-in duration-200">
               {glossaryList.length === 0 ? (
@@ -406,12 +514,71 @@ export default function TranslationConfigModal() {
 
         {/* FOOTER */}
         <div className="px-6 py-4 bg-panel border-t border-border flex justify-end items-center gap-2">
-          <button onClick={() => config.setModalOpen(false)} className="px-4 py-2 rounded-xl text-[11px] font-bold text-text-muted hover:text-text-main hover:bg-border/60 transition-colors cursor-pointer">{t('configModal.cancel')}</button>
+          <button onClick={handleCloseAttempt} className="px-4 py-2 rounded-xl text-[11px] font-bold text-text-muted hover:text-text-main hover:bg-border/60 transition-colors cursor-pointer">{t('configModal.cancel')}</button>
           <button onClick={handleSave} className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-[11px] font-bold text-white bg-primary hover:bg-primary/95 shadow-md shadow-primary/20 transition-all active:scale-95 cursor-pointer">
             <Save size={14} /> {t('configModal.saveConfig')}
           </button>
         </div>
       </div>
+
+      {/* ⚠️ MODAL CẢNH BÁO CHẾ ĐỘ KHÔNG GIỚI HẠN (NSFW) */}
+      <UnrestrictedDisclaimerModal
+        isOpen={showUnrestrictedDisclaimer}
+        onClose={() => setShowUnrestrictedDisclaimer(false)}
+        onConfirm={() => {
+          setUnrestrictedModeLocal(true);
+          setShowUnrestrictedDisclaimer(false);
+          toast.success("Đã chọn Chế độ không giới hạn (NSFW) (Nhấn Lưu cấu hình để áp dụng)!");
+        }}
+      />
+
+      {/* ⚠️ DIALOG XÁC NHẬN LƯU THAY ĐỔI */}
+      {showConfirmCloseModal && (
+        <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-panel border border-border shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-2xl w-[420px] p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-200 text-text-main">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-amber-500/10 text-amber-500 rounded-xl border border-amber-500/20 shrink-0">
+                <ShieldAlert size={20} className="animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider text-text-main">Thay đổi chưa lưu</h3>
+                <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-0.5">Xác nhận hành động thoát</p>
+              </div>
+            </div>
+            
+            <p className="text-xs text-text-muted leading-relaxed">
+              Sếp đã thay đổi cấu hình dịch thuật hoặc danh sách thuật ngữ. Sếp có muốn lưu lại những thay đổi này trước khi thoát không?
+            </p>
+            
+            <div className="flex flex-col sm:flex-row justify-end gap-2 mt-2">
+              <button
+                onClick={() => setShowConfirmCloseModal(false)}
+                className="px-4 py-2 border border-border hover:bg-border/60 text-text-muted hover:text-text-main rounded-xl text-[11px] font-bold transition-all cursor-pointer text-center"
+              >
+                Quay lại
+              </button>
+              <button
+                onClick={() => {
+                  setShowConfirmCloseModal(false);
+                  config.setModalOpen(false);
+                }}
+                className="px-4 py-2 bg-danger/10 hover:bg-danger/20 border border-danger/20 text-danger rounded-xl text-[11px] font-bold transition-all cursor-pointer text-center"
+              >
+                Thoát không lưu
+              </button>
+              <button
+                onClick={() => {
+                  setShowConfirmCloseModal(false);
+                  handleSave();
+                }}
+                className="px-4 py-2 bg-primary hover:bg-primary/95 text-white rounded-xl text-[11px] font-bold transition-all cursor-pointer shadow-md shadow-primary/20 text-center"
+              >
+                Lưu & Thoát
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

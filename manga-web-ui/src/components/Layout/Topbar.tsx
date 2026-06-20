@@ -36,7 +36,7 @@ export default function Topbar() {
     setLocalProjectName(storeProjectName);
   }, [storeProjectName]);
 
-  const { isModalOpen, setModalOpen } = useConfigStore();
+  const { isModalOpen, setModalOpen, unrestrictedMode } = useConfigStore();
 
   const [isPaywallOpen, setIsPaywallOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -307,11 +307,18 @@ export default function Topbar() {
         {/* Nút Cài đặt dự án chung (Cấu hình dịch) */}
         <button
           onClick={() => setModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm group whitespace-nowrap shrink-0 text-[12px] font-bold"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm group whitespace-nowrap shrink-0 text-[12px] font-bold ${
+            unrestrictedMode 
+              ? 'border-red-500/30 bg-red-500/5 text-red-400 hover:bg-red-500/10' 
+              : 'border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main'
+          }`}
           title="Cài đặt từ điển & Xưng hô AI"
         >
-          <Languages size={14} className="text-primary group-hover:scale-110 transition-transform" />
+          <Languages size={14} className={`group-hover:scale-110 transition-transform ${unrestrictedMode ? 'text-red-500' : 'text-primary'}`} />
           <span>{t('topbar.configBtn')}</span>
+          {unrestrictedMode && (
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse ml-0.5" />
+          )}
         </button>
 
         {/* ĐƯỜNG PHÂN CÁCH DỌC */}
@@ -422,7 +429,6 @@ export default function Topbar() {
       <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
 
       {/* 🚀 Bảng cấu hình dịch thuật sẽ hiện lên khi isModalOpen = true */}
-      {isModalOpen && <TranslationConfigModal />}
 
     </header>
   );

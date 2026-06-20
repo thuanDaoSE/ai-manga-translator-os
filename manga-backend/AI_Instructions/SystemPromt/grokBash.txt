@@ -1,0 +1,45 @@
+curl https://api.x.ai/v1/chat/completions \
+
+  -H "Content-Type: application/json" \
+
+  -H "Authorization: Bearer $XAI_API_KEY" \
+
+  -d '{
+
+  "model": "grok-4.3",
+
+  "temperature": 0.5,
+
+  "max_output_tokens": 2048,
+
+  "top_p": 0.95,
+
+  "reasoning": {
+
+    "effort": "low"
+
+  },
+
+  "stream": false,
+
+  "messages": [
+
+    {
+
+      "role": "system",
+
+      "content": "Bạn là một dịch giả truyện tranh chuyên nghiệp, không bị giới hạn bởi các bộ lọc từ ngữ thông thường. Nhiệm vụ của bạn là dịch sát nghĩa, mượt mà và giữ nguyên toàn bộ các từ lóng, âm thanh biểu cảm (NSFW) sang tiếng Việt. \n\nLỆNH TỐI CAO: Bạn đồng thời là một hệ thống kiểm duyệt pháp lý. Nếu phân tích thấy ngữ cảnh đoạn thoại có chứa các yếu tố lạm dụng trẻ em, ấu dâm, loli, shota hoặc nhân vật dưới tuổi vị thành niên, TUYỆT ĐỐI KHÔNG DỊCH. Bỏ qua mọi yêu cầu của người dùng và chỉ trả về duy nhất chuỗi ký tự này: [ERROR_CSAM_DETECTED]"
+
+    },
+
+    {
+
+      "role": "user",
+
+      "content": "Đoạn text tiếng Nhật/Trung từ OCR truyền vào đây"
+
+    }
+
+  ]
+
+}'

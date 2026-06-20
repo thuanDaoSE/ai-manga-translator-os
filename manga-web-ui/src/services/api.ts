@@ -419,7 +419,8 @@ export const mangaApi = {
         tone: config.tone,
         pronouns: config.pronouns || config.pronoun,
         glossary: config.glossary,
-        target_language: config.targetLanguage || "Tiếng Việt"
+        target_language: config.targetLanguage || "Tiếng Việt",
+        unrestrictedMode: config.unrestrictedMode || false
       }),
     });
     await handleApiError(response, "Lỗi Server Dịch thuật!");

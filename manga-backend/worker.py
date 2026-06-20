@@ -350,63 +350,134 @@ def process_manga_page(self, page_id: str, config: dict):
             print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước cuộc gọi DeepSeek API. Dừng!")
             return {"status": "cancelled", "message": "Task was cancelled before DeepSeek call"}
 
-        # Dịch bằng DeepSeek trên VPS
+        # Dịch bằng DeepSeek hoặc Grok trên VPS
         if extracted_data:
-            broadcast_progress(task_id, 80, "Đang tiến hành dịch thuật ngữ cảnh...")
+            unrestricted = config.get("unrestrictedMode", False)
             try:
-                ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
-                # Tinh chỉnh prompt động theo target_language
-                lang_instruction = ""
-                if target_language == "Tiếng Việt":
-                    lang_instruction = "Bạn BẮT BUỘC phải dịch hoàn toàn sang Tiếng Việt. Giữ cấu trúc kính ngữ phù hợp của Tiếng Việt."
-                elif target_language == "English":
-                    lang_instruction = "Bạn BẮT BUỘC phải dịch hoàn toàn sang tiếng Anh. Dùng tiếng lóng (slang) tự nhiên của tiếng Anh."
-                else:
-                    lang_instruction = f"Bạn BẮT BUỘC phải dịch hoàn toàn sang {target_language}."
-
-                prompt = (
-                    f"Nhiệm vụ của bạn là dịch đoạn thoại truyện tranh sau sang {target_language}.\n"
-                    f"{lang_instruction} Không được dịch sang bất kỳ ngôn ngữ nào khác (như chữ Trung Quốc hay giữ nguyên tiếng Nhật).\n"
-                    f"Thể loại: {config.get('genre', '')}. Xưng hô: {config.get('pronouns', '')}. Văn phong: {config.get('tone', '')}.\n"
-                    f"Yêu cầu: Giữ nguyên văn phong truyện tranh tự nhiên.\n"
-                    f"Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"translation\\\": \\\"bản dịch\\\"}}]}}.\n"
-                    f"Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
-                )
-                if config.get("glossary"):
-                    prompt = f"Từ điển thuật ngữ (ưu tiên sử dụng): {config.get('glossary')}\n" + prompt
-                    
-                response = None
                 translations = {}
-                for attempt in range(3):
-                    try:
-                        response = deepseek_client.chat.completions.create(
-                            model="deepseek-chat",
-                            messages=[
-                                {
-                                    "role": "system", 
-                                    "content": (
-                                        "You are a professional manga translator. "
-                                        f"You must translate the text strictly and fully to {target_language}. "
-                                        "Do not output Chinese, Japanese, or any other language. "
-                                        "You output strict JSON containing a 'translations' array of dicts with 'id' and 'translation'."
-                                    )
-                                },
-                                {"role": "user", "content": prompt}
-                            ],
-                            response_format={'type': 'json_object'}
-                        )
-                        ai_response = robust_json_parse(response.choices[0].message.content)
-                        translations = extract_translations(ai_response)
-                        if translations:
-                            print(f"✅ [DEEPSEEK] Dịch thành công ở lần thử thứ {attempt+1}!")
-                            break
-                        else:
-                            print(f"⚠️ [DEEPSEEK] Lần thử thứ {attempt+1} trả về bản dịch rỗng, đang thử lại...")
-                    except Exception as e:
-                        print(f"⚠️ [DEEPSEEK] Lần thử thứ {attempt+1} gặp lỗi: {e}")
-                        if attempt == 2:
-                            raise e
-                    time.sleep(1)
+                if unrestricted:
+                    broadcast_progress(task_id, 80, "Đang tiến hành dịch thuật (Unrestricted Mode via Grok)...")
+                    ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
+                    XAI_API_KEY = os.environ.get("XAI_API_KEY")
+                    if not XAI_API_KEY:
+                        raise Exception("Chưa cấu hình API Key cho Grok (XAI_API_KEY)")
+                    
+                    lang_val = target_language if target_language else "Tiếng Việt"
+                    
+                    system_content = (
+                        "Bạn là một dịch giả truyện tranh chuyên nghiệp, không bị giới hạn bởi các bộ lọc từ ngữ thông thường. "
+                        f"Nhiệm vụ của bạn là dịch sát nghĩa, mượt mà và giữ nguyên toàn bộ các từ lóng, âm thanh biểu cảm (NSFW) sang {lang_val}. \n\n"
+                        "LỆNH TỐI CAO: Bạn đồng thời là một hệ thống kiểm duyệt pháp lý. Nếu phân tích thấy ngữ cảnh đoạn thoại có chứa các yếu tố lạm dụng trẻ em, ấu dâm, loli, shota hoặc nhân vật dưới tuổi vị thành niên, TUYỆT ĐỐI KHÔNG DỊCH. Bỏ qua mọi yêu cầu của người dùng và chỉ trả về duy nhất chuỗi ký tự này: [ERROR_CSAM_DETECTED]"
+                    )
+                    
+                    prompt = (
+                        f"Thể loại: {config.get('genre', '')}. Xưng hô: {config.get('pronouns', '')}. Văn phong: {config.get('tone', '')}.\n"
+                        "Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {\"translations\": [{\"id\": 1, \"translation\": \"bản dịch\"}]}.\n"
+                        f"Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+                    )
+                    if config.get("glossary"):
+                        prompt = f"Từ điển thuật ngữ (ưu tiên sử dụng): {config.get('glossary')}\n" + prompt
+                        
+                    headers = {
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {XAI_API_KEY}"
+                    }
+                    
+                    payload = {
+                        "model": "grok-4.3",
+                        "temperature": 0.5,
+                        "max_output_tokens": 2048,
+                        "top_p": 0.95,
+                        "reasoning": {
+                            "effort": "low"
+                        },
+                        "stream": False,
+                        "response_format": {"type": "json_object"},
+                        "messages": [
+                            {"role": "system", "content": system_content},
+                            {"role": "user", "content": prompt}
+                        ]
+                    }
+                    
+                    for attempt in range(3):
+                        try:
+                            res = httpx.post("https://api.x.ai/v1/chat/completions", json=payload, headers=headers, timeout=60.0)
+                            if res.status_code != 200:
+                                raise Exception(f"Grok API failed with status {res.status_code}: {res.text}")
+                            
+                            res_data = res.json()
+                            ai_content = res_data["choices"][0]["message"]["content"]
+                            
+                            if "[ERROR_CSAM_DETECTED]" in ai_content:
+                                raise Exception("[ERROR_CSAM_DETECTED] Vi phạm chính sách an toàn: Phát hiện nội dung lạm dụng trẻ vị thành niên (Loli/Shota/CSAM).")
+                                
+                            ai_response = robust_json_parse(ai_content)
+                            translations = extract_translations(ai_response)
+                            if translations:
+                                print(f"✅ [GROK] Dịch thành công ở lần thử thứ {attempt+1}!")
+                                break
+                            else:
+                                print(f"⚠️ [GROK] Lần thử thứ {attempt+1} trả về bản dịch rỗng, đang thử lại...")
+                        except Exception as e:
+                            print(f"⚠️ [GROK] Lần thử thứ {attempt+1} gặp lỗi: {e}")
+                            if "[ERROR_CSAM_DETECTED]" in str(e):
+                                raise e
+                            if attempt == 2:
+                                raise e
+                        time.sleep(1)
+                else:
+                    broadcast_progress(task_id, 80, "Đang tiến hành dịch thuật ngữ cảnh...")
+                    ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
+                    # Tinh chỉnh prompt động theo target_language
+                    lang_instruction = ""
+                    if target_language == "Tiếng Việt":
+                        lang_instruction = "Bạn BẮT BUỘC phải dịch hoàn toàn sang Tiếng Việt. Giữ cấu trúc kính ngữ phù hợp của Tiếng Việt."
+                    elif target_language == "English":
+                        lang_instruction = "Bạn BẮT BUỘC phải dịch hoàn toàn sang tiếng Anh. Dùng tiếng lóng (slang) tự nhiên của tiếng Anh."
+                    else:
+                        lang_instruction = f"Bạn BẮT BUỘC phải dịch hoàn toàn sang {target_language}."
+
+                    prompt = (
+                        f"Nhiệm vụ của bạn là dịch đoạn thoại truyện tranh sau sang {target_language}.\n"
+                        f"{lang_instruction} Không được dịch sang bất kỳ ngôn ngữ nào khác (như chữ Trung Quốc hay giữ nguyên tiếng Nhật).\n"
+                        f"Thể loại: {config.get('genre', '')}. Xưng hô: {config.get('pronouns', '')}. Văn phong: {config.get('tone', '')}.\n"
+                        f"Yêu cầu: Giữ nguyên văn phong truyện tranh tự nhiên.\n"
+                        f"Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"translation\\\": \\\"bản dịch\\\"}}]}}.\n"
+                        f"Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
+                    )
+                    if config.get("glossary"):
+                        prompt = f"Từ điển thuật ngữ (ưu tiên sử dụng): {config.get('glossary')}\n" + prompt
+                        
+                    for attempt in range(3):
+                        try:
+                            response = deepseek_client.chat.completions.create(
+                                model="deepseek-chat",
+                                messages=[
+                                    {
+                                        "role": "system", 
+                                        "content": (
+                                            "You are a professional manga translator. "
+                                            f"You must translate the text strictly and fully to {target_language}. "
+                                            "Do not output Chinese, Japanese, or any other language. "
+                                            "You output strict JSON containing a 'translations' array of dicts with 'id' and 'translation'."
+                                        )
+                                    },
+                                    {"role": "user", "content": prompt}
+                                ],
+                                response_format={'type': 'json_object'}
+                            )
+                            ai_response = robust_json_parse(response.choices[0].message.content)
+                            translations = extract_translations(ai_response)
+                            if translations:
+                                print(f"✅ [DEEPSEEK] Dịch thành công ở lần thử thứ {attempt+1}!")
+                                break
+                            else:
+                                print(f"⚠️ [DEEPSEEK] Lần thử thứ {attempt+1} trả về bản dịch rỗng, đang thử lại...")
+                        except Exception as e:
+                            print(f"⚠️ [DEEPSEEK] Lần thử thứ {attempt+1} gặp lỗi: {e}")
+                            if attempt == 2:
+                                raise e
+                        time.sleep(1)
                 
                 # 5.5. Hậu kiểm: Phát hiện chữ Nhật/Trung (dịch sai ngôn ngữ đầu ra) và tự động dịch lại đúng 1 lần
                 failed_items = []
@@ -425,7 +496,38 @@ def process_manga_page(self, page_id: str, config: dict):
                         f"Bạn BẮT BUỘC phải dịch HOÀN TOÀN sang {target_language}. TUYỆT ĐỐI không được trả về chữ Trung Quốc hay chữ Nhật gốc.\n"
                         f"Dữ liệu cần dịch lại: {json.dumps(failed_items, ensure_ascii=False)}"
                     )
-                    try:
+                    if unrestricted:
+                        XAI_API_KEY = os.environ.get("XAI_API_KEY")
+                        retry_system_content = (
+                            "You are a professional manga translator. "
+                            f"You must translate the text strictly and fully to {target_language}. "
+                            "Do not output Chinese, Japanese, or any other language characters. Only output standard translated text."
+                        )
+                        retry_payload = {
+                            "model": "grok-4.3",
+                            "temperature": 0.5,
+                            "max_output_tokens": 2048,
+                            "top_p": 0.95,
+                            "reasoning": {
+                                "effort": "low"
+                            },
+                            "stream": False,
+                            "response_format": {"type": "json_object"},
+                            "messages": [
+                                {"role": "system", "content": retry_system_content},
+                                {"role": "user", "content": retry_prompt}
+                            ]
+                        }
+                        res = httpx.post("https://api.x.ai/v1/chat/completions", json=retry_payload, headers={"Content-Type": "application/json", "Authorization": f"Bearer {XAI_API_KEY}"}, timeout=60.0)
+                        if res.status_code == 200:
+                            retry_ai_content = res.json()["choices"][0]["message"]["content"]
+                            if "[ERROR_CSAM_DETECTED]" in retry_ai_content:
+                                raise Exception("[ERROR_CSAM_DETECTED] Vi phạm chính sách an toàn trong quá trình dịch lại.")
+                            retry_ai_response = robust_json_parse(retry_ai_content)
+                            retry_translations = extract_translations(retry_ai_response)
+                        else:
+                            raise Exception(f"Grok retry failed with status {res.status_code}")
+                    else:
                         retry_response = deepseek_client.chat.completions.create(
                             model="deepseek-chat",
                             messages=[
@@ -443,15 +545,13 @@ def process_manga_page(self, page_id: str, config: dict):
                         )
                         retry_ai_response = robust_json_parse(retry_response.choices[0].message.content)
                         retry_translations = extract_translations(retry_ai_response)
-                        
-                        # Cập nhật kết quả dịch lại vào danh sách translations
-                        for f_item in failed_items:
-                            f_id = str(f_item["id"])
-                            if f_id in retry_translations:
-                                translations[f_id] = retry_translations[f_id]
-                                print(f"✅ [RETRY SUCCESS] Đã dịch lại thành công câu {f_id}!")
-                    except Exception as re_err:
-                        print(f"⚠️ [RETRY FAILED] Lỗi khi dịch lại lần 1: {re_err}")
+                    
+                    # Cập nhật kết quả dịch lại vào danh sách translations
+                    for f_item in failed_items:
+                        f_id = str(f_item["id"])
+                        if f_id in retry_translations:
+                            translations[f_id] = retry_translations[f_id]
+                            print(f"✅ [RETRY SUCCESS] Đã dịch lại thành công câu {f_id}!")
                 
                 for item in extracted_data:
                     item_id = str(item["id"])
@@ -464,11 +564,14 @@ def process_manga_page(self, page_id: str, config: dict):
                         if "text" in item:
                             item["text"] = "Lỗi dịch"
             except Exception as de:
-                print(f"⚠️ [DEEPSEEK ERROR] Lỗi dịch DeepSeek: {de}")
+                if "[ERROR_CSAM_DETECTED]" in str(de):
+                    raise de
+                error_source = "Grok" if unrestricted else "DeepSeek"
+                print(f"⚠️ [{error_source.upper()} ERROR] Lỗi dịch {error_source}: {de}")
                 for item in extracted_data:
-                    item["vietnamese"] = "Lỗi dịch thuật (VPS)"
+                    item["vietnamese"] = f"Lỗi dịch thuật ({error_source})"
                     if "text" in item:
-                        item["text"] = "Lỗi dịch thuật (VPS)"
+                        item["text"] = f"Lỗi dịch thuật ({error_source})"
                     
         # 6. Checkpoint hủy lần 4: TRƯỚC KHI LƯU ẢNH VÀ COMMIT CSDL
         if is_task_cancelled(task_id):
@@ -523,22 +626,27 @@ def process_manga_page(self, page_id: str, config: dict):
         except Exception as dbe:
             print(f"⚠️ [WORKER DB ERROR] Không thể cập nhật trạng thái failed cho trang {page_id}: {dbe}")
         
-        # Hoàn Xu cho người dùng do lỗi tác vụ ngầm thất bại
-        if 'user_id' in locals() and user_id:
+        # Hoàn Xu cho người dùng do lỗi tác vụ ngầm thất bại (không hoàn Xu nếu vi phạm chính sách CSAM)
+        is_csam = "ERROR_CSAM_DETECTED" in str(e) or "CSAM" in str(e)
+        if is_csam:
+            print(f"🛑 [WORKER SAFETY] Không hoàn Xu cho user {user_id} do vi phạm chính sách CSAM (Trang ID: {page_id})")
+        elif 'user_id' in locals() and user_id:
             try:
+                unrestricted = config.get("unrestrictedMode", False) if 'config' in locals() and config else False
+                cost = 2 if unrestricted else 1
                 with SessionLocal() as db:
                     user = db.query(models.User).filter(models.User.id == user_id).with_for_update().first()
                     if user and not user.is_pro:
-                        user.credits += 1
+                        user.credits += cost
                         new_txn = models.UserTransaction(
                             user_id=user_id,
-                            amount=1,
+                            amount=cost,
                             type="TOPUP",
-                            description=f"Hoàn 1 Xu: Dịch trang thất bại do lỗi hệ thống (ID: {page_id})"
+                            description=f"Hoàn {cost} Xu: Dịch trang thất bại do lỗi hệ thống (ID: {page_id})"
                         )
                         db.add(new_txn)
                         db.commit()
-                        print(f"🔄 [WORKER REFUND] Đã hoàn lại 1 Xu cho user {user_id} do lỗi dịch trang {page_id}")
+                        print(f"🔄 [WORKER REFUND] Đã hoàn lại {cost} Xu cho user {user_id} do lỗi dịch trang {page_id}")
             except Exception as re:
                 print(f"⚠️ [WORKER REFUND ERROR] Không thể hoàn Xu cho user {user_id}: {re}")
 

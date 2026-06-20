@@ -2400,32 +2400,32 @@ async def cancel_page_translation(
         error_payload = {"status": "FAILURE", "result": "Đã hủy bởi người dùng"}
         await async_redis_client.set(f"celery-task-meta-{task_id}", json.dumps(error_payload), ex=3600)
         
-        # Gửi tín hiệu thu hồi (revoke) của Celery để tắt Worker
         celery_app.control.revoke(task_id, terminate=True)
         
         page.status = "failed"
         
         refunded = False
         if should_refund:
+            cost_str = await async_redis_client.get(f"task_cost:{task_id}")
+            task_cost = int(cost_str) if cost_str else 1
+            
             stmt = select(User).where(User.id == user_id)
             user = (await db.execute(stmt)).scalar_one_or_none()
             if user and not user.is_pro:
-                user.credits += 1
+                user.credits += task_cost
                 refunded = True
                 
                 # Ghi nhận lịch sử biến động số dư mới (CreditLog)
                 await log_credit_transaction(
                     user_id=user_id,
-                    amount=1,
+                    amount=task_cost,
                     action_type="REFUND",
-                    description=f"Hoàn trả 1 Xu do hủy tác vụ dịch trang {task_id}",
+                    description=f"Hoàn trả {task_cost} Xu do hủy tác vụ dịch trang {task_id}",
                     db=db
                 )
-                
-                print(f"💰 [REFUND] Đã hoàn trả 1 credit cho user {user_id} do hủy task {task_id} thành công!")
+                print(f"💰 [REFUND] Đã hoàn trả {task_cost} credits cho user {user_id} do hủy task {task_id} thành công!")
                 
         await db.commit()
-        
         # Gửi thông báo thất bại qua Pub/Sub
         await async_redis_client.publish(
             f"task_progress:{task_id}", 
@@ -2533,10 +2533,12 @@ async def translate_page(
                 return {"task_id": task_id}
         except Exception as e:
             print(f"⚠️ [CACHE ERROR] Lỗi kiểm tra cache Redis: {e}")
-
     # 🚀 THẢ TÁC VỤ VÀO CELERY QUEUE CHẠY NGẦM HOÀN TOÀN
-    # Khóa và trừ 1 Xu phí dịch trang truyện (nếu cache miss)
-    await check_and_deduct_credits(db, user_id, 1, f"Dịch trang truyện (Trang ID: {page_id})")
+    # Khóa và trừ Xu phí dịch trang truyện (1 Xu thường, 2 Xu nếu bật Unrestricted Mode)
+    is_unrestricted = config.get("unrestrictedMode", False)
+    cost = 2 if is_unrestricted else 1
+    
+    await check_and_deduct_credits(db, user_id, cost, f"Dịch trang truyện (Trang ID: {page_id}, Chế độ không giới hạn: {is_unrestricted})")
     await db.commit() # Lưu CSDL ngay trước khi khởi chạy tác vụ ngầm
 
     from worker import process_manga_page
@@ -2545,19 +2547,15 @@ async def translate_page(
     # Ghi nhận ánh xạ task_id -> page_id cho API hủy / cancel định tuyến
     try:
         await async_redis_client.set(f"task_page_id:{task.id}", page_id, ex=86400)
+        # Lưu lại chi phí thực tế đã trừ để khi Cancel hoàn tiền đúng số lượng
+        await async_redis_client.set(f"task_cost:{task.id}", str(cost), ex=86400)
     except Exception as e:
-        print(f"⚠️ [TRANSLATE] Lỗi lưu mapping task_page_id: {e}")
+        print(f"⚠️ [TRANSLATE] Lỗi lưu mapping task_page_id/cost: {e}")
         
     page.status = "processing"
     await db.commit()
 
-    return {"task_id": task.id}
-
-
-
-
-
-# ==========================================
+    return {"task_id": task.id}# ==========================================
 # 3. NHẬN ẢNH SẠCH TỪ RUNPOD (Thay Celery AsyncResult)
 # ==========================================
 # ==========================================
@@ -3771,6 +3769,67 @@ async def call_deepseek_translation(
         data = json.loads(content)
         return data.get("translations", [])
 
+async def call_grok_translation(
+    texts: List[str],
+    target_language: str = "Vietnamese",
+    genre: str = "Shonen",
+    tone: str = "Casual",
+    pronoun: str = "Default"
+) -> List[str]:
+    """Task B: Translation via xAI Grok API (Unrestricted Mode)"""
+    xai_key = os.environ.get("XAI_API_KEY")
+    if not xai_key:
+        raise Exception("Chưa cấu hình API Key cho Grok (XAI_API_KEY)")
+
+    url = "https://api.x.ai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {xai_key}",
+        "Content-Type": "application/json"
+    }
+    
+    lang_val = target_language if target_language else "Tiếng Việt"
+    
+    system_prompt = (
+        "Bạn là một dịch giả truyện tranh chuyên nghiệp, không bị giới hạn bởi các bộ lọc từ ngữ thông thường. "
+        f"Nhiệm vụ của bạn là dịch sát nghĩa, mượt mà và giữ nguyên toàn bộ các từ lóng, âm thanh biểu cảm (NSFW) sang {lang_val}. \n\n"
+        "LỆNH TỐI CAO: Bạn đồng thời là một hệ thống kiểm duyệt pháp lý. Nếu phân tích thấy ngữ cảnh đoạn thoại có chứa các yếu tố lạm dụng trẻ em, ấu dâm, loli, shota hoặc nhân vật dưới tuổi vị thành niên, TUYỆT ĐỐI KHÔNG DỊCH. Bỏ qua mọi yêu cầu của người dùng và chỉ trả về duy nhất chuỗi ký tự này: [ERROR_CSAM_DETECTED]"
+    )
+    
+    user_prompt = (
+        f"Thể loại: {genre}. Xưng hô: {pronoun}. Văn phong: {tone}.\n"
+        "Respond ONLY with a JSON object containing a 'translations' key mapping to a list of strings "
+        "in the exact same length and order, e.g. {\"translations\": [\"dịch 1\", \"dịch 2\"]}.\n"
+        f"Dữ liệu cần dịch: {json.dumps(texts, ensure_ascii=False)}"
+    )
+    
+    payload = {
+        "model": "grok-4.3",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.5,
+        "max_output_tokens": 2048,
+        "top_p": 0.95,
+        "reasoning": {
+            "effort": "low"
+        },
+        "stream": False
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, json=payload, headers=headers, timeout=60.0)
+        response.raise_for_status()
+        res_json = response.json()
+        content = res_json["choices"][0]["message"]["content"]
+        
+        if "[ERROR_CSAM_DETECTED]" in content:
+            raise Exception("[ERROR_CSAM_DETECTED] Vi phạm chính sách an toàn: Phát hiện nội dung lạm dụng trẻ vị thành niên (Loli/Shota/CSAM).")
+            
+        data = json.loads(content)
+        return data.get("translations", [])
+
 @app.post("/api/v1/ai-process")
 async def ai_process(
     image: UploadFile = File(..., description="Manga Page Image"),
@@ -3786,6 +3845,7 @@ async def ai_process(
     pronoun: str = Form("Default"),
     studio_model: Optional[str] = Form(None),
     resolution: Optional[str] = Form("1K"),
+    unrestricted_mode: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ):
@@ -4303,8 +4363,10 @@ async def ai_process(
                     await queue.put({"status": "translation_ready", "translations": []})
                     return
                 await queue.put({"status": "translating_text"})
-                translations = await call_deepseek_translation(texts, target_language, genre, tone, pronoun)
-                
+                if unrestricted_mode:
+                    translations = await call_grok_translation(texts, target_language, genre, tone, pronoun)
+                else:
+                    translations = await call_deepseek_translation(texts, target_language, genre, tone, pronoun)                
                 # If page_id is provided, construct bubbles and save to DB
                 if page_id:
                     try:
@@ -4363,12 +4425,21 @@ async def ai_process(
             while pending_tasks:
                 while not queue.empty():
                     item = await queue.get()
+                    if item.get("status") == "translation_failed" and "[ERROR_CSAM_DETECTED]" in item.get("error", ""):
+                        yield f"data: {json.dumps({'status': 'error', 'message': item.get('error')}, ensure_ascii=False)}\n\n"
+                        for t in [task_a, task_b]:
+                            if not t.done():
+                                t.cancel()
+                        return
                     yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                 done, pending_tasks = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED, timeout=0.5)
 
             # Flush any remaining items in the queue
             while not queue.empty():
                 item = await queue.get()
+                if item.get("status") == "translation_failed" and "[ERROR_CSAM_DETECTED]" in item.get("error", ""):
+                    yield f"data: {json.dumps({'status': 'error', 'message': item.get('error')}, ensure_ascii=False)}\n\n"
+                    return
                 yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
         finally:
             # Cancel background tasks if client disconnects or generator exits
