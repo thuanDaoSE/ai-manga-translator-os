@@ -12,6 +12,13 @@ LOCAL_RAW_IMAGES_DIR="${PROJECT_DIR}/manga-backend/workspace"
 # LOCAL_RAW_IMAGES_DIR="${PROJECT_DIR}/manga-backend/workspace"
 
 DB_CONTAINER="manga-postgres"
+# Tự động dò tên Container Postgres nếu tên mặc định không tồn tại
+if ! docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
+    AUTO_DETECTED_DB=$(docker ps --filter "ancestor=ankane/pgvector:v0.5.1" --format "{{.Names}}" | head -n 1)
+    if [ -n "$AUTO_DETECTED_DB" ]; then
+        DB_CONTAINER="$AUTO_DETECTED_DB"
+    fi
+fi
 DB_USER="deepkoma"
 DB_NAME="manga_studio"
 BACKUP_TEMP_DIR="${PROJECT_DIR}/backup_temp"
@@ -57,12 +64,12 @@ if [ "$MODE" = "media" ]; then
     rclone copy "${LOCAL_RAW_IMAGES_DIR}" gcrypt: --verbose
 
     log_info "Đồng bộ thành công. Tiến hành dọn dẹp các tệp tin cũ cục bộ..."
-    # Dọn dẹp ảnh cũ hơn 6 giờ (360 phút) để giải phóng bộ nhớ VPS
-    # Sử dụng find tìm các tệp tin trong LOCAL_RAW_IMAGES_DIR, lọc file cũ hơn 6h và xóa
-    find "${LOCAL_RAW_IMAGES_DIR}" -type f -mmin +360 -delete
+    # Dọn dẹp ảnh cũ hơn 6 giờ (360 phút) để giải phóng bộ nhớ VPS (nếu có quyền)
+    # Lưu ý: Phần backend chạy bằng root trong Docker sẽ tự động dọn dẹp các tệp cũ hơn 2 giờ.
+    find "${LOCAL_RAW_IMAGES_DIR}" -type f -mmin +360 -delete 2>/dev/null || true
     
     # Xóa các thư mục rỗng phát sinh nếu có (ngoại trừ thư mục cha)
-    find "${LOCAL_RAW_IMAGES_DIR}" -mindepth 1 -type d -empty -delete || true
+    find "${LOCAL_RAW_IMAGES_DIR}" -mindepth 1 -type d -empty -delete 2>/dev/null || true
 
     log_info "=== Hoàn thành đồng bộ Media và dọn dẹp bộ nhớ VPS ==="
 
