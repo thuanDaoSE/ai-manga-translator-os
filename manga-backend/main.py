@@ -869,6 +869,8 @@ async def upload_page_to_project(
                 buffer.write(data)
                 
         await asyncio.to_thread(save_file, raw_path, optimized_bytes)
+    except HTTPException as he:
+        raise he
     except Exception as img_err:
         print(f"❌ [UPLOAD PREPROCESS ERROR] Lỗi: {img_err}")
         # Dự phòng: nếu tiền xử lý lỗi thì lưu trực tiếp file gốc để tránh gián đoạn trải nghiệm người dùng
