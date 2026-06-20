@@ -243,13 +243,15 @@ def process_manga_page(self, page_id: str, config: dict):
             return {"status": "cancelled", "message": "Task was cancelled before execution"}
 
         user_id = None
+        project_id = None
         # Lấy thông tin trang truyện từ CSDL (Sync)
         with SessionLocal() as db:
             page = db.query(models.Page).filter(models.Page.id == page_id).first()
             if not page:
                 raise ValueError(f"Không tìm thấy trang truyện cho page_id: {page_id}")
             raw_url = page.raw_url
-            project = db.query(models.Project).filter(models.Project.id == page.project_id).first()
+            project_id = page.project_id
+            project = db.query(models.Project).filter(models.Project.id == project_id).first()
             if project:
                 user_id = project.user_id
             
@@ -421,8 +423,9 @@ def process_manga_page(self, page_id: str, config: dict):
         clean_url = ""
         if clean_b64:
             clean_img_data = base64.b64decode(clean_b64)
-            os.makedirs("workspace", exist_ok=True)
-            clean_file_path = f"workspace/clean_{task_id}.jpg"
+            clean_dir = f"workspace/{project_id}/clean"
+            os.makedirs(clean_dir, exist_ok=True)
+            clean_file_path = f"{clean_dir}/{page_id}.jpg"
             with open(clean_file_path, "wb") as f:
                 f.write(clean_img_data)
             clean_url = f"/{clean_file_path}"
