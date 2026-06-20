@@ -17,6 +17,18 @@ def preprocess_image(file_bytes: bytes) -> Image.Image:
         
         # Vì verify() làm đóng con trỏ file, ta cần mở lại ảnh để thao tác tiếp
         image = Image.open(io.BytesIO(file_bytes))
+        
+        # 🛡️ CHỐT CHẶN BẢO VỆ: Ngăn chặn ảnh quá dài (Webtoon) gây quá tải VRAM / RAM
+        w, h = image.size
+        if w > 0:
+            aspect_ratio = h / w
+            if aspect_ratio > 2.2:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Hệ thống hiện tại chưa hỗ trợ ảnh dạng cuộn dọc (Webtoon) để bảo vệ tài nguyên GPU. Vui lòng cắt nhỏ ảnh thành các trang đơn có tỷ lệ chiều cao/chiều rộng dưới 2.2 trước khi tải lên!"
+                )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
