@@ -193,6 +193,18 @@ def extract_translations(ai_response: any) -> dict:
     return translations
 
 
+def contains_cjk_characters(text: str) -> bool:
+    if not text:
+        return False
+    # Unicode ranges for Japanese/Chinese:
+    # Hiragana: \u3040-\u309F
+    # Katakana: \u30A0-\u30FF
+    # Kanji/Hanzi: \u4E00-\u9FFF
+    # Japanese fullwidth punctuation: \u3000-\u303F, \uFF00-\uFFEF
+    pattern = re.compile(r'[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]')
+    return bool(pattern.search(text))
+
+
 def broadcast_progress(task_id, progress, message, state="PROCESSING", result=None):
     payload = json.dumps({
         "state": state,
@@ -395,6 +407,51 @@ def process_manga_page(self, page_id: str, config: dict):
                         if attempt == 2:
                             raise e
                     time.sleep(1)
+                
+                # 5.5. Hậu kiểm: Phát hiện chữ Nhật/Trung (dịch sai ngôn ngữ đầu ra) và tự động dịch lại đúng 1 lần
+                failed_items = []
+                for item in extracted_data:
+                    item_id = str(item["id"])
+                    translated_text = translations.get(item_id, "")
+                    # Nếu đích là Tiếng Việt hoặc English nhưng đầu ra vẫn chứa chữ Nhật/Trung (mã CJK)
+                    if target_language in ["Tiếng Việt", "English"] and contains_cjk_characters(translated_text):
+                        failed_items.append({"id": item["id"], "japanese": item["japanese"]})
+
+                if failed_items:
+                    print(f"⚠️ [CHECK-LANG] Phát hiện {len(failed_items)} câu dịch ra vẫn chứa chữ Trung/Nhật. Tiến hành dịch lại đúng 1 lần...")
+                    retry_prompt = (
+                        f"Nhiệm vụ của bạn là dịch đoạn thoại truyện tranh sau sang {target_language}.\n"
+                        f"CẢNH BÁO CỰC KỲ NGHIÊM NGẶT: Lần dịch trước của bạn bị lỗi dịch ra chữ tiếng Trung hoặc tiếng Nhật gốc. "
+                        f"Bạn BẮT BUỘC phải dịch HOÀN TOÀN sang {target_language}. TUYỆT ĐỐI không được trả về chữ Trung Quốc hay chữ Nhật gốc.\n"
+                        f"Dữ liệu cần dịch lại: {json.dumps(failed_items, ensure_ascii=False)}"
+                    )
+                    try:
+                        retry_response = deepseek_client.chat.completions.create(
+                            model="deepseek-chat",
+                            messages=[
+                                {
+                                    "role": "system", 
+                                    "content": (
+                                        "You are a professional manga translator. "
+                                        f"You must translate the text strictly and fully to {target_language}. "
+                                        "Do not output Chinese, Japanese, or any other language characters. Only output standard translated text."
+                                    )
+                                },
+                                {"role": "user", "content": retry_prompt}
+                            ],
+                            response_format={'type': 'json_object'}
+                        )
+                        retry_ai_response = robust_json_parse(retry_response.choices[0].message.content)
+                        retry_translations = extract_translations(retry_ai_response)
+                        
+                        # Cập nhật kết quả dịch lại vào danh sách translations
+                        for f_item in failed_items:
+                            f_id = str(f_item["id"])
+                            if f_id in retry_translations:
+                                translations[f_id] = retry_translations[f_id]
+                                print(f"✅ [RETRY SUCCESS] Đã dịch lại thành công câu {f_id}!")
+                    except Exception as re_err:
+                        print(f"⚠️ [RETRY FAILED] Lỗi khi dịch lại lần 1: {re_err}")
                 
                 for item in extracted_data:
                     item_id = str(item["id"])

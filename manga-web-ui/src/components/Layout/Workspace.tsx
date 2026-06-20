@@ -296,7 +296,7 @@ export default function Workspace() {
                       y,
                       w,
                       h,
-                      text: detectedTexts[idx] || "",
+                      text: "",
                       vietnamese: "",
                       japanese: detectedTexts[idx] || "",
                       fontSize: toolState.fontSize || 20,
