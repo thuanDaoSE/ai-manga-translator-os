@@ -140,21 +140,29 @@ async function createPsd() {
 
         newLayer.name = `Thoai ${String(idx + 1).padStart(2, '0')} [${bubble.text.substring(0, 5)}...]`;
 
-        newLayer.left = x;
-        newLayer.top = y;
-        newLayer.right = x + w;
-        newLayer.bottom = y + h;
-
-
         // BẢN VÁ 1: Ép chuẩn NFC (Dựng sẵn) để Photoshop không bị ngu
         const safeText = bubble.text.normalize('NFC');
         const wrappedText = autoWrapText(ctx, safeText, w, fontSize, fontCurrent);
+
         // =========================================================================
-        // 🚀 BẢN VÁ TOÁN HỌC: CHUYỂN ĐỔI TỌA ĐỘ GÓC TRÁI TRÊN THÀNH TỌA ĐỘ TÂM
-        // Vì Photoshop coi [tx, ty] trong transform của Box Text là TÂM của Box
+        // 🚀 BẢN VÁ CĂN GIỮA DỌC (VERTICAL CENTERING) BẰNG TOÁN HỌC
         // =========================================================================
+        const linesArray = wrappedText.split('\r');
+        const lineCount = linesArray.length;
+        // Chiều cao ước tính chính xác của khối chữ theo cơ chế Photoshop
+        const textHeight = fontSize + (lineCount - 1) * fontSize * 1.15;
+        // Khoảng đệm dọc để căn giữa chữ
+        const verticalPadding = Math.max(0, (h - textHeight) / 2);
+        
+        // Dịch xuống dưới thêm một chút (65% cỡ chữ) để cân đối hoàn hảo về mặt thị giác
+        const visualFineTune = fontSize * 0.65;
+        let adjustedY = y + verticalPadding + visualFineTune;
         let centerX = x + (w / 2);
-        let centerY = y + (h / 2);
+
+        newLayer.left = x;
+        newLayer.top = adjustedY;
+        newLayer.right = x + w;
+        newLayer.bottom = adjustedY + textHeight;
 
         newLayer.text = {
             text: wrappedText,
@@ -163,9 +171,9 @@ async function createPsd() {
                 left: { value: 0, units: 'Pixels' },
                 top: { value: 0, units: 'Pixels' },
                 right: { value: w, units: 'Pixels' },
-                bottom: { value: h, units: 'Pixels' }
+                bottom: { value: textHeight, units: 'Pixels' }
             },
-            transform: [1, 0, 0, 1, centerX, centerY], // <--- CẬP NHẬT GỐC TỌA ĐỘ TÂM VÀO ĐÂY
+            transform: [1, 0, 0, 1, centerX, adjustedY], // <--- Trả lại centerX cho chiều ngang, chỉ căn chỉnh chiều dọc adjustedY
             style: {
                 font: { name: psFontName },
                 fontSize: fontSize,
