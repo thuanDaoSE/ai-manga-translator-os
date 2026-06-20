@@ -7,10 +7,8 @@ set -e
 
 # Các tham số cấu hình mặc định (Có thể tùy chỉnh)
 PROJECT_DIR="/home/deepkoma/deepkoma"
-LOCAL_RAW_IMAGES_DIR="${PROJECT_DIR}/manga-backend/storage/raw_images"
-# Lưu ý: Nếu muốn backup toàn bộ ảnh gốc tải lên của từng project, có thể cấu hình:
-# LOCAL_RAW_IMAGES_DIR="${PROJECT_DIR}/manga-backend/workspace"
-
+LOCAL_RAW_IMAGES_DIR="${PROJECT_DIR}/manga-backend/workspace"
+# Ghi chú: Đã cập nhật sang thư mục workspace để đồng bộ đúng ảnh truyện thực tế của các dự án
 DB_CONTAINER="manga-postgres"
 DB_USER="deepkoma"
 DB_NAME="manga_studio"
