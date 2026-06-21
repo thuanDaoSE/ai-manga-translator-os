@@ -6,23 +6,128 @@ import os
 import torch
 import onnxruntime as ort
 import sys
+import requests
 from PIL import Image
+from transformers import AutoModelForCausalLM, AutoProcessor
 
-print("Khởi động AI Engine...")
+print("Khởi động AI Engine với PaddleOCR-VL và LaMa ONNX...")
 
+# VRAM Boundary constraint: limit ONNX Runtime (LaMa session) to 6GB VRAM
+gpu_limit = 6 * 1024 * 1024 * 1024  # 6GB VRAM limit
+providers = [
+    ('CUDAExecutionProvider', {
+        'device_id': 0,
+        'gpu_mem_limit': gpu_limit,
+        'arena_extend_strategy': 'kNextPowerOfTwo'
+    }),
+    'CPUExecutionProvider'
+]
+lama_session = ort.InferenceSession(
+    os.path.join(os.path.dirname(__file__), "lama-manga.onnx"),
+    providers=providers
+)
+
+# Load Comic Text Detector (CTD)
 sys.path.append(os.path.join(os.path.dirname(__file__), "comic_text_detector"))
-from manga_ocr import MangaOcr
 from comic_text_detector.inference import TextDetector
-
-mocr = MangaOcr() 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-text_detector = TextDetector(model_path=os.path.join(os.path.dirname(__file__), "comic_text_detector", "data", "comictextdetector.pt"), device=device)
+text_detector = TextDetector(
+    model_path=os.path.join(os.path.dirname(__file__), "comic_text_detector", "data", "comictextdetector.pt"),
+    device=device
+)
 
-device_providers = ['CUDAExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
-lama_session = ort.InferenceSession(os.path.join(os.path.dirname(__file__), "lama-manga.onnx"), providers=device_providers)
+# Load PaddleOCR-VL-1.6 Vision-Language Model
+model_name = "gigass03/PaddleOCR-VL-1.6-Manga-Finetuned"
 
-def extract_text_manga_ocr(crop_bgr):
-    return mocr(Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB))).strip()
+# Set up NaViT dynamic resolution bounds for the processor
+min_pixels = 256 * 28 * 28
+max_pixels = 1280 * 28 * 28
+
+processor = AutoProcessor.from_pretrained(
+    model_name,
+    trust_remote_code=True,
+    min_pixels=min_pixels,
+    max_pixels=max_pixels
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    trust_remote_code=True,
+    torch_dtype=torch.bfloat16,
+    attn_implementation="flash_attention_2"
+).to("cuda").eval()
+
+def execute_paddleocr_inference(crop_img: np.ndarray) -> str:
+    """
+    Executes Japanese text OCR on a cropped manga panel / speech bubble
+    using gigass03/PaddleOCR-VL-1.6-Manga-Finetuned.
+    Uses strict NaViT constraints and bfloat16 flash_attention_2 inference.
+    """
+    try:
+        # Convert BGR to PIL RGB
+        image_rgb = cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB)
+        image_pil = Image.fromarray(image_rgb)
+        
+        # Prepare inputs with the required task prompt
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image_pil},
+                    {"type": "text", "text": "OCR:"}
+                ]
+            }
+        ]
+        
+        inputs = processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt"
+        ).to("cuda")
+        
+        # Inference with no_grad and prompt token length slice
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=256,
+                do_sample=False
+            )
+        
+        prompt_len = inputs.input_ids.shape[1]
+        generated_tokens = outputs[0][prompt_len:]
+        result_text = processor.decode(generated_tokens, skip_special_tokens=True)
+        return result_text.strip()
+    except Exception as e:
+        print(f"⚠️ [PADDLEOCR-VL ERROR] Inference failed: {e}")
+        return ""
+
+def download_image(url: str, flags: int = cv2.IMREAD_COLOR) -> np.ndarray:
+    try:
+        response = requests.get(url, timeout=10.0)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise ValueError(f"Network error: {str(e)}")
+    
+    nparr = np.frombuffer(response.content, np.uint8)
+    img = cv2.imdecode(nparr, flags)
+    if img is None:
+        raise ValueError("Failed to decode image from downloaded content.")
+    return img
+
+def get_image_input(job_input, url_key='image_url', b64_key='image_base64', flags=cv2.IMREAD_COLOR):
+    if url_key in job_input and job_input[url_key]:
+        return download_image(job_input[url_key], flags)
+    elif b64_key in job_input and job_input[b64_key]:
+        img_b64 = job_input[b64_key]
+        nparr = np.frombuffer(base64.b64decode(img_b64), np.uint8)
+        img = cv2.imdecode(nparr, flags)
+        if img is None:
+            raise ValueError(f"Failed to decode base64 image from {b64_key}")
+        return img
+    else:
+        raise ValueError(f"Missing both {url_key} and {b64_key} in job input")
 
 def handler(job):
     job_input = job['input']
@@ -32,20 +137,24 @@ def handler(job):
     if action == 'ping':
         return {"status": "success", "message": "pong"}
 
-    # 🟢 2. LỆNH SCAN: Chỉ quét chữ MangaOCR
-    elif action == 'scan':
-        img_b64 = job_input['image_base64']
-        nparr = np.frombuffer(base64.b64decode(img_b64), np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        return {"status": "success", "text": extract_text_manga_ocr(image)}
+    # Tải và parse ảnh đầu vào tùy theo action
+    try:
+        if action == 'scan':
+            image = get_image_input(job_input, flags=cv2.IMREAD_COLOR)
+        elif action == 'erase':
+            crop_img = get_image_input(job_input, flags=cv2.IMREAD_COLOR)
+            crop_mask = get_image_input(job_input, url_key='mask_url', b64_key='mask_base64', flags=cv2.IMREAD_GRAYSCALE)
+        else:
+            image = get_image_input(job_input, flags=cv2.IMREAD_COLOR)
+    except ValueError as val_err:
+        return {"status": "error", "message": f"RunPod failed to download resource: {str(val_err)}"}
+
+    # 🟢 2. LỆNH SCAN: Chỉ quét chữ MangaOCR bằng PaddleOCR-VL
+    if action == 'scan':
+        return {"status": "success", "text": execute_paddleocr_inference(image)}
 
     # 🟢 3. LỆNH ERASE: Chỉ xóa mảng nhỏ (LaMa)
     elif action == 'erase':
-        img_b64 = job_input['image_base64']
-        mask_b64 = job_input['mask_base64']
-        crop_img = cv2.imdecode(np.frombuffer(base64.b64decode(img_b64), np.uint8), cv2.IMREAD_COLOR)
-        crop_mask = cv2.imdecode(np.frombuffer(base64.b64decode(mask_b64), np.uint8), cv2.IMREAD_GRAYSCALE)
-
         h_crop, w_crop = crop_img.shape[:2]
         
         # Xử lý tự scale và padding cho LaMa
@@ -77,10 +186,6 @@ def handler(job):
         return {"status": "success", "clean_crop_base64": base64.b64encode(buffer).decode('utf-8')}
 
     # 🟢 4. LỆNH TRANSLATE: Dịch toàn bộ trang truyện (Giữ nguyên code cũ của sếp)
-    img_b64 = job_input['image_base64']
-    img_data = base64.b64decode(img_b64)
-    nparr = np.frombuffer(img_data, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     clean_image = image.copy()
     h_img, w_img = image.shape[:2]
 
@@ -106,7 +211,8 @@ def handler(job):
             x, y, w, h = cv2.boundingRect(cnt)
             if w < 16 or h < 16: continue 
             
-            japanese_text = extract_text_manga_ocr(image[y:y+h, x:x+w])
+            # Crop the bubble and execute PaddleOCR-VL inference
+            japanese_text = execute_paddleocr_inference(image[y:y+h, x:x+w])
             extracted_data.append({"id": count, "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h}, "japanese": japanese_text, "vietnamese": ""})
             count += 1
             
