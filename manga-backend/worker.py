@@ -212,7 +212,10 @@ def broadcast_progress(task_id, progress, message, state="PROCESSING", result=No
         "message": message,
         "result": result
     })
-    redis_client.publish(f"task_progress:{task_id}", payload)
+    try:
+        redis_client.publish(f"task_progress:{task_id}", payload)
+    except Exception as e:
+        print(f"⚠️ [REDIS PUBLISH ERROR] Failed to publish progress for task {task_id}: {e}")
 
 def is_task_cancelled(task_id: str) -> bool:
     try:
@@ -242,39 +245,57 @@ def sync_update_page_db(page_id, clean_url, bubbles):
 @celery_app.task(bind=True, name="process_manga_page")
 def process_manga_page(self, page_id: str, config: dict):
     task_id = self.request.id
+    is_slice = config.get("is_slice", False)
+    parent_page_id = config.get("parent_page_id")
+    slice_index = config.get("slice_index")
+    total_slices = config.get("total_slices")
+    master_task_id = config.get("master_task_id", task_id)
+    
     try:
         import db_models as models
+        import uuid
         
         target_language = config.get("target_language", "Tiếng Việt")
         if not target_language:
             target_language = "Tiếng Việt"
         
         # 1. Kiểm tra checkpoint hủy đầu tiên trước khi đọc DB
-        if is_task_cancelled(task_id):
-            print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước khi bắt đầu. Dừng!")
+        if is_task_cancelled(task_id) or is_task_cancelled(master_task_id):
+            print(f"🛑 [WORKER] Task {task_id} / master {master_task_id} đã bị hủy trước khi bắt đầu. Dừng!")
             return {"status": "cancelled", "message": "Task was cancelled before execution"}
 
         user_id = None
         project_id = None
         # Lấy thông tin trang truyện từ CSDL (Sync)
         with SessionLocal() as db:
-            page = db.query(models.Page).filter(models.Page.id == page_id).first()
-            if not page:
-                raise ValueError(f"Không tìm thấy trang truyện cho page_id: {page_id}")
-            raw_url = page.raw_url
-            project_id = page.project_id
+            if is_slice:
+                slice_rec = db.query(models.PageSlice).filter(models.PageSlice.id == page_id).first()
+                if not slice_rec:
+                    raise ValueError(f"Không tìm thấy slice cho id: {page_id}")
+                raw_url = slice_rec.raw_url
+                parent_page = db.query(models.Page).filter(models.Page.id == parent_page_id).first()
+                if not parent_page:
+                    raise ValueError(f"Không tìm thấy parent page cho slice: {page_id}")
+                project_id = parent_page.project_id
+            else:
+                page = db.query(models.Page).filter(models.Page.id == page_id).first()
+                if not page:
+                    raise ValueError(f"Không tìm thấy trang truyện cho page_id: {page_id}")
+                raw_url = page.raw_url
+                project_id = page.project_id
+                
             project = db.query(models.Project).filter(models.Project.id == project_id).first()
             if project:
                 user_id = project.user_id
             
         if not raw_url:
-            raise ValueError(f"Không tìm thấy URL ảnh gốc cho page_id: {page_id}")
+            raise ValueError(f"Không tìm thấy URL ảnh gốc cho id: {page_id}")
             
         raw_path = raw_url.lstrip('/')
         if not os.path.exists(raw_path):
             raise ValueError(f"Không tìm thấy file ảnh gốc tại: {raw_path}")
             
-        broadcast_progress(task_id, 10, "Đang nén và mã hóa ảnh gốc...")
+        broadcast_progress(master_task_id, 10, "Đang nén và mã hóa ảnh gốc...")
         
         # Đọc ảnh và chuyển sang Base64
         img = cv2.imread(raw_path)
@@ -288,11 +309,11 @@ def process_manga_page(self, page_id: str, config: dict):
         img_b64 = base64.b64encode(img_bytes).decode('utf-8')
         
         # 2. Checkpoint hủy lần 2: TRƯỚC KHI GỌI RUNPOD API (PAID API)
-        if is_task_cancelled(task_id):
-            print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước cuộc gọi RunPod API. Dừng!")
+        if is_task_cancelled(task_id) or is_task_cancelled(master_task_id):
+            print(f"🛑 [WORKER] Task {task_id} / master {master_task_id} đã bị hủy trước cuộc gọi RunPod API. Dừng!")
             return {"status": "cancelled", "message": "Task was cancelled before RunPod call"}
 
-        broadcast_progress(task_id, 25, "Đang khởi tạo dịch vụ xử lý...")
+        broadcast_progress(master_task_id, 25, "Đang khởi tạo dịch vụ xử lý...")
         
         runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/run"
         headers = {
@@ -316,14 +337,14 @@ def process_manga_page(self, page_id: str, config: dict):
         runpod_job_id = res.json()["id"]
         
         # 3. Server-side Polling để cập nhật tiến độ
-        broadcast_progress(task_id, 40, "Đang nhận diện chữ và tách nền...")
+        broadcast_progress(master_task_id, 40, "Đang nhận diện chữ và tách nền...")
         status_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{runpod_job_id}"
         
         runpod_result = None
         while True:
             # Checkpoint hủy trong vòng lặp polling
-            if is_task_cancelled(task_id):
-                print(f"🛑 [WORKER] Task {task_id} đã bị hủy trong khi polling RunPod. Dừng!")
+            if is_task_cancelled(task_id) or is_task_cancelled(master_task_id):
+                print(f"🛑 [WORKER] Task {task_id} / master {master_task_id} đã bị hủy trong khi polling RunPod. Dừng!")
                 return {"status": "cancelled", "message": "Task was cancelled during RunPod execution"}
 
             time.sleep(2)
@@ -337,17 +358,17 @@ def process_manga_page(self, page_id: str, config: dict):
             elif status in ["FAILED", "CANCELLED"]:
                 raise Exception(f"RunPod job failed or cancelled: {status_data}")
             elif status == "IN_PROGRESS":
-                broadcast_progress(task_id, 60, "Đang tiến hành tẩy nền và đọc chữ...")
+                broadcast_progress(master_task_id, 60, "Đang tiến hành tẩy nền và đọc chữ...")
             elif status == "IN_QUEUE":
-                broadcast_progress(task_id, 45, "Đang xếp hàng chờ máy chủ xử lý...")
+                broadcast_progress(master_task_id, 45, "Đang xếp hàng chờ máy chủ xử lý...")
                 
         # 4. Trích xuất kết quả RunPod
         clean_b64 = runpod_result.get("clean_image_base64")
         extracted_data = runpod_result.get("data", [])
         
         # 5. Checkpoint hủy lần 3: TRƯỚC KHI GỌI DEEPSEEK API (PAID API)
-        if is_task_cancelled(task_id):
-            print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước cuộc gọi DeepSeek API. Dừng!")
+        if is_task_cancelled(task_id) or is_task_cancelled(master_task_id):
+            print(f"🛑 [WORKER] Task {task_id} / master {master_task_id} đã bị hủy trước cuộc gọi DeepSeek API. Dừng!")
             return {"status": "cancelled", "message": "Task was cancelled before DeepSeek call"}
 
         # Dịch bằng DeepSeek hoặc Grok trên VPS
@@ -356,7 +377,7 @@ def process_manga_page(self, page_id: str, config: dict):
             try:
                 translations = {}
                 if unrestricted:
-                    broadcast_progress(task_id, 80, "Đang tiến hành dịch thuật (Unrestricted Mode via Grok)...")
+                    broadcast_progress(master_task_id, 80, "Đang tiến hành dịch thuật (Unrestricted Mode via Grok)...")
                     ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
                     XAI_API_KEY = os.environ.get("XAI_API_KEY")
                     if not XAI_API_KEY:
@@ -426,7 +447,7 @@ def process_manga_page(self, page_id: str, config: dict):
                                 raise e
                         time.sleep(1)
                 else:
-                    broadcast_progress(task_id, 80, "Đang tiến hành dịch thuật ngữ cảnh...")
+                    broadcast_progress(master_task_id, 80, "Đang tiến hành dịch thuật ngữ cảnh...")
                     ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
                     # Tinh chỉnh prompt động theo target_language
                     lang_instruction = ""
@@ -574,18 +595,24 @@ def process_manga_page(self, page_id: str, config: dict):
                         item["text"] = f"Lỗi dịch thuật ({error_source})"
                     
         # 6. Checkpoint hủy lần 4: TRƯỚC KHI LƯU ẢNH VÀ COMMIT CSDL
-        if is_task_cancelled(task_id):
-            print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước khi lưu kết quả. Dừng!")
+        if is_task_cancelled(task_id) or is_task_cancelled(master_task_id):
+            print(f"🛑 [WORKER] Task {task_id} / master {master_task_id} đã bị hủy trước khi lưu kết quả. Dừng!")
             return {"status": "cancelled", "message": "Task was cancelled before output saving"}
 
         # Lưu ảnh sạch lên VPS
-        broadcast_progress(task_id, 90, "Đang lưu trữ ảnh sạch...")
+        broadcast_progress(master_task_id, 90, "Đang lưu trữ ảnh sạch...")
         clean_url = ""
         if clean_b64:
             clean_img_data = base64.b64decode(clean_b64)
-            clean_dir = f"workspace/{project_id}/clean"
-            os.makedirs(clean_dir, exist_ok=True)
-            clean_file_path = f"{clean_dir}/{page_id}.jpg"
+            if is_slice:
+                clean_dir = f"workspace/{project_id}/slices/clean"
+                os.makedirs(clean_dir, exist_ok=True)
+                clean_file_path = f"{clean_dir}/{parent_page_id}_slice_{slice_index + 1:03d}.jpg"
+            else:
+                clean_dir = f"workspace/{project_id}/clean"
+                os.makedirs(clean_dir, exist_ok=True)
+                clean_file_path = f"{clean_dir}/{page_id}.jpg"
+                
             with open(clean_file_path, "wb") as f:
                 f.write(clean_img_data)
             clean_url = f"/{clean_file_path}"
@@ -595,10 +622,20 @@ def process_manga_page(self, page_id: str, config: dict):
             "data": extracted_data
         }
         
-        # 7. Cập nhật cơ sở dữ liệu đồng bộ
-        sync_update_page_db(page_id, clean_url, extracted_data)
-        
-        # Ghi nhận cache vào Redis
+        # Cập nhật cơ sở dữ liệu đồng bộ
+        if is_slice:
+            with SessionLocal() as db:
+                slice_rec = db.query(models.PageSlice).filter(models.PageSlice.id == page_id).first()
+                if slice_rec:
+                    slice_rec.clean_url = clean_url
+                    slice_rec.bubbles_data = json.dumps(extracted_data)
+                    slice_rec.status = "completed"
+                    db.commit()
+            print(f"✅ [WORKER DB] Đã cập nhật kết quả dịch cho slice {page_id} vào PostgreSQL!")
+        else:
+            sync_update_page_db(page_id, clean_url, extracted_data)
+            
+        # Ghi nhận cache vào Redis (chỉ dành cho ảnh đơn hoặc mảnh cắt riêng biệt để tối ưu)
         try:
             img_hash = get_image_ahash(raw_path)
             if img_hash:
@@ -606,31 +643,157 @@ def process_manga_page(self, page_id: str, config: dict):
                 redis_client.set(cache_key, json.dumps(result_payload), ex=2592000)
         except Exception as ce:
             print(f"⚠️ [CACHE WRITE ERROR] Lỗi lưu Redis cache: {ce}")
+
+        # Kiểm tra trạng thái hoàn thành của toàn bộ trang (Hidden Slices Pattern)
+        if is_slice:
+            should_package = False
+            with SessionLocal() as db:
+                # Lock row parent page chống tranh chấp tài nguyên (race condition)
+                parent = db.query(models.Page).filter(models.Page.id == parent_page_id).with_for_update().first()
+                sibling_slices = db.query(models.PageSlice).filter(models.PageSlice.page_id == parent_page_id).order_by(models.PageSlice.slice_index).all()
+                
+                completed_count = sum(1 for s in sibling_slices if s.status == "completed")
+                total_count = len(sibling_slices)
+                
+                if completed_count == total_count and parent.status == "processing":
+                    # Khóa trạng thái parent sang completed trước để ngăn luồng song song chạy trùng
+                    parent.status = "completed"
+                    db.commit()
+                    should_package = True
+                else:
+                    # Cập nhật tiến độ động cho Frontend dựa trên số lượng mảnh đã xong (10% - 90%)
+                    progress_pct = int((completed_count / total_count) * 80) + 10
+                    broadcast_progress(master_task_id, progress_pct, f"Đang dịch phần {completed_count}/{total_count}...")
             
-        broadcast_progress(task_id, 100, "Hoàn tất!", state="SUCCESS", result=result_payload)
-        return result_payload
-        
+            if should_package:
+                try:
+                    broadcast_progress(master_task_id, 92, "Đang đóng gói file lưu trữ (.zip)...")
+                    import zipfile
+                    
+                    zip_dir = f"workspace/{project_id}/downloads"
+                    os.makedirs(zip_dir, exist_ok=True)
+                    zip_path = f"{zip_dir}/{parent_page_id}.zip"
+                    
+                    # Tạo file ZIP đóng gói tất cả các slices sạch tuần tự
+                    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                        for idx, s in enumerate(sibling_slices):
+                            clean_file_path = s.clean_url.lstrip('/')
+                            if os.path.exists(clean_file_path):
+                                ext = clean_file_path.split('.')[-1]
+                                zip_file.write(clean_file_path, arcname=f"{idx + 1:03d}.{ext}")
+                    
+                    broadcast_progress(master_task_id, 96, "Đang căn chỉnh tọa độ ô thoại...")
+                    
+                    # Đồng bộ và dịch chuyển tọa độ Y của bubbles dựa trên chiều cao lưu sẵn trong database
+                    aggregated_bubbles = []
+                    current_y_offset = 0
+                    clean_urls_list = []
+                    
+                    for idx, s in enumerate(sibling_slices):
+                        clean_urls_list.append(s.clean_url)
+                        slice_h = s.height
+                        bubbles = json.loads(s.bubbles_data or "[]")
+                        
+                        for b in bubbles:
+                            coords = b.get("box_coordinates")
+                            if isinstance(coords, dict):
+                                if "y1" in coords: coords["y1"] += current_y_offset
+                                if "y2" in coords: coords["y2"] += current_y_offset
+                            if "y1" in b: b["y1"] += current_y_offset
+                            if "y2" in b: b["y2"] += current_y_offset
+                            if "boxY" in b: b["boxY"] += current_y_offset
+                            
+                            # Tránh trùng lặp ID ô thoại
+                            b_id = b.get("id")
+                            if b_id is not None:
+                                try:
+                                    b["id"] = (idx * 1000) + int(b_id)
+                                except ValueError:
+                                    b["id"] = f"{idx}_{b_id}"
+                            else:
+                                b["id"] = str(uuid.uuid4())
+                                
+                            aggregated_bubbles.append(b)
+                        
+                        current_y_offset += slice_h
+                        
+                    # Lưu các thông tin tổng hợp vào Page cha trong Database
+                    with SessionLocal() as db:
+                        parent = db.query(models.Page).filter(models.Page.id == parent_page_id).first()
+                        if parent:
+                            parent.clean_url = json.dumps(clean_urls_list)
+                            parent.download_url = f"/{zip_path}"
+                            parent.bubbles_data = json.dumps(aggregated_bubbles)
+                            parent.status = "completed"
+                            db.commit()
+                            
+                    final_payload = {
+                        "clean_url": clean_urls_list,
+                        "data": aggregated_bubbles,
+                        "download_url": f"/{zip_path}"
+                    }
+                    broadcast_progress(master_task_id, 100, "Hoàn tất!", state="SUCCESS", result=final_payload)
+                    return final_payload
+                except Exception as package_err:
+                    print(f"❌ [PACKAGING ERROR] Lỗi đóng gói zip/bubbles: {package_err}")
+                    with SessionLocal() as db:
+                        parent = db.query(models.Page).filter(models.Page.id == parent_page_id).first()
+                        if parent:
+                            parent.status = "failed"
+                            db.commit()
+                    broadcast_progress(master_task_id, 0, f"Đóng gói kết quả thất bại: {str(package_err)}", state="FAILURE")
+                    raise package_err
+            else:
+                return {
+                    "status": "processing",
+                    "slice_index": slice_index,
+                    "completed_slices": completed_count,
+                    "total_slices": total_count
+                }
+        else:
+            # Dành cho ảnh đơn thông thường
+            broadcast_progress(master_task_id, 100, "Hoàn tất!", state="SUCCESS", result=result_payload)
+            return result_payload
+            
     except Exception as e:
         import traceback
         print(f"❌ [WORKER ERROR] Lỗi nghiêm trọng: {e}")
         traceback.print_exc()
         
-        # 🚀 Cập nhật trạng thái trang thành failed trong CSDL để tránh kẹt trạng thái processing
+        was_processing = False
+        # Cập nhật trạng thái trang/slice thành failed trong CSDL
         try:
             with SessionLocal() as db:
-                page = db.query(models.Page).filter(models.Page.id == page_id).first()
-                if page:
-                    page.status = "failed"
-                    db.commit()
-                    print(f"❌ [WORKER DB] Đã cập nhật trạng thái failed cho trang {page_id}")
+                if is_slice:
+                    slice_rec = db.query(models.PageSlice).filter(models.PageSlice.id == page_id).first()
+                    if slice_rec:
+                        slice_rec.status = "failed"
+                    
+                    parent = db.query(models.Page).filter(models.Page.id == parent_page_id).with_for_update().first()
+                    if parent and parent.status == "processing":
+                        parent.status = "failed"
+                        was_processing = True
+                        db.commit()
+                        print(f"❌ [WORKER DB] Đã cập nhật trạng thái failed cho parent page {parent_page_id} do slice {page_id} thất bại")
+                    else:
+                        db.commit()
+                else:
+                    page = db.query(models.Page).filter(models.Page.id == page_id).with_for_update().first()
+                    if page and page.status == "processing":
+                        page.status = "failed"
+                        was_processing = True
+                        db.commit()
+                        print(f"❌ [WORKER DB] Đã cập nhật trạng thái failed cho trang {page_id}")
+                    else:
+                        db.commit()
         except Exception as dbe:
-            print(f"⚠️ [WORKER DB ERROR] Không thể cập nhật trạng thái failed cho trang {page_id}: {dbe}")
+            print(f"⚠️ [WORKER DB ERROR] Không thể cập nhật trạng thái failed: {dbe}")
         
         # Hoàn Xu cho người dùng do lỗi tác vụ ngầm thất bại (không hoàn Xu nếu vi phạm chính sách CSAM)
         is_csam = "ERROR_CSAM_DETECTED" in str(e) or "CSAM" in str(e)
         if is_csam:
-            print(f"🛑 [WORKER SAFETY] Không hoàn Xu cho user {user_id} do vi phạm chính sách CSAM (Trang ID: {page_id})")
-        elif 'user_id' in locals() and user_id:
+            print(f"🛑 [WORKER SAFETY] Không hoàn Xu cho user {user_id} do vi phạm chính sách CSAM")
+        elif was_processing and 'user_id' in locals() and user_id:
             try:
                 unrestricted = config.get("unrestrictedMode", False) if 'config' in locals() and config else False
                 cost = 2 if unrestricted else 1
@@ -642,13 +805,13 @@ def process_manga_page(self, page_id: str, config: dict):
                             user_id=user_id,
                             amount=cost,
                             type="TOPUP",
-                            description=f"Hoàn {cost} Xu: Dịch trang thất bại do lỗi hệ thống (ID: {page_id})"
+                            description=f"Hoàn {cost} Xu: Dịch trang thất bại do lỗi hệ thống (ID: {parent_page_id if is_slice else page_id})"
                         )
                         db.add(new_txn)
                         db.commit()
-                        print(f"🔄 [WORKER REFUND] Đã hoàn lại {cost} Xu cho user {user_id} do lỗi dịch trang {page_id}")
+                        print(f"🔄 [WORKER REFUND] Đã hoàn lại {cost} Xu cho user {user_id}")
             except Exception as re:
                 print(f"⚠️ [WORKER REFUND ERROR] Không thể hoàn Xu cho user {user_id}: {re}")
 
-        broadcast_progress(task_id, 0, f"Thất bại: {str(e)}", state="FAILURE")
+        broadcast_progress(master_task_id, 0, f"Thất bại: {str(e)}", state="FAILURE")
         raise e

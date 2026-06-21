@@ -539,16 +539,27 @@ async def get_workspace_file(file_path: str):
     
     # FileResponse sẽ tự động kế thừa bộ lọc CORS của FastAPI
     return FileResponse(full_path)
-
 # --- KÍCH HOẠT DATABASE KHI BẬT SERVER ---
-# Mẫu code tạo bảng nếu sếp chưa có (thường đặt ở file main.py sự kiện startup)
 from database import engine, Base
+from sqlalchemy import text
 
 @app.on_event("startup")
 async def startup():
     async with engine.begin() as conn:
         # Lệnh này sẽ tạo tự động tất cả các bảng nếu chưa có
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Thêm cột download_url vào bảng pages nếu chưa tồn tại
+        try:
+            # Dành cho PostgreSQL
+            await conn.execute(text("ALTER TABLE pages ADD COLUMN IF NOT EXISTS download_url VARCHAR;"))
+        except Exception:
+            # Dành cho SQLite
+            try:
+                await conn.execute(text("ALTER TABLE pages ADD COLUMN download_url VARCHAR;"))
+            except Exception:
+                pass
+
 
 # ==========================================
 # CÁC API MỚI CHO QUẢN LÝ DỰ ÁN & LƯU TRỮ TẬP TRUNG
@@ -788,7 +799,7 @@ async def get_page_bubbles(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # Giới hạn 10MB
+MAX_FILE_SIZE = 150 * 1024 * 1024  # Giới hạn 150MB
 ALLOWED_MIMES = ["image/jpeg", "image/png", "image/webp"]
 
 @app.post("/api/projects/{project_id}/upload")
@@ -822,8 +833,8 @@ async def upload_page_to_project(
     file_size_mb = file.file.tell() / (1024 * 1024) 
     file.file.seek(0) # Đo xong nhớ quay con trỏ về đầu file để lát nữa còn lưu
     
-    if file_size_mb > 15.0: # Lớn hơn 15MB thì chặn
-        raise HTTPException(status_code=413, detail=f"Ảnh quá nặng ({file_size_mb:.1f}MB). Vui lòng nén ảnh xuống dưới 15MB!")
+    if file_size_mb > 150.0: # Lớn hơn 150MB thì chặn
+        raise HTTPException(status_code=413, detail=f"Ảnh quá nặng ({file_size_mb:.1f}MB). Vui lòng nén ảnh xuống dưới 150MB!")
 
     # ========================================================
     # LUỒNG XỬ LÝ LƯU FILE BÌNH THƯỜNG BÊN DƯỚI
@@ -843,52 +854,106 @@ async def upload_page_to_project(
     project_dir = f"workspace/{project_id}"
     raw_dir = f"{project_dir}/raw"
     clean_dir = f"{project_dir}/clean"
+    slices_dir = f"{project_dir}/slices"
     
     os.makedirs(raw_dir, exist_ok=True)
     os.makedirs(clean_dir, exist_ok=True)
+    os.makedirs(slices_dir, exist_ok=True)
     
     raw_path = f"{raw_dir}/{page_id}.{ext}"
     
-    # 3. Bây giờ mới được lưu file (Áp dụng tiền xử lý chống alpha RGBA & tối ưu hóa dung lượng đầu ra)
-    from image_utils import preprocess_image as pil_preprocess_image, export_image
+    # 3. Lưu file gốc trực tiếp xuống đĩa (Không load toàn bộ vào RAM để tránh OOM)
     try:
-        file_bytes = await file.read()
-        
-        # Chạy tiền xử lý và nén ảnh (CPU-bound) trong ThreadPool để tránh block Event Loop
-        def process_and_export(data: bytes, ext_str: str):
-            processed_img = pil_preprocess_image(data)
-            format_type = "png" if ext_str == "png" else "jpg"
-            return export_image(processed_img, format_type, optimize=False)
-            
-        ext_lower = ext.lower()
-        optimized_bytes = await asyncio.to_thread(process_and_export, file_bytes, ext_lower)
-        
-        # Ghi file xuống đĩa (Blocking I/O) cũng chạy trong ThreadPool
-        def save_file(path: str, data: bytes):
-            with open(path, "wb") as buffer:
-                buffer.write(data)
-                
-        await asyncio.to_thread(save_file, raw_path, optimized_bytes)
-    except HTTPException as he:
-        raise he
-    except Exception as img_err:
-        print(f"❌ [UPLOAD PREPROCESS ERROR] Lỗi: {img_err}")
-        # Dự phòng: nếu tiền xử lý lỗi thì lưu trực tiếp file gốc để tránh gián đoạn trải nghiệm người dùng
-        file.file.seek(0)
         def save_original():
             with open(raw_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
         await asyncio.to_thread(save_original)
+    except Exception as save_err:
+        print(f"❌ [UPLOAD ERROR] Không thể ghi file gốc: {save_err}")
+        raise HTTPException(status_code=500, detail=f"Lỗi hệ thống khi ghi file: {str(save_err)}")
 
-    # 4. Lưu thông tin vào Database
+    # 🚀 TIẾN HÀNH TIỀN XỬ LÝ CẮT WEBTOON NGAY TRÊN VPS (Chạy ngầm trong ThreadPool)
+    from webtoon_slicer import slice_webtoon
+    try:
+        # Chạy CPU-bound slice_webtoon trong ThreadPool để không block Event Loop
+        slices = await asyncio.to_thread(
+            slice_webtoon,
+            raw_path,
+            1500,  # target_height
+            1000,  # min_height
+            2000,  # max_height
+            0.01   # penalty_weight
+        )
+    except Exception as slice_err:
+        print(f"❌ [SLICING ERROR] Cắt webtoon thất bại: {slice_err}")
+        # Xóa file rác chống đầy đĩa
+        if os.path.exists(raw_path):
+            try: os.remove(raw_path)
+            except Exception: pass
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cắt ảnh webtoon thất bại (File có thể bị hỏng hoặc không được hỗ trợ): {str(slice_err)}"
+        )
+
+    if not slices:
+        if os.path.exists(raw_path):
+            try: os.remove(raw_path)
+            except Exception: pass
+        raise HTTPException(
+            status_code=400,
+            detail="Cắt ảnh webtoon thất bại: Không trích xuất được mảnh nào từ file."
+        )
+
+    # 🚀 LƯU CÁC MẢNH CẮT XUỐNG ĐĨA (ThreadPool) VÀ THU THẬP THÔNG TIN DỰ ÁN
+    def write_slices_to_disk():
+        metadata = []
+        for idx, slice_img in enumerate(slices):
+            slice_filename = f"{page_id}_slice_{idx + 1:03d}.{ext}"
+            slice_path = f"{slices_dir}/{slice_filename}"
+            cv2.imwrite(slice_path, slice_img)
+            h, w = slice_img.shape[:2]
+            metadata.append({
+                "raw_url": f"/workspace/{project_id}/slices/{slice_filename}",
+                "width": w,
+                "height": h,
+                "slice_index": idx
+            })
+        return metadata
+
+    try:
+        slices_metadata = await asyncio.to_thread(write_slices_to_disk)
+    except Exception as save_slices_err:
+        print(f"❌ [SAVE SLICES ERROR] Lỗi lưu các mảnh ảnh: {save_slices_err}")
+        if os.path.exists(raw_path):
+            try: os.remove(raw_path)
+            except Exception: pass
+        shutil.rmtree(slices_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"Không thể lưu các mảnh cắt ảnh: {str(save_slices_err)}")
+
+    # 4. Lưu thông tin vào Database (Bao gồm Page cha và các PageSlice con)
+    # Page cha
     db_page = models.Page(
         id=page_id,
         project_id=project_id,
         filename=file.filename,
-        raw_url=f"/workspace/{project_id}/raw/{page_id}.{ext}", # Sửa lại /static/ thành /workspace/ cho chuẩn kiến trúc mới của sếp
+        raw_url=f"/workspace/{project_id}/raw/{page_id}.{ext}",
         status="unprocessed"
     )
     db.add(db_page)
+
+    # Các slice con
+    for item in slices_metadata:
+        db_slice = models.PageSlice(
+            id=str(uuid.uuid4()),
+            page_id=page_id,
+            slice_index=item["slice_index"],
+            status="unprocessed",
+            raw_url=item["raw_url"],
+            width=item["width"],
+            height=item["height"]
+        )
+        db.add(db_slice)
+
     await db.commit()
     
     return {"status": "success", "page_id": page_id}
@@ -1872,6 +1937,13 @@ async def download_psd(
         # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
         page = await check_page_ownership(page_id, user_id, db)
 
+        # Kiểm tra xem có phải truyện cắt trang (Webtoon) không
+        if page.clean_url and page.clean_url.startswith("["):
+            raise HTTPException(
+                status_code=400,
+                detail="Xuất file PSD không được hỗ trợ cho truyện cắt trang (Webtoon) do giới hạn kích thước ảnh của định dạng PSD. Vui lòng tải file ZIP lưu trữ thay thế."
+            )
+
         # 2. Xử lý đường dẫn chuẩn xác
         raw_path = get_local_path_from_url(page.raw_url)
         
@@ -2218,7 +2290,24 @@ async def get_project_pages(project_id: str, db: AsyncSession = Depends(get_db),
     page_result = await db.execute(select(models.Page).where(models.Page.project_id == project_id))
     pages = page_result.scalars().all()
     
-    return {"pages": [{"id": p.id, "filename": p.filename, "raw_url": p.raw_url, "clean_url": p.clean_url, "status": p.status} for p in pages]}
+    pages_data = []
+    for p in pages:
+        clean_url_val = p.clean_url
+        if clean_url_val and clean_url_val.startswith("["):
+            try:
+                clean_url_val = json.loads(clean_url_val)
+            except Exception:
+                pass
+        pages_data.append({
+            "id": p.id,
+            "filename": p.filename,
+            "raw_url": p.raw_url,
+            "clean_url": clean_url_val,
+            "download_url": p.download_url if hasattr(p, "download_url") else None,
+            "status": p.status
+        })
+        
+    return {"pages": pages_data}
 
 
 @app.get("/api/pages/{page_id}/export-manga")
@@ -2230,23 +2319,33 @@ async def export_manga(
     """Đóng gói Ảnh và Chữ thành 1 file .manga (Thực chất là file ZIP) để người dùng tải về"""
     # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
     page = await check_page_ownership(page_id, user_id, db)
-
-    # 1. Lấy đường dẫn ảnh (Ưu tiên ảnh đã Clean, nếu chưa có thì lấy ảnh Raw)
-    img_path_url = page.clean_url if page.clean_url else page.raw_url
-    local_img_path = get_local_path_from_url(img_path_url)
-
-    if not os.path.exists(local_img_path):
-        raise HTTPException(status_code=404, detail="File ảnh gốc đã bị xóa (Hết hạn 24h)!")
-
     # 2. Lấy dữ liệu chữ (JSON)
     bubbles_json = page.bubbles_data or "[]"
 
     # 3. 🚀 MA THUẬT NÉN TRÊN RAM (Không tốn 1 Byte ổ cứng nào của sếp!)
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-        # Nén ảnh vào cục Zip
-        img_ext = local_img_path.split('.')[-1]
-        zipf.write(local_img_path, arcname=f"image.{img_ext}")
+        # Check if the page is a sliced webtoon
+        if page.clean_url and page.clean_url.startswith("["):
+            try:
+                clean_urls = json.loads(page.clean_url)
+            except Exception:
+                clean_urls = []
+            
+            for idx, url in enumerate(clean_urls):
+                local_path = get_local_path_from_url(url)
+                if os.path.exists(local_path):
+                    ext = local_path.split('.')[-1]
+                    zipf.write(local_path, arcname=f"image_{idx+1:03d}.{ext}")
+        else:
+            # Single image page
+            img_path_url = page.clean_url if page.clean_url else page.raw_url
+            local_img_path = get_local_path_from_url(img_path_url)
+            if not os.path.exists(local_img_path):
+                raise HTTPException(status_code=404, detail="File ảnh gốc đã bị xóa (Hết hạn 24h)!")
+            img_ext = local_img_path.split('.')[-1]
+            zipf.write(local_img_path, arcname=f"image.{img_ext}")
+
         # Nén cục chữ (JSON) vào Zip
         zipf.writestr("bubbles.json", bubbles_json)
 
@@ -2533,6 +2632,7 @@ async def translate_page(
                 return {"task_id": task_id}
         except Exception as e:
             print(f"⚠️ [CACHE ERROR] Lỗi kiểm tra cache Redis: {e}")
+
     # 🚀 THẢ TÁC VỤ VÀO CELERY QUEUE CHẠY NGẦM HOÀN TOÀN
     # Khóa và trừ Xu phí dịch trang truyện (1 Xu thường, 2 Xu nếu bật Unrestricted Mode)
     is_unrestricted = config.get("unrestrictedMode", False)
@@ -2541,21 +2641,57 @@ async def translate_page(
     await check_and_deduct_credits(db, user_id, cost, f"Dịch trang truyện (Trang ID: {page_id}, Chế độ không giới hạn: {is_unrestricted})")
     await db.commit() # Lưu CSDL ngay trước khi khởi chạy tác vụ ngầm
 
-    from worker import process_manga_page
-    task = process_manga_page.delay(page_id, config)
-    
-    # Ghi nhận ánh xạ task_id -> page_id cho API hủy / cancel định tuyến
-    try:
-        await async_redis_client.set(f"task_page_id:{task.id}", page_id, ex=86400)
-        # Lưu lại chi phí thực tế đã trừ để khi Cancel hoàn tiền đúng số lượng
-        await async_redis_client.set(f"task_cost:{task.id}", str(cost), ex=86400)
-    except Exception as e:
-        print(f"⚠️ [TRANSLATE] Lỗi lưu mapping task_page_id/cost: {e}")
-        
-    page.status = "processing"
-    await db.commit()
+    # Kiểm tra xem trang này có mảnh cắt (slices) hay không
+    slice_stmt = select(models.PageSlice).where(models.PageSlice.page_id == page_id).order_by(models.PageSlice.slice_index)
+    slice_result = await db.execute(slice_stmt)
+    slices = slice_result.scalars().all()
 
-    return {"task_id": task.id}# ==========================================
+    from worker import process_manga_page
+
+    if slices:
+        # Sử dụng master_task_id đại diện cho toàn bộ tiến trình ghép của các slices
+        master_task_id = str(uuid.uuid4())
+        
+        # Ánh xạ master_task_id -> page_id và cost trong Redis cho API hủy / cancel
+        try:
+            await async_redis_client.set(f"task_page_id:{master_task_id}", page_id, ex=86400)
+            await async_redis_client.set(f"task_cost:{master_task_id}", str(cost), ex=86400)
+        except Exception as e:
+            print(f"⚠️ [TRANSLATE] Lỗi lưu mapping task_page_id/cost: {e}")
+            
+        page.status = "processing"
+        await db.commit()
+        
+        # Đẩy từng slice vào hàng đợi Celery
+        for s in slices:
+            s.status = "processing"
+            slice_config = config.copy()
+            slice_config.update({
+                "is_slice": True,
+                "parent_page_id": page_id,
+                "slice_index": s.slice_index,
+                "total_slices": len(slices),
+                "master_task_id": master_task_id
+            })
+            process_manga_page.delay(s.id, slice_config)
+            
+        await db.commit()
+        return {"task_id": master_task_id}
+    else:
+        # Chạy tác vụ đơn thông thường
+        task = process_manga_page.delay(page_id, config)
+        
+        try:
+            await async_redis_client.set(f"task_page_id:{task.id}", page_id, ex=86400)
+            await async_redis_client.set(f"task_cost:{task.id}", str(cost), ex=86400)
+        except Exception as e:
+            print(f"⚠️ [TRANSLATE] Lỗi lưu mapping task_page_id/cost: {e}")
+            
+        page.status = "processing"
+        await db.commit()
+        return {"task_id": task.id}
+
+# ==========================================
 # 3. NHẬN ẢNH SẠCH TỪ RUNPOD (Thay Celery AsyncResult)
 # ==========================================
 # ==========================================

@@ -57,8 +57,24 @@ class Page(Base):
     status = Column(String, default="pending") 
     raw_url = Column(String) 
     clean_url = Column(String, nullable=True) 
+    download_url = Column(String, nullable=True)
     bubbles_data = Column(Text, default="[]") 
     project = relationship("Project", back_populates="pages")
+    slices = relationship("PageSlice", back_populates="page", cascade="all, delete-orphan")
+
+class PageSlice(Base):
+    __tablename__ = "page_slices"
+    id = Column(String, primary_key=True, index=True)
+    page_id = Column(String, ForeignKey("pages.id", ondelete="CASCADE"), index=True)
+    slice_index = Column(Integer, nullable=False)
+    status = Column(String, default="unprocessed")
+    raw_url = Column(String, nullable=False)
+    clean_url = Column(String, nullable=True)
+    bubbles_data = Column(Text, default="[]")
+    width = Column(Integer, nullable=False)
+    height = Column(Integer, nullable=False)
+    
+    page = relationship("Page", back_populates="slices")
 
 # ==========================================
 # 🚀 CÁC BẢNG MỚI: KIẾN TRÚC TRANSLATION MEMORY & GLOSSARY (Thêm Index & Composite Unique)

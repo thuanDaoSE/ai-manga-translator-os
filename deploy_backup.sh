@@ -125,8 +125,11 @@ elif [ "$MODE" = "database" ]; then
     rclone rmdirs gdrive:/DeepKoma_DB_Backup --min-age 30d || true
 
     # 7. Dọn dẹp các tệp tin trung gian cục bộ để tránh đầy ổ đĩa VPS
-    log_info "Đang xóa các tệp tin sao lưu tạm thời cục bộ..."
-    rm -f "${SQL_DUMP_FILE}" "${TAR_ARCHIVE}" "${ENCRYPTED_FILE}"
+    log_info "Đang xóa các tệp tin sql và tar tạm thời..."
+    rm -f "${SQL_DUMP_FILE}" "${TAR_ARCHIVE}"
+    # Giữ lại các tệp mã hóa .enc của 3 ngày gần nhất trên VPS để sếp tải về PC dễ dàng
+    find "${BACKUP_TEMP_DIR}" -name "deepkoma_db_*.enc" -mtime +3 -delete 2>/dev/null || true
+
 
     log_info "=== Hoàn thành tiến trình sao lưu Database & Cấu hình thành công ==="
 
