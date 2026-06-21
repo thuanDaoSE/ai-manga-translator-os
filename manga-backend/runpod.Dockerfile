@@ -15,6 +15,9 @@ COPY requirements-serverless.txt .
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir -r requirements-serverless.txt
 
+# Cài đặt flash-attn bằng lệnh riêng có --no-build-isolation
+RUN pip install --no-cache-dir flash-attn>=2.5.0 --no-build-isolation
+
 # Cài bản ONNX GPU xịn nhất cho CUDA 12 giống sếp đã làm
 RUN pip uninstall -y onnxruntime onnxruntime-gpu && \
     pip install --no-cache-dir onnxruntime-gpu==1.19.2
