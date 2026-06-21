@@ -24,7 +24,7 @@ RUN pip uninstall -y onnxruntime onnxruntime-gpu && \
 
 # Tải trước trọng số model về cache của Docker để tránh cold-start latency
 RUN pip install --no-cache-dir huggingface_hub && \
-    huggingface-cli download gigass03/PaddleOCR-VL-1.6-Manga-Finetuned --exclude "*.gguf" "*.onnx" "*.md"
+    python -c "from huggingface_hub import snapshot_download; snapshot_download('gigass03/PaddleOCR-VL-1.6-Manga-Finetuned', ignore_patterns=['*.gguf', '*.onnx', '*.md'])"
 
 # Copy bộ não AI vào Docker
 COPY handler.py /app/handler.py
