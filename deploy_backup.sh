@@ -5,8 +5,8 @@
 # Chế độ dừng script ngay lập tức nếu gặp lỗi
 set -e
 
-# Các tham số cấu hình mặc định (Có thể tùy chỉnh)
-PROJECT_DIR="/home/deepkoma/deepkoma"
+# Tự động xác định thư mục dự án dựa trên vị trí của script này
+PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 LOCAL_RAW_IMAGES_DIR="${PROJECT_DIR}/manga-backend/workspace"
 # Lưu ý: Nếu muốn backup toàn bộ ảnh gốc tải lên của từng project, có thể cấu hình:
 # LOCAL_RAW_IMAGES_DIR="${PROJECT_DIR}/manga-backend/workspace"
