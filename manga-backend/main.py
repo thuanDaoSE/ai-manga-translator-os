@@ -1416,48 +1416,103 @@ async def erase_mask(
             crop_image = image[y1:y2, x1:x2]
             crop_mask = mask[y1:y2, x1:x2]
 
-            # 🚀 CHẠY TRỰC TIẾP LAMA TRÊN CPU CỦA VPS
-            clean_crop_b64 = None
-            session = get_lama_session()
-            if session is None:
-                raise HTTPException(status_code=500, detail="Local LaMa ONNX model session could not be initialized.")
+            # 🚀 GỌI RUNPOD ĐỂ XÓA MẶT NẠ, FALLBACK SANG LOCAL LAMA 1 THREAD NẾU LỖI
+            _, buf_img = cv2.imencode('.png', crop_image)
+            _, buf_mask = cv2.imencode('.png', crop_mask)
             
+            clean_crop_b64 = None
             try:
-                import time
-                lama_start_time = time.time()
-                h_crop, w_crop = crop_image.shape[:2]
-                scale = 1.0
-                if h_crop > 512 or w_crop > 512:
-                    scale = 512.0 / max(h_crop, w_crop)
-                    new_w, new_h = int(w_crop * scale), int(h_crop * scale)
-                    local_img = cv2.resize(crop_image, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                    local_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-                else:
-                    new_w, new_h = w_crop, h_crop
-                    local_img = crop_image.copy()
-                    local_mask = crop_mask.copy()
-
-                pad_bottom, pad_right = 512 - new_h, 512 - new_w
-                if pad_bottom > 0 or pad_right > 0:
-                    local_img = cv2.copyMakeBorder(local_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
-                    local_mask = cv2.copyMakeBorder(local_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
-
-                img_t = np.transpose(cv2.cvtColor(local_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
-                mask_t = np.transpose((local_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
-
-                ort_outs = session.run(None, {session.get_inputs()[0].name: img_t, session.get_inputs()[1].name: mask_t})
-                out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
-                clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
-
-                if scale != 1.0:
-                    clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+                runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/runsync"
+                headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
                 
-                _, buffer = cv2.imencode('.png', clean_crop)
-                clean_crop_b64 = base64.b64encode(buffer).decode('utf-8')
-                print(f"🚀 [DIRECT LOCAL LAMA] Local LaMa completed successfully in {time.time() - lama_start_time:.4f}s")
-            except Exception as local_err:
-                print(f"❌ [DIRECT LOCAL LAMA ERROR] Local LaMa execution failed: {local_err}")
-                raise HTTPException(status_code=500, detail=f"Local LaMa execution failed: {str(local_err)}")
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    res = await client.post(runpod_url, json={
+                        "input": {
+                            "action": "erase", 
+                            "image_base64": base64.b64encode(buf_img).decode('utf-8'),
+                            "mask_base64": base64.b64encode(buf_mask).decode('utf-8')
+                        }
+                    }, headers=headers)
+                    
+                    if res.status_code != 200:
+                        raise Exception(f"RunPod runsync failed with status {res.status_code}: {res.text}")
+                    
+                    res_data = res.json()
+                    job_status = res_data.get("status")
+                    job_id = res_data.get("id")
+                    
+                    # Nếu chưa COMPLETED (ví dụ: đang cold start), chuyển sang chế độ polling
+                    if job_status != "COMPLETED":
+                        if not job_id:
+                            raise Exception(f"RunPod runsync failed without job ID: {res_data}")
+                        print(f"[erase_mask] Worker is booting or busy (status: {job_status}). Polling job {job_id}...")
+                        
+                        import time
+                        start_time = time.time()
+                        success = False
+                        while time.time() - start_time < 300: # Timeout 5 phút
+                            status_res = await client.get(
+                                f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{job_id}",
+                                headers=headers
+                            )
+                            status_data = status_res.json()
+                            status = status_data.get("status")
+
+                            if status == "COMPLETED":
+                                res_data = status_data
+                                success = True
+                                break
+                            elif status in ["FAILED", "CANCELLED"]:
+                                raise Exception(f"RunPod Serverless báo lỗi trong lúc xóa: {status_data.get('error', 'Lỗi không xác định')}")
+                            
+                            await asyncio.sleep(3)
+                        
+                        if not success:
+                            raise Exception("Thời gian chờ xử lý xóa ảnh trên RunPod Serverless đã quá hạn (Timeout 5 phút)")
+                
+                clean_crop_b64 = res_data.get('output', {}).get('clean_crop_base64')
+            except Exception as e:
+                print(f"⚠️ [LAMA FALLBACK] RunPod failed or timed out: {e}. Falling back to local LaMa ONNX execution!")
+                session = get_lama_session()
+                if session is None:
+                    raise HTTPException(status_code=500, detail=f"RunPod failed and local LaMa is not available: {str(e)}")
+                
+                try:
+                    import time
+                    local_start = time.time()
+                    h_crop, w_crop = crop_image.shape[:2]
+                    scale = 1.0
+                    if h_crop > 512 or w_crop > 512:
+                        scale = 512.0 / max(h_crop, w_crop)
+                        new_w, new_h = int(w_crop * scale), int(h_crop * scale)
+                        local_img = cv2.resize(crop_image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                        local_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                    else:
+                        new_w, new_h = w_crop, h_crop
+                        local_img = crop_image.copy()
+                        local_mask = crop_mask.copy()
+
+                    pad_bottom, pad_right = 512 - new_h, 512 - new_w
+                    if pad_bottom > 0 or pad_right > 0:
+                        local_img = cv2.copyMakeBorder(local_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+                        local_mask = cv2.copyMakeBorder(local_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+
+                    img_t = np.transpose(cv2.cvtColor(local_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
+                    mask_t = np.transpose((local_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
+
+                    ort_outs = session.run(None, {session.get_inputs()[0].name: img_t, session.get_inputs()[1].name: mask_t})
+                    out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
+                    clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+
+                    if scale != 1.0:
+                        clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+                    
+                    _, buffer = cv2.imencode('.png', clean_crop)
+                    clean_crop_b64 = base64.b64encode(buffer).decode('utf-8')
+                    print(f"🚀 [LAMA FALLBACK] Local LaMa completed successfully in {time.time() - local_start:.4f}s")
+                except Exception as local_err:
+                    print(f"❌ [LAMA FALLBACK ERROR] Local LaMa execution failed: {local_err}")
+                    raise HTTPException(status_code=500, detail=f"RunPod failed, and local LaMa execution failed: {str(local_err)}")
             
             if clean_crop_b64:
                 clean_crop = cv2.imdecode(np.frombuffer(base64.b64decode(clean_crop_b64), np.uint8), cv2.IMREAD_COLOR)
