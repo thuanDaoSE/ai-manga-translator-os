@@ -1,0 +1,7 @@
+torch
+transformers>=5.0.0
+Pillow
+runpod
+requests
+accelerate>=0.26.0
+flash-attn>=2.5.0 --no-build-isolation
