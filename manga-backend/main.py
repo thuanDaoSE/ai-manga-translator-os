@@ -1424,17 +1424,25 @@ async def erase_mask(
             
             clean_crop_b64 = None
             try:
-                runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/runsync"
+                cpu_endpoint_id = os.getenv("CPU_RUNPOD_ID")
+                if cpu_endpoint_id:
+                    runpod_url = f"https://api.runpod.ai/v2/{cpu_endpoint_id}/runsync"
+                    payload_input = {
+                        "image_b64": base64.b64encode(buf_img).decode('utf-8'),
+                        "mask_b64": base64.b64encode(buf_mask).decode('utf-8')
+                    }
+                else:
+                    runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/runsync"
+                    payload_input = {
+                        "action": "erase", 
+                        "image_base64": base64.b64encode(buf_img).decode('utf-8'),
+                        "mask_base64": base64.b64encode(buf_mask).decode('utf-8')
+                    }
+                    
                 headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
                 
                 async with httpx.AsyncClient(timeout=120.0) as client:
-                    res = await client.post(runpod_url, json={
-                        "input": {
-                            "action": "erase", 
-                            "image_base64": base64.b64encode(buf_img).decode('utf-8'),
-                            "mask_base64": base64.b64encode(buf_mask).decode('utf-8')
-                        }
-                    }, headers=headers)
+                    res = await client.post(runpod_url, json={"input": payload_input}, headers=headers)
                     
                     if res.status_code != 200:
                         raise Exception(f"RunPod runsync failed with status {res.status_code}: {res.text}")
@@ -1453,10 +1461,12 @@ async def erase_mask(
                         start_time = time.time()
                         success = False
                         while time.time() - start_time < 300: # Timeout 5 phút
-                            status_res = await client.get(
-                                f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{job_id}",
-                                headers=headers
-                            )
+                            if cpu_endpoint_id:
+                                status_url = f"https://api.runpod.ai/v2/{cpu_endpoint_id}/status/{job_id}"
+                            else:
+                                status_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{job_id}"
+                                
+                            status_res = await client.get(status_url, headers=headers)
                             status_data = status_res.json()
                             status = status_data.get("status")
 
@@ -1472,7 +1482,12 @@ async def erase_mask(
                         if not success:
                             raise Exception("Thời gian chờ xử lý xóa ảnh trên RunPod Serverless đã quá hạn (Timeout 5 phút)")
                 
-                clean_crop_b64 = res_data.get('output', {}).get('clean_crop_base64')
+                if cpu_endpoint_id:
+                    clean_crop_b64 = res_data.get('output', {}).get('result_b64')
+                    worker_trace = res_data.get('output', {}).get('cpu_runpod_id')
+                    print(f"✅ [RunPod CPU Serverless] Worker instance trace: {worker_trace}")
+                else:
+                    clean_crop_b64 = res_data.get('output', {}).get('clean_crop_base64')
             except Exception as e:
                 print(f"⚠️ [LAMA FALLBACK] RunPod failed or timed out: {e}. Falling back to local LaMa ONNX execution!")
                 session = get_lama_session()
