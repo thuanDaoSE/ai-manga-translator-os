@@ -1315,6 +1315,8 @@ async def erase_mask(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
+    import time
+    request_start_time = time.time()
     charged_amount = 0
     try:
         if payload.page_id:
@@ -1542,6 +1544,8 @@ async def erase_mask(
             if base_url.startswith("http://"):
                 base_url = "https://" + base_url[7:]
         new_url = f"{base_url}/{clean_path}"
+        total_time = time.time() - request_start_time
+        print(f"⏱️ [ERASE MASK REQUEST] Total request execution time: {total_time:.4f}s")
         return {"status": "success", "new_url": new_url, "credits": current_credits}
         
     except Exception as e:
