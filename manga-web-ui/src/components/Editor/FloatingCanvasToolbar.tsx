@@ -159,7 +159,7 @@ export const FloatingCanvasToolbar: React.FC = () => {
 
           <div className="w-1.5 h-1.5 bg-text-muted rounded-full"></div>
           <input 
-            type="range" min="1" max="150" value={brushSize} disabled={isCurrentPageProcessing || isProcessing} onChange={(e) => setBrushSize(Number(e.target.value))}
+            type="range" min="1" max={activeMode === 'redraw' ? 4000 : 150} value={brushSize} disabled={isCurrentPageProcessing || isProcessing} onChange={(e) => setBrushSize(Number(e.target.value))}
             className="w-32 h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-primary border border-border disabled:opacity-40 disabled:cursor-not-allowed"
           />
           <div className="w-3 h-3 bg-text-muted rounded-full"></div>

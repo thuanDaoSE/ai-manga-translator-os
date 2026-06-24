@@ -640,8 +640,17 @@ async def get_current_user_id(request: Request):
         if not user_id:
             raise HTTPException(status_code=401, detail="Token thiếu thông tin User ID!")
 
-        # Lưu email thật vào request.state để các API tạo User có thể lấy
-        request.state.user_email = payload.get("email")
+        user_email = payload.get("email")
+        request.state.user_email = user_email
+
+        # 🚀 LÍNH CANH BẢO TRÌ HỆ THỐNG (Backend)
+        if user_email != "td2005dataeg@gmail.com":
+            allowed_paths = ["/api/users/me", "/api/credits/history"]
+            if not any(request.url.path.startswith(p) for p in allowed_paths):
+                raise HTTPException(
+                    status_code=503, 
+                    detail="Hệ thống đang bảo trì để nâng cấp định kỳ. Vui lòng quay lại sau!"
+                )
 
         return user_id
 
@@ -658,9 +667,15 @@ async def ensure_user_exists(db: AsyncSession, user_id: str, email: str = None):
     if not user:
         if not email:
             email = f"user_{user_id}@deepkoma.local"
-        user = models.User(id=user_id, email=email, credits=30)
+        initial_credits = 10000 if email == "td2005dataeg@gmail.com" else 30
+        user = models.User(id=user_id, email=email, credits=initial_credits)
         db.add(user)
         await db.flush()
+    else:
+        if email == "td2005dataeg@gmail.com" or user.email == "td2005dataeg@gmail.com":
+            if user.credits < 10000:
+                user.credits = 10000
+                await db.flush()
     return user
 
 # 🚀 HELPER: Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng bảo mật IDOR)

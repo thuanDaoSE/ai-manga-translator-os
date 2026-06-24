@@ -124,6 +124,29 @@ export default function App() {
       </>
     );
   }
+  
+  if (user && user.email !== 'td2005dataeg@gmail.com') {
+    return (
+      <div className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center p-6 text-center select-none font-sans">
+        <div className="max-w-md bg-neutral-900 border border-neutral-800 rounded-2xl p-8 shadow-2xl flex flex-col items-center animate-fade-in">
+          <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-full flex items-center justify-center mb-6 text-3xl">
+            ⚙️
+          </div>
+          <h1 className="text-2xl font-bold mb-4 tracking-tight">Hệ Thống Đang Bảo Trì</h1>
+          <p className="text-neutral-400 text-sm leading-relaxed mb-6">
+            Dự án đang trong quá trình nâng cấp và bảo dưỡng định kỳ để mang lại trải nghiệm dịch thuật manga tốt hơn. Vui lòng quay lại sau!
+          </p>
+          <div className="w-full h-px bg-neutral-800 mb-6"></div>
+          <button 
+            onClick={() => useAuthStore.getState().signOut()} 
+            className="px-5 py-2.5 bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-800 text-neutral-300 hover:text-white rounded-lg text-sm transition font-medium"
+          >
+            Đăng xuất
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen bg-background text-text-main overflow-hidden font-sans">
