@@ -1579,7 +1579,7 @@ def get_lama_session():
         try:
             import onnxruntime as ort
             opts = ort.SessionOptions()
-            opts.intra_op_num_threads = 2
+            opts.intra_op_num_threads = 1
             opts.inter_op_num_threads = 1
             opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
             
@@ -1587,7 +1587,7 @@ def get_lama_session():
             model_path = os.path.join(os.path.dirname(__file__), "lama-manga.onnx")
             if os.path.exists(model_path):
                 _lama_session = ort.InferenceSession(model_path, sess_options=opts, providers=providers)
-                print("🚀 [DIRECT LOCAL LAMA] Local LaMa ONNX session loaded successfully on 2 CPU threads!")
+                print("🚀 [DIRECT LOCAL LAMA] Local LaMa ONNX session loaded successfully on 1 CPU thread!")
             else:
                 print("⚠️ [DIRECT LOCAL LAMA] lama-manga.onnx not found locally!")
         except Exception as e:
