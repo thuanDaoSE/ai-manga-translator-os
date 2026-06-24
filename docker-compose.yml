@@ -55,6 +55,7 @@ services:
     volumes:
       # Map the local workspace directory to persist uploaded files, clean files, and fonts
       - ./manga-backend/workspace:/app/workspace
+      - ./manga-backend/lama-manga.onnx:/app/lama-manga.onnx
     depends_on:
       db:
         condition: service_healthy
