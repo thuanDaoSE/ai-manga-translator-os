@@ -190,6 +190,59 @@ export const mangaApi = {
     return `${cleanUrl}?t=${Date.now()}`;
   },
 
+  ctdErase: async (imageUrl: string, maskBase64: string, pageId?: string) => {
+    const response = await fetch(`${API_URL}/ctd-erase`, {
+      method: 'POST',
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({ image_url: imageUrl, mask_base64: maskBase64, page_id: pageId })
+    });
+    await handleApiError(response, "Lỗi xóa chữ");
+    const data = await response.json();
+    if (data.status !== "success") throw new Error(data.message || "Xóa chữ thất bại");
+
+    if (data.credits !== undefined) {
+      useAuthStore.setState((state) => ({
+        user: state.user ? { ...state.user, credits: data.credits } : null
+      }));
+    }
+
+    let cleanUrl = data.new_url.split('?')[0];
+    if (window.location.protocol === 'https:' && cleanUrl.startsWith('http://')) {
+      cleanUrl = cleanUrl.replace('http://', 'https://');
+    }
+    return `${cleanUrl}?t=${Date.now()}`;
+  },
+
+  aiRedrawMask: async (imageUrl: string, maskBase64: string, prompt: string, translationMode: string, pageId?: string, negativePrompt?: string) => {
+    const response = await fetch(`${API_URL}/ai-redraw-mask`, {
+      method: "POST",
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({
+        image_url: imageUrl,
+        mask_base64: maskBase64,
+        prompt: prompt,
+        translation_mode: translationMode,
+        page_id: pageId,
+        negative_prompt: negativePrompt || ""
+      })
+    });
+    await handleApiError(response, "Lỗi vẽ lại vùng tô bằng AI");
+    const data = await response.json();
+    if (data.status !== "success") throw new Error(data.message || "Vẽ lại vùng tô bằng AI thất bại");
+
+    if (data.credits !== undefined) {
+      useAuthStore.setState((state) => ({
+        user: state.user ? { ...state.user, credits: data.credits } : null
+      }));
+    }
+
+    let cleanUrl = data.new_url.split('?')[0];
+    if (window.location.protocol === 'https:' && cleanUrl.startsWith('http://')) {
+      cleanUrl = cleanUrl.replace('http://', 'https://');
+    }
+    return `${cleanUrl}?t=${Date.now()}`;
+  },
+
   redrawMask: async (imageUrl: string, maskBase64: string, prompt: string, pageId?: string, negativePrompt?: string, originalImageHash?: string) => {
     const response = await fetch(`${API_URL}/redraw`, {
       method: "POST",
@@ -357,6 +410,14 @@ export const mangaApi = {
     return await response.json();
   },
 
+  getGpuStatus: async () => {
+    const response = await fetch(`${API_URL}/gpu/status`, {
+      headers: await getAuthHeaders()
+    });
+    if (!response.ok) return { status: "offline" };
+    return await response.json();
+  },
+
   importManga: async (projectId: string, file: File) => {
     const formData = new FormData();
     formData.append("file", file);
@@ -386,6 +447,7 @@ export const mangaApi = {
     return await response.json();
   },
 
+  // @deprecated - BỊ BÃI BỎ trong mô hình tính giây thực tế (Không gọi trừ xu trước nữa)
   deductCredits: async (amount: number) => {
     const response = await fetch(`${API_URL}/users/me/deduct?amount=${amount}`, {
       method: "POST",
@@ -419,7 +481,9 @@ export const mangaApi = {
         tone: config.tone,
         pronouns: config.pronouns || config.pronoun,
         glossary: config.glossary,
-        target_language: config.targetLanguage || "Tiếng Việt"
+        target_language: config.targetLanguage || "Tiếng Việt",
+        source_language: config.sourceLanguage || config.source_language || "ja",
+        client_saw_hot: config.client_saw_hot || false
       }),
     });
     await handleApiError(response, "Lỗi Server Dịch thuật!");

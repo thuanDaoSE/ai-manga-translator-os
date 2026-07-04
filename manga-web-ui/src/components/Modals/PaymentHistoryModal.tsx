@@ -96,7 +96,7 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
           </div>
           <div className="flex-1">
             <h2 className="text-lg font-black tracking-tight uppercase">
-              {activeTab === 'payments' ? t('paymentHistory.title') : 'Lịch sử dùng xu'}
+              {activeTab === 'payments' ? t('paymentHistory.title') : 'Lịch sử sử dụng'}
             </h2>
             <p className="text-[11px] text-text-muted mt-0.5">
               {activeTab === 'payments' ? t('paymentHistory.subtitle') : 'Danh sách biến động số dư chi tiết của bạn'}
@@ -135,7 +135,7 @@ export default function PaymentHistoryModal({ isOpen, onClose }: PaymentHistoryM
                 : 'text-text-muted hover:text-text-main hover:bg-white/5'
             }`}
           >
-            Lịch sử dùng xu
+            Lịch sử sử dụng
           </button>
         </div>
 

@@ -75,13 +75,19 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
         h = displayImg.naturalHeight;
 
         // Đổi size tất cả các canvas cùng 1 thời điểm chớp nhoáng
-        [cleanRef, drawRef, committedRef].forEach(ref => {
+        [cleanRef, drawRef, committedRef, originalCleanRef, rawRef].forEach(ref => {
           if (ref.current) {
             ref.current.width = w;
             ref.current.height = h;
+            const ctx = ref.current.getContext('2d');
+            if (ctx) ctx.imageSmoothingEnabled = false;
           }
         });
-        cleanRef.current?.getContext('2d')?.drawImage(displayImg, 0, 0);
+        const cleanCtx = cleanRef.current?.getContext('2d');
+        if (cleanCtx) {
+          cleanCtx.imageSmoothingEnabled = false;
+          cleanCtx.drawImage(displayImg, 0, 0);
+        }
       }
 
       // 2. VẼ ẢNH RAW (Lớp ẩn)
@@ -90,7 +96,11 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
         const targetH = h > 0 ? h : rawImg.naturalHeight;
         rawRef.current.width = targetW;
         rawRef.current.height = targetH;
-        rawRef.current.getContext('2d')?.drawImage(rawImg, 0, 0, targetW, targetH);
+        const rawCtx = rawRef.current.getContext('2d');
+        if (rawCtx) {
+          rawCtx.imageSmoothingEnabled = false;
+          rawCtx.drawImage(rawImg, 0, 0, targetW, targetH);
+        }
       }
 
       // 3. VẼ ẢNH ORIGINAL CLEAN (Két sắt ẩn)
@@ -99,7 +109,11 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
         const targetH = h > 0 ? h : originalCleanImg.naturalHeight;
         originalCleanRef.current.width = targetW;
         originalCleanRef.current.height = targetH;
-        originalCleanRef.current.getContext('2d')?.drawImage(originalCleanImg, 0, 0, targetW, targetH);
+        const origCtx = originalCleanRef.current.getContext('2d');
+        if (origCtx) {
+          origCtx.imageSmoothingEnabled = false;
+          origCtx.drawImage(originalCleanImg, 0, 0, targetW, targetH);
+        }
       }
 
       // Xóa các nét vẽ cũ (nếu có) khi sang trang mới
@@ -253,6 +267,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
                 tempCanvas.width = targetCanvas.width;
                 tempCanvas.height = targetCanvas.height;
                 const tCtx = tempCanvas.getContext('2d')!;
+                tCtx.imageSmoothingEnabled = false;
 
                 drawStroke(tCtx, currentPoints.current, currentBrushSize, "rgba(0,0,0,1)");
                 tCtx.globalCompositeOperation = 'source-in';
@@ -262,6 +277,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
                 finalCanvas.width = targetCanvas.width;
                 finalCanvas.height = targetCanvas.height;
                 const fCtx = finalCanvas.getContext('2d')!;
+                fCtx.imageSmoothingEnabled = false;
 
                 fCtx.drawImage(targetCanvas, 0, 0);
                 fCtx.drawImage(tempCanvas, 0, 0);
@@ -385,16 +401,16 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
 
   return (
     <>
-      <canvas ref={rawRef} className="hidden ph-no-capture" />
-      <canvas ref={cleanRef} className="hidden ph-no-capture" />
-      <canvas ref={committedRef} className="hidden ph-no-capture" />
+      <canvas ref={rawRef} className="hidden ph-no-capture" style={{ imageRendering: 'pixelated' }} />
+      <canvas ref={cleanRef} className="hidden ph-no-capture" style={{ imageRendering: 'pixelated' }} />
+      <canvas ref={committedRef} className="hidden ph-no-capture" style={{ imageRendering: 'pixelated' }} />
       {/* 🚀 Thêm Két sắt vào HTML để vẽ ẩn */}
-      <canvas ref={originalCleanRef} className="hidden ph-no-capture" />
+      <canvas ref={originalCleanRef} className="hidden ph-no-capture" style={{ imageRendering: 'pixelated' }} />
       <canvas
         ref={drawRef}
         id="draw-layer"
         className="absolute top-0 left-0 z-30 w-full h-full touch-none ph-no-capture"
-        style={{ cursor: cursorStyle, pointerEvents: activeMode !== 'none' ? 'auto' : 'none' }}
+        style={{ cursor: cursorStyle, pointerEvents: activeMode !== 'none' ? 'auto' : 'none', imageRendering: 'pixelated' }}
       />
     </>
   );

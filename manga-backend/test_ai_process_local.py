@@ -113,8 +113,8 @@ async def run_tests():
     with patch("boto3.client", return_value=mock_s3_client), \
          patch("httpx.AsyncClient.post", new=mock_post_func), \
          patch("httpx.AsyncClient.get", new=mock_get_func), \
-         patch("main.check_and_deduct_credits", return_value=MagicMock()), \
-         patch("main.refund_credits", return_value=MagicMock()), \
+         patch("main.check_balance_before_task", return_value=MagicMock()), \
+         patch("main.deduct_balance", return_value=MagicMock()), \
          patch("main.DISABLE_LOCAL_NSFW", False):
 
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:

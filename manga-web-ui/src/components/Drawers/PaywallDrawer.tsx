@@ -11,28 +11,13 @@ interface PaywallDrawerProps {
   onClose: () => void;
 }
 
-const calculateXu = (vnd: number) => {
-  const baseXu = Math.floor(vnd / 250);
-  let bonusXu = 0;
-  let bonusPercent = 0;
-  if (vnd === 25000) {
-    bonusPercent = 0;
-    bonusXu = 0;
-  } else if (vnd === 50000) {
-    bonusPercent = 10;
-    bonusXu = 20;
-  } else if (vnd === 100000) {
-    bonusPercent = 15;
-    bonusXu = 60;
-  } else if (vnd === 150000) {
-    bonusPercent = 16;
-    bonusXu = 100;
-  }
+const calculateSeconds = (vnd: number) => {
+  const baseSeconds = (vnd / 10000) * 900;
   return {
-    base: baseXu,
-    bonus: bonusXu,
-    total: baseXu + bonusXu,
-    percent: bonusPercent
+    base: baseSeconds,
+    bonus: 0,
+    total: baseSeconds,
+    percent: 0
   };
 };
 
@@ -58,7 +43,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   ];
 
   const finalAmount = selectedAmount;
-  const { total: equivalentXu, bonus: bonusXu } = calculateXu(finalAmount);
+  const { total: equivalentSeconds } = calculateSeconds(finalAmount);
   
   // Clear polling on unmount or close
   const stopPolling = () => {
@@ -163,8 +148,8 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   {predefinedAmounts.map((pkg) => {
-                    const { total, bonus, percent } = calculateXu(pkg.value);
-                    const isSelected = selectedAmount === pkg.value;
+                  const { total, bonus, percent } = calculateSeconds(pkg.value);
+                  const isSelected = selectedAmount === pkg.value;
                     return (
                       <button
                         key={pkg.value}
@@ -210,7 +195,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                 <h3 className="text-sm text-gray-400 font-semibold uppercase tracking-wider">{t('paywall.totalAmountToPay')}</h3>
                 <p className="text-2xl font-black text-white">{finalAmount.toLocaleString('vi-VN')} VNĐ</p>
                 <div className="inline-block px-3 py-1 bg-yellow-400/10 border border-yellow-400/20 rounded-full text-yellow-400 text-[11px] font-black mt-1">
-                  {t('paywall.receiveCredits', { count: equivalentXu })}
+                  {t('paywall.receiveCredits', { count: equivalentSeconds, minutes: Math.round(equivalentSeconds / 60) })}
                 </div>
               </div>
 

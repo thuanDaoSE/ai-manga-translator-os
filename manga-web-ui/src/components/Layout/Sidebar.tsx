@@ -3,13 +3,13 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search, Zap } from 'lucide-react';
+import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useTranslation } from 'react-i18next';
-
+import { useServerStatusStore } from '../../store/useServerStatusStore';
 import toast from 'react-hot-toast';
 import { mangaApi } from '../../services/api';
 
@@ -157,46 +157,34 @@ function SortableItem({
 
             {/* CÁC NÚT HÀNH ĐỘNG (Cải tiến bố cục giá xu ở góc dưới bên phải tránh chồng chữ) */}
             {(status === 'unprocessed' || status === 'cleaned' || status === 'translating') && (
-              <div className="relative shrink-0">
-                <button
-                  disabled={disabled}
-                  onClick={(e) => { e.stopPropagation(); onTranslate(); }}
-                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                >
-                  <Wand2 size={11} className="shrink-0" />
-                  <span>{t('canvas.translateAction', 'Dịch')}</span>
-                </button>
-                <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                  1<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
-                </span>
-              </div>
+              <button
+                disabled={disabled}
+                onClick={(e) => { e.stopPropagation(); onTranslate(); }}
+                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+              >
+                <Wand2 size={11} className="shrink-0" />
+                <span>{t('canvas.translateAction', 'Dịch')}</span>
+              </button>
             )}
 
             {status === 'error' && (
-              <div className="relative shrink-0">
-                <button
-                  disabled={disabled || (hasCleanUrl && retryCount >= 3)}
-                  onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }}
-                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${(disabled || (hasCleanUrl && retryCount >= 3)) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`}
-                >
-                  {hasCleanUrl ? (
-                    <>
-                      <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
-                      <span>Dịch lại</span>
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw size={12} />
-                      <span>{t('sidebar.retrySingle')}</span>
-                    </>
-                  )}
-                </button>
-                {!hasCleanUrl && (
-                  <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                    1<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
-                  </span>
+              <button
+                disabled={disabled || (hasCleanUrl && retryCount >= 3)}
+                onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }}
+                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${(disabled || (hasCleanUrl && retryCount >= 3)) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`}
+              >
+                {hasCleanUrl ? (
+                  <>
+                    <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
+                    <span>Dịch lại</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={12} />
+                    <span>{t('sidebar.retrySingle')}</span>
+                  </>
                 )}
-              </div>
+              </button>
             )}
 
             {status === 'completed' && (
@@ -414,6 +402,11 @@ export default function Sidebar() {
   };
 
   const processSinglePage = (pageIndex: number) => {
+    const serverStatus = useServerStatusStore.getState().serverStatus;
+    if (serverStatus === 'STARTING') {
+      toast.error("Vui lòng chờ GPU nổ máy...");
+      return Promise.resolve();
+    }
     return new Promise<void>(async (resolve) => {
       const pageId = projectStore.pageIds[pageIndex];
       if (!pageId) {
@@ -425,24 +418,22 @@ export default function Sidebar() {
 
       try {
         const configStore = useConfigStore.getState();
-
+        const serverStatus = useServerStatusStore.getState().serverStatus;
+ 
         const data = await mangaApi.translatePageById(pageId, {
           genre: configStore.genre,
           tone: configStore.tone,
           pronouns: configStore.pronoun,
           glossary: configStore.glossary,
-          targetLanguage: configStore.targetLanguage || "Tiếng Việt"
+          targetLanguage: configStore.targetLanguage || "Tiếng Việt",
+          sourceLanguage: configStore.sourceLanguage || "ja",
+          client_saw_hot: serverStatus === 'HOT'
         });
 
         if (data.task_id) {
           const taskId = data.task_id;
           
-          // Kiểm tra xem có phải là cache hit không (nếu là cache hit thì taskId bắt đầu bằng cached_)
-          const isCacheHit = taskId.startsWith("cached_");
-          if (!isCacheHit) {
-            toast("Đã trừ 1 Xu", { icon: "💰", duration: 2000 });
-            useAuthStore.getState().deductLocalCredits(1);
-          }
+          // No upfront local credit deduction is needed as balance is time-based and synced from the server upon task completion.
 
           // 🚀 Chỉ mở 1 đường truyền SSE duy nhất
           const eventSource = new EventSource(`${API_URL}/stream/${taskId}`);
@@ -943,9 +934,8 @@ export default function Sidebar() {
 
     if (selectedIndexes.length === 0) return;
 
-    const totalCost = selectedIndexes.length * modeCost;
-    if (currentCredits < totalCost) {
-      toast.error(`Không đủ năng lượng! Cần ⚡${totalCost} nhưng bạn chỉ có ⚡${currentCredits}.`);
+    if (currentCredits <= 0) {
+      toast.error("Tài khoản đã hết số dư thời gian! Vui lòng nạp thêm để tiếp tục.");
       return;
     }
 
@@ -1229,11 +1219,6 @@ export default function Sidebar() {
                     ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
                     : t('sidebar.completedAll')}
             </span>
-            {hasUnprocessed && !isAnyProcessingOrWaiting && (
-              <span className="absolute right-3 inline-flex items-center bg-black/20 px-1.5 py-0.5 rounded-md text-white/90 text-[10px] font-black whitespace-nowrap">
-                {visibleFiles.filter(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error').length * modeCost}<Zap size={10} className="fill-white/90 text-white/90 shrink-0 ml-[1px]" />
-              </span>
-            )}
           </button>
         </div>
       </div>
@@ -1273,17 +1258,15 @@ export default function Sidebar() {
             selectedPages.has(uniqueId) &&
             (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error')
           ).length;
-          const totalCost = selectedUnprocessedCount * modeCost;
-          const hasEnough = currentCredits >= totalCost && totalCost > 0;
+          const hasEnough = currentCredits > 0;
           const nothingToTranslate = selectedUnprocessedCount === 0;
 
           return (
             <button
               onClick={handleTranslateSelected}
               disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
-              title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? `Cần ⚡${totalCost}, bạn có ⚡${currentCredits}` : `Dịch ${selectedUnprocessedCount} trang`}
-              className={`relative flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
-                ${totalCost > 0 && hasEnough && !nothingToTranslate && !isAnyProcessingOrWaiting ? 'pl-4 pr-12' : 'px-4'}
+              title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết số dư thời gian GPU' : `Dịch ${selectedUnprocessedCount} trang`}
+              className={`relative flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
                 ${nothingToTranslate || isAnyProcessingOrWaiting
                   ? 'bg-border/30 text-text-muted cursor-not-allowed'
                   : !hasEnough
@@ -1293,16 +1276,9 @@ export default function Sidebar() {
             >
               <Sparkles size={15} strokeWidth={2.5} />
               {!hasEnough && !nothingToTranslate ? (
-                <span>Không đủ ⚡</span>
+                <span>Hết thời gian GPU</span>
               ) : (
-                <>
-                  <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size}</span>
-                  {totalCost > 0 && (
-                    <span className="absolute right-3 inline-flex items-center bg-black/10 px-1.5 py-0.5 rounded-md text-black text-[10px] font-black whitespace-nowrap">
-                      {totalCost}<Zap size={10} className="fill-black text-black shrink-0 ml-[1px]" />
-                    </span>
-                  )}
-                </>
+                <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size} trang</span>
               )}
             </button>
           );

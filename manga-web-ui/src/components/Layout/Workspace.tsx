@@ -16,12 +16,13 @@ import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
 import VisualGuideOverlay from '../Editor/VisualGuideOverlay';
 import FloatingTextToolbar from '../Editor/FloatingTextToolbar';
 import { useConfigStore } from '../../store/useConfigStore';
+import { useServerStatusStore } from '../../store/useServerStatusStore';
 import { PaywallDrawer } from '../Modals/PaywallDrawer';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useMangaEditorStore } from '../../store/useMangaEditorStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useDeviceDetect } from '../../hooks/useDeviceDetect';
-import { Smartphone, ArrowLeft, Loader2, Languages, Hourglass, Play } from 'lucide-react';
+import { Smartphone, ArrowLeft, Loader2, Languages, Hourglass, Play, Bot } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Helper to convert base64/dataURL to Blob
@@ -69,6 +70,9 @@ export default function Workspace() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isEraseProcessingRef = useRef(false);
   const isRedrawProcessingRef = useRef(false);
+  const isCtdEraseProcessingRef = useRef(false);
+  const [showAiPromptInput, setShowAiPromptInput] = useState(false);
+  const [aiErasePrompt, setAiErasePrompt] = useState("");
 
   const [showTosModal, setShowTosModal] = useState(false);
   const [isBetaTranslating, setIsBetaTranslating] = useState(false);
@@ -78,6 +82,7 @@ export default function Workspace() {
   
   const translationMode = useConfigStore((s) => s.translationMode);
   const setTranslationMode = useConfigStore((s) => s.setTranslationMode);
+  const serverStatus = useServerStatusStore((s) => s.serverStatus);
   const [maskPreviewUrl, setMaskPreviewUrl] = useState<string | null>(null);
   const [isWaitingConfirm, setIsWaitingConfirm] = useState(false);
   const [deductionAnim, setDeductionAnim] = useState<{ cost: number; id: number } | null>(null);
@@ -182,9 +187,13 @@ export default function Workspace() {
 
       const configState = useConfigStore.getState();
       formData.append('target_language', configState.targetLanguage);
+      formData.append('source_language', configState.sourceLanguage || 'ja');
       formData.append('genre', configState.genre);
       formData.append('tone', configState.tone);
       formData.append('pronoun', configState.pronoun);
+ 
+      const serverStatus = useServerStatusStore.getState().serverStatus;
+      formData.append('client_saw_hot', serverStatus === 'HOT' ? 'true' : 'false');
 
       if (translationMode === 'studio') {
         formData.append('studio_model', studioSubModel);
@@ -767,6 +776,11 @@ export default function Workspace() {
   useEffect(() => { zoomRef.current = currentZoom; }, [currentZoom]);
   useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
 
+  useEffect(() => {
+    setShowAiPromptInput(false);
+    setAiErasePrompt("");
+  }, [activeMode, currentIndex]);
+
   // 🚀 KỸ THUẬT MEMORY PRE-LOADING: Tính toán 100% trong RAM rồi mới Render HTML
   useEffect(() => {
     let isMounted = true;
@@ -854,13 +868,14 @@ export default function Workspace() {
       if (e.ctrlKey || e.metaKey) {
         const delta = -e.deltaY * 0.002;
         const currentZ = zoomRef.current;
-        const newZoom = Math.max(0.1, Math.min(currentZ * (1 + delta), 5.0));
+        const newZoom = Math.max(0.1, Math.min(currentZ * (1 + delta), 30.0));
 
         const rect = container.getBoundingClientRect();
         panRef.current.x = (e.clientX - rect.left) - ((e.clientX - rect.left) - panRef.current.x) * (newZoom / currentZ);
         panRef.current.y = (e.clientY - rect.top) - ((e.clientY - rect.top) - panRef.current.y) * (newZoom / currentZ);
 
         if (workspaceContainerRef.current) workspaceContainerRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${newZoom})`;
+        zoomRef.current = newZoom;
         setZoom(newZoom);
       } else {
         panRef.current.x -= e.deltaX;
@@ -1025,6 +1040,123 @@ export default function Workspace() {
       toast.error(e.message || "Xử lý xóa nền thất bại!"); 
     } finally { 
       isEraseProcessingRef.current = false;
+      setIsProcessing(false); 
+    }
+  };
+
+  // 4.1. Smart Text Removal (CTD Erase)
+  const handleCtdErase = async () => {
+    if (isCtdEraseProcessingRef.current) return;
+    if (!projectStore.pageIds[currentIndex]) return toast.error("Ảnh đang tải lên!");
+    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
+    const ctx = drawCanvas?.getContext("2d");
+    if (!ctx?.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data.some((p, i) => i % 4 === 3 && p > 0)) return toast.error("Hãy khoanh vùng đỏ!");
+
+    isCtdEraseProcessingRef.current = true;
+    setIsProcessing(true);
+    setActionPosition(null);
+    try {
+      const maskBase64 = drawCanvas.toDataURL("image/png");
+      const pageId = projectStore.pageIds[currentIndex];
+
+      const fileName = fileQueue[currentIndex]?.name || "";
+      const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
+      const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
+      const targetUrl = processedUrls[currentIndex] || serverRawUrl;
+
+      // Call API
+      const newUrl = await mangaApi.ctdErase(targetUrl, maskBase64, pageId);
+
+      // Save history and set image in editor store
+      useMangaEditorStore.getState().saveHistory();
+      useMangaEditorStore.getState().setImageUrl(newUrl);
+
+      // Sync stored URL with projectStore
+      projectStore.setProcessedUrl(currentIndex, newUrl);
+
+      ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      toast.success("Đã xóa chữ thông minh thành công!");
+      
+      const posthog = (window as any).posthog;
+      if (posthog) {
+        posthog.capture('translation_successful', {
+          action_type: 'Ctd_Erase_Mask',
+          status: 'success'
+        });
+      }
+
+      setActiveMode("none");
+    } catch (e: any) { 
+      toast.error(e.message || "Xử lý xóa chữ thất bại!"); 
+    } finally { 
+      isCtdEraseProcessingRef.current = false;
+      setIsProcessing(false); 
+    }
+  };
+
+  // 4.2. AI-Powered Redraw/Erase (AI Redraw Mask)
+  const handleAiErase = async (promptText: string) => {
+    if (isRedrawProcessingRef.current) return;
+    if (!projectStore.pageIds[currentIndex]) return toast.error("Ảnh đang tải lên!");
+    const drawCanvas = document.getElementById("draw-layer") as HTMLCanvasElement;
+    const ctx = drawCanvas?.getContext("2d");
+    if (!ctx?.getImageData(0, 0, drawCanvas.width, drawCanvas.height).data.some((p, i) => i % 4 === 3 && p > 0)) return toast.error("Hãy khoanh vùng đỏ!");
+
+    isRedrawProcessingRef.current = true;
+    setIsProcessing(true);
+    setActionPosition(null);
+    setShowAiPromptInput(false);
+
+    const amountToDeduct = translationMode === 'grok' ? 8 : getKieCost(studioSubModel, kieResolution);
+    toast(`Đang xử lý Xóa với AI (Trừ tạm tính ${amountToDeduct} Xu)`, { icon: "💰", duration: 2500 });
+    useAuthStore.getState().deductLocalCredits(amountToDeduct);
+
+    try {
+      const maskBase64 = drawCanvas.toDataURL("image/png");
+      const pageId = projectStore.pageIds[currentIndex];
+
+      const fileName = fileQueue[currentIndex]?.name || "";
+      const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
+      const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
+      const targetUrl = processedUrls[currentIndex] || serverRawUrl;
+
+      const finalPrompt = promptText.trim() || "clean background, erase text, restore original manga artwork";
+
+      // Call API
+      const newUrl = await mangaApi.aiRedrawMask(
+        targetUrl,
+        maskBase64,
+        finalPrompt,
+        translationMode,
+        pageId
+      );
+
+      // Save history and set image in editor store
+      useMangaEditorStore.getState().saveHistory();
+      useMangaEditorStore.getState().setImageUrl(newUrl);
+
+      // Sync stored URL with projectStore
+      projectStore.setProcessedUrl(currentIndex, newUrl);
+
+      ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      toast.success("Xóa với AI thành công!");
+      
+      const posthog = (window as any).posthog;
+      if (posthog) {
+        posthog.capture('translation_successful', {
+          action_type: 'Ai_Redraw_Mask_Erase',
+          status: 'success'
+        });
+      }
+
+      setActiveMode("none");
+      setAiErasePrompt("");
+      await useAuthStore.getState().fetchProfile();
+    } catch (e: any) { 
+      toast.error(e.message || "Xử lý vẽ lại bằng AI thất bại!"); 
+      await useAuthStore.getState().fetchProfile();
+    } finally { 
+      isRedrawProcessingRef.current = false;
       setIsProcessing(false); 
     }
   };
@@ -1231,8 +1363,8 @@ export default function Workspace() {
             }}
           >
             {/* Render Canvas */}
-            <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none ph-no-capture" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
-            <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
+            <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none ph-no-capture" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined, imageRendering: 'pixelated' }} />
+            <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined, imageRendering: 'pixelated' }} />
             <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
               <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
               <VisualGuideOverlay />
@@ -1241,6 +1373,21 @@ export default function Workspace() {
                 {showText && <FloatingTextToolbar />}
               </div>
             </div>
+            {/* 🏁 Pixel Grid Overlay for Zoom level >= 8x (Photoshop style) */}
+            {currentZoom >= 8 && (
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  backgroundImage: `
+                    linear-gradient(to right, rgba(255, 255, 255, 0.2) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(255, 255, 255, 0.2) 1px, transparent 1px)
+                  `,
+                  backgroundSize: '1px 1px',
+                  mixBlendMode: 'difference',
+                  opacity: Math.min(1.0, (currentZoom - 8) / 4)
+                }}
+              />
+            )}
             </div>
         )}
       </div>
@@ -1274,25 +1421,92 @@ export default function Workspace() {
           <FloatingCanvasToolbar />
 
           {actionPosition && activeMode === 'erase' && (
-            <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-1.5 p-1.5 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto">
-              <button onClick={() => handleFillColor('white')} disabled={isCurrentPageProcessing || isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-white text-black hover:bg-gray-200 disabled:opacity-50 transition-colors cursor-pointer shadow-sm">⬜ Trắng</button>
-              <button onClick={() => handleFillColor('black')} disabled={isCurrentPageProcessing || isProcessing} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-50 transition-colors cursor-pointer border border-white/10 shadow-sm">⬛ Đen</button>
-              <div className="w-px h-8 bg-border mx-1"></div>
-              <button 
-                onClick={handleErase} 
-                disabled={isCurrentPageProcessing || isProcessing} 
-                className={`relative flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm
-                  ${!(isCurrentPageProcessing || isProcessing) ? 'pl-4 pr-12' : 'px-4'}`}
-              >
-                {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
-                <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa nền thông minh"}</span>
-                {!(isCurrentPageProcessing || isProcessing) && (
-                  <span className="absolute right-3 inline-flex items-center bg-primary/10 group-hover:bg-black/20 px-1.5 py-0.5 rounded-md text-primary group-hover:text-white text-[10px] font-black transition-all">
-                    1<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-primary fill-primary group-hover:text-white group-hover:fill-white transition-all shrink-0" />
-                  </span>
-                )}
-              </button>
-            </div>
+            <>
+              {showAiPromptInput ? (
+                <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-2 p-2 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto w-[450px]">
+                  <input
+                    type="text"
+                    className="flex-1 px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-white text-xs font-medium placeholder-white/30 focus:outline-none focus:border-primary/50"
+                    placeholder="Mô tả vẽ lại (để trống để tự động làm sạch)..."
+                    value={aiErasePrompt}
+                    onChange={(e) => setAiErasePrompt(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleAiErase(aiErasePrompt);
+                      }
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => handleAiErase(aiErasePrompt)}
+                    disabled={isCurrentPageProcessing || isProcessing}
+                    className="px-4 py-2 rounded-xl font-bold text-xs bg-primary text-white hover:bg-primary/80 disabled:opacity-50 cursor-pointer transition-colors shadow-sm shrink-0"
+                  >
+                    Thực hiện
+                  </button>
+                  <button
+                    onClick={() => setShowAiPromptInput(false)}
+                    className="px-3 py-2 rounded-xl font-bold text-xs bg-white/5 text-white/70 hover:bg-white/10 cursor-pointer transition-colors shrink-0"
+                  >
+                    Hủy
+                  </button>
+                </div>
+              ) : (
+                <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-1.5 p-1.5 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto">
+                  {/* Button 1: Xóa nền thông minh */}
+                  <button 
+                    onClick={handleErase} 
+                    disabled={isCurrentPageProcessing || isProcessing} 
+                    className={`relative flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm
+                      ${!(isCurrentPageProcessing || isProcessing) ? 'pl-4 pr-12' : 'px-4'}`}
+                  >
+                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
+                    <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa nền thông minh"}</span>
+                    {!(isCurrentPageProcessing || isProcessing) && (
+                      <span className="absolute right-3 inline-flex items-center bg-primary/10 group-hover:bg-black/20 px-1.5 py-0.5 rounded-md text-primary group-hover:text-white text-[10px] font-black transition-all">
+                        1<BoltIcon />
+                      </span>
+                    )}
+                  </button>
+
+                  <div className="w-px h-8 bg-border mx-1"></div>
+
+                  {/* Button 2: Xóa chữ thông minh */}
+                  <button 
+                    onClick={handleCtdErase} 
+                    disabled={isCurrentPageProcessing || isProcessing} 
+                    className={`relative flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm
+                      ${!(isCurrentPageProcessing || isProcessing) ? 'pl-4 pr-12' : 'px-4'}`}
+                  >
+                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} className="group-hover:text-slate-950 transition-colors" />}
+                    <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa chữ thông minh"}</span>
+                    {!(isCurrentPageProcessing || isProcessing) && (
+                      <span className="absolute right-3 inline-flex items-center bg-emerald-500/20 group-hover:bg-black/20 px-1.5 py-0.5 rounded-md text-emerald-400 group-hover:text-slate-950 text-[10px] font-black transition-all">
+                        1<BoltIcon />
+                      </span>
+                    )}
+                  </button>
+
+                  <div className="w-px h-8 bg-border mx-1"></div>
+
+                  {/* Button 3: Xóa với AI */}
+                  <button 
+                    onClick={() => setShowAiPromptInput(true)} 
+                    disabled={isCurrentPageProcessing || isProcessing} 
+                    className={`relative flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm pl-4 pr-12`}
+                  >
+                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={16} /> : <Bot size={16} className="group-hover:text-slate-950 transition-colors" />}
+                    <span>✨ Xóa với AI</span>
+                    {!(isCurrentPageProcessing || isProcessing) && (
+                      <span className="absolute right-3 inline-flex items-center bg-amber-500/20 group-hover:bg-black/20 px-1.5 py-0.5 rounded-md text-amber-400 group-hover:text-slate-950 text-[10px] font-black transition-all">
+                        {translationMode === 'grok' ? '8' : getKieCost(studioSubModel, kieResolution)}
+                        <BoltIcon />
+                      </span>
+                    )}
+                  </button>
+                </div>
+              )}
+            </>
           )}
 
         </>
@@ -1619,15 +1833,15 @@ export default function Workspace() {
                           onClick={(e) => {
                             e.stopPropagation();
                             setShowModelDropdown(false);
-                            if (!isBetaTranslating && !isProcessing && !isCurrentPageProcessing) {
+                            if (!isBetaTranslating && !isProcessing && !isCurrentPageProcessing && serverStatus !== 'STARTING') {
                               handleExecuteBetaTranslate();
                             }
                           }}
-                          disabled={isBetaTranslating || isProcessing || isCurrentPageProcessing}
+                          disabled={isBetaTranslating || isProcessing || isCurrentPageProcessing || serverStatus === 'STARTING'}
                           className="w-full h-10 relative flex items-center justify-center gap-2 pl-4 pr-12 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-400 hover:to-teal-400 font-black text-[10px] uppercase tracking-wider transition-all active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:pointer-events-none shadow-[0_4px_12px_rgba(16,185,129,0.25)]"
                         >
                           <Play size={12} className="fill-current text-slate-950" />
-                          <span>Dịch trang này</span>
+                          <span>{serverStatus === 'STARTING' ? 'Vui lòng chờ GPU nổ máy...' : 'Dịch trang này'}</span>
                           <span className="absolute right-3 inline-flex items-center bg-black/10 px-1.5 py-0.5 rounded-md text-slate-950 text-[10px] font-black transition-all">
                             {currentModeCost}<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-slate-950 fill-slate-950 shrink-0" />
                           </span>

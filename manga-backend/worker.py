@@ -41,6 +41,60 @@ deepseek_client = OpenAI(
 RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY")
 RUNPOD_ENDPOINT_ID = os.environ.get("RUNPOD_TRANSLATE_ENDPOINT_ID")
 
+from PIL import Image
+
+_ocr_manager = None
+_text_detector = None
+_lama_session = None
+
+def get_ocr_manager():
+    global _ocr_manager
+    if _ocr_manager is None:
+        print("[WORKER] Lazy-loading OCRManager...")
+        from ocr_manager import OCRManager
+        _ocr_manager = OCRManager()
+    return _ocr_manager
+
+def get_text_detector():
+    global _text_detector
+    if _text_detector is None:
+        print("[WORKER] Lazy-loading TextDetector...")
+        ctd_path = os.path.join(os.path.dirname(__file__), "comic_text_detector")
+        if ctd_path not in sys.path:
+            sys.path.append(ctd_path)
+            
+        # Mock wandb to bypass protobuf version conflicts/lock issues on Windows
+        try:
+            import sys
+            from unittest.mock import MagicMock
+            sys.modules['wandb'] = MagicMock()
+            sys.modules['wandb.proto'] = MagicMock()
+            sys.modules['wandb.proto.wandb_telemetry_pb2'] = MagicMock()
+            sys.modules['wandb.proto.wandb_internal_pb2'] = MagicMock()
+            sys.modules['wandb.proto.wandb_server_pb2'] = MagicMock()
+        except Exception as mock_err:
+            print(f"⚠️ [MOCK WANDB] Failed to mock wandb in worker: {mock_err}")
+
+        from inference import TextDetector
+        model_file = os.path.join(ctd_path, "data", "comictextdetector.pt")
+        if os.path.exists(model_file):
+            _text_detector = TextDetector(model_path=model_file, device="cpu")
+        else:
+            raise FileNotFoundError(f"Missing comictextdetector.pt at {model_file}")
+    return _text_detector
+
+def get_lama_session():
+    global _lama_session
+    if _lama_session is None:
+        print("[WORKER] Lazy-loading LaMa session...")
+        import onnxruntime as ort
+        model_path = os.path.join(os.path.dirname(__file__), "lama-manga.onnx")
+        if os.path.exists(model_path):
+            _lama_session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+        else:
+            raise FileNotFoundError(f"Missing lama-manga.onnx at {model_path}")
+    return _lama_session
+
 # Thiết lập Database đồng bộ kết nối qua psycopg2 để tránh đụng độ Event Loop
 SQLALCHEMY_DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -239,15 +293,56 @@ def sync_update_page_db(page_id, clean_url, bubbles):
             db.commit()
             print(f"✅ [WORKER DB] Đã cập nhật kết quả dịch cho trang {page_id} vào PostgreSQL (Sync)!")
 
+def deduct_balance(user_id: str, execution_time_seconds: float, description: str):
+    import db_models as models
+    try:
+        with SessionLocal() as db:
+            user = db.query(models.User).filter(models.User.id == user_id).with_for_update().first()
+            if user:
+                if user.is_pro:
+                    return
+                user.balance_seconds = max(0.0, user.balance_seconds - execution_time_seconds)
+                
+                # Ghi nhận lịch sử giao dịch
+                new_txn = models.UserTransaction(
+                    user_id=user_id,
+                    amount=-execution_time_seconds,
+                    type="DEDUCT",
+                    description=description
+                )
+                db.add(new_txn)
+                
+                # Ghi nhận TimeLog
+                desc_upper = description.upper()
+                action_type = "TRANSLATE_LAMA"
+                if any(keyword in desc_upper for keyword in ["RUNPOD", "VÀ NỀN", "INPAINT", "GROK", "OPENAI", "CHATGPT", "BANANA"]):
+                    action_type = "VÀ_NỀN_RUNPOD"
+                    
+                new_log = models.TimeLog(
+                    user_id=user_id,
+                    amount=-execution_time_seconds,
+                    action_type=action_type,
+                    description=description
+                )
+                db.add(new_log)
+                db.commit()
+                print(f"💰 [WORKER DEDUCT] Deducted {execution_time_seconds:.2f}s from user {user_id}. New balance: {user.balance_seconds:.2f}s")
+    except Exception as e:
+        print(f"⚠️ [WORKER DEDUCT ERROR] Lỗi khi trừ thời gian cho user {user_id}: {e}")
+
 @celery_app.task(bind=True, name="process_manga_page")
-def process_manga_page(self, page_id: str, config: dict):
+def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = False, was_cold_start: bool = False):
     task_id = self.request.id
     try:
+        start_time = time.time()
         import db_models as models
         
         target_language = config.get("target_language", "Tiếng Việt")
         if not target_language:
             target_language = "Tiếng Việt"
+        source_language = config.get("source_language", "ja")
+        if not source_language:
+            source_language = "ja"
         
         # 1. Kiểm tra checkpoint hủy đầu tiên trước khi đọc DB
         if is_task_cancelled(task_id):
@@ -256,6 +351,7 @@ def process_manga_page(self, page_id: str, config: dict):
 
         user_id = None
         project_id = None
+        is_vip = False
         # Lấy thông tin trang truyện từ CSDL (Sync)
         with SessionLocal() as db:
             page = db.query(models.Page).filter(models.Page.id == page_id).first()
@@ -266,6 +362,9 @@ def process_manga_page(self, page_id: str, config: dict):
             project = db.query(models.Project).filter(models.Project.id == project_id).first()
             if project:
                 user_id = project.user_id
+                user = db.query(models.User).filter(models.User.id == user_id).first()
+                if user:
+                    is_vip = getattr(user, "is_pro", False)
             
         if not raw_url:
             raise ValueError(f"Không tìm thấy URL ảnh gốc cho page_id: {page_id}")
@@ -283,67 +382,105 @@ def process_manga_page(self, page_id: str, config: dict):
                 img_bytes = f.read()
         else:
             success, encoded_img = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-            img_bytes = encoded_img.tobytes() if success else open(raw_path, "rb").read()
-            
-        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
-        
-        # 2. Checkpoint hủy lần 2: TRƯỚC KHI GỌI RUNPOD API (PAID API)
+            i        # 2. Checkpoint hủy lần 2: TRƯỚC KHI BẮT ĐẦU XỬ LÝ (LOCAL PROCESS)
         if is_task_cancelled(task_id):
-            print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước cuộc gọi RunPod API. Dừng!")
-            return {"status": "cancelled", "message": "Task was cancelled before RunPod call"}
+            print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước khi bắt đầu xử lý. Dừng!")
+            return {"status": "cancelled", "message": "Task was cancelled before processing"}
 
-        broadcast_progress(task_id, 25, "Đang khởi tạo dịch vụ xử lý...")
+        broadcast_progress(task_id, 25, "Đang nhận diện vùng chữ (Local)...")
         
-        runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/run"
-        headers = {
-            "Authorization": f"Bearer {RUNPOD_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "input": {
-                "image_base64": img_b64,
-                "genre": config.get("genre", ""),
-                "tone": config.get("tone", ""),
-                "pronouns": config.get("pronouns", ""),
-                "glossary": config.get("glossary", "")
-            }
-        }
-        
-        res = httpx.post(runpod_url, json=payload, headers=headers, timeout=60.0)
-        if res.status_code != 200:
-            raise Exception(f"RunPod failed with status {res.status_code}: {res.text}")
+        # Load image via cv2 if not already done
+        if img is None:
+            img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
             
-        runpod_job_id = res.json()["id"]
+        h_img, w_img = img.shape[:2]
+        clean_img = img.copy()
         
-        # 3. Server-side Polling để cập nhật tiến độ
-        broadcast_progress(task_id, 40, "Đang nhận diện chữ và tách nền...")
-        status_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{runpod_job_id}"
+        # Ensure start_time = time.perf_counter() is called right before the AI logic
+        ai_start_time = time.perf_counter()
         
-        runpod_result = None
-        while True:
-            # Checkpoint hủy trong vòng lặp polling
-            if is_task_cancelled(task_id):
-                print(f"🛑 [WORKER] Task {task_id} đã bị hủy trong khi polling RunPod. Dừng!")
-                return {"status": "cancelled", "message": "Task was cancelled during RunPod execution"}
-
-            time.sleep(2)
-            status_res = httpx.get(status_url, headers=headers, timeout=15.0)
-            status_data = status_res.json()
-            status = status_data.get("status")
-            
-            if status == "COMPLETED":
-                runpod_result = status_data.get("output", {})
-                break
-            elif status in ["FAILED", "CANCELLED"]:
-                raise Exception(f"RunPod job failed or cancelled: {status_data}")
-            elif status == "IN_PROGRESS":
-                broadcast_progress(task_id, 60, "Đang tiến hành tẩy nền và đọc chữ...")
-            elif status == "IN_QUEUE":
-                broadcast_progress(task_id, 45, "Đang xếp hàng chờ máy chủ xử lý...")
+        # Run local text detection
+        detector = get_text_detector()
+        res_mask, res_mask_refined, blk_list = detector(img)
+        
+        if res_mask_refined.max() <= 1.0: 
+            ctd_mask_bin = (res_mask_refined * 255).astype(np.uint8)
+        else: 
+            ctd_mask_bin = res_mask_refined.astype(np.uint8)
+        _, ctd_mask_bin = cv2.threshold(ctd_mask_bin, 127, 255, cv2.THRESH_BINARY)
+        fat_mask = cv2.dilate(ctd_mask_bin, np.ones((7, 7), np.uint8), iterations=2)
+        _, white_regions = cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 200, 255, cv2.THRESH_BINARY)
+        smart_mask = cv2.dilate(cv2.bitwise_and(fat_mask, cv2.bitwise_or(ctd_mask_bin, white_regions)), np.ones((3, 3), np.uint8), iterations=1)
+        mask = cv2.dilate(smart_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
+        
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        broadcast_progress(task_id, 45, "Đang quét chữ OCR (Local)...")
+        
+        extracted_data = []
+        ocr_manager = get_ocr_manager()
+        count = 1
+        
+        for cnt in contours:
+            x, y, w, h = cv2.boundingRect(cnt)
+            if w < 16 or h < 16: 
+                continue
                 
-        # 4. Trích xuất kết quả RunPod
-        clean_b64 = runpod_result.get("clean_image_base64")
-        extracted_data = runpod_result.get("data", [])
+            crop_bgr = img[y:y+h, x:x+w]
+            
+            # Run OCR via OCRManager
+            japanese_text = ocr_manager.recognize_crop(crop_bgr, language=source_language, is_vip=is_vip)
+            extracted_data.append({
+                "id": count,
+                "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h},
+                "japanese": japanese_text.strip(),
+                "vietnamese": ""
+            })
+            count += 1
+            
+            # Clean phase using LaMa locally
+            pad_x, pad_y = max(40, min(int(w * 0.5), 150)), max(40, min(int(h * 0.5), 150))
+            x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
+            x2_pad, y2_pad = min(w_img, x + w + pad_x), min(h_img, y + h + pad_y)
+            crop_img = clean_img[y1_pad:y2_pad, x1_pad:x2_pad]
+            crop_mask = mask[y1_pad:y2_pad, x1_pad:x2_pad]
+            
+            if cv2.countNonZero(crop_mask) == 0: 
+                continue
+            
+            h_crop, w_crop = crop_img.shape[:2]
+            original_crop_mask = crop_mask.copy()
+            
+            scale = 1.0
+            if h_crop > 512 or w_crop > 512:
+                scale = 512.0 / max(h_crop, w_crop)
+                new_w, new_h = int(w_crop * scale), int(h_crop * scale)
+                crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+            else:
+                new_w, new_h = w_crop, h_crop
+
+            pad_bottom, pad_right = 512 - new_h, 512 - new_w
+            if pad_bottom > 0 or pad_right > 0:
+                crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+                crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+
+            img_t = np.transpose(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
+            mask_t = np.transpose((crop_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
+
+            lama_session = get_lama_session()
+            ort_outs = lama_session.run(None, {lama_session.get_inputs()[0].name: img_t, lama_session.get_inputs()[1].name: mask_t})
+            out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
+            clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+            
+            if scale != 1.0: 
+                clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+            mask_bool = original_crop_mask > 0
+            clean_img[y1_pad:y2_pad, x1_pad:x2_pad][mask_bool] = clean_crop[mask_bool]
+
+        broadcast_progress(task_id, 70, "Đang nén kết quả...")
+        _, buffer = cv2.imencode('.jpg', clean_img)
+        clean_b64 = base64.b64encode(buffer).decode('utf-8')
         
         # 5. Checkpoint hủy lần 3: TRƯỚC KHI GỌI DEEPSEEK API (PAID API)
         if is_task_cancelled(task_id):
@@ -495,11 +632,23 @@ def process_manga_page(self, page_id: str, config: dict):
         # 7. Cập nhật cơ sở dữ liệu đồng bộ
         sync_update_page_db(page_id, clean_url, extracted_data)
         
+        # Trừ thời gian sử dụng thực tế của user
+        if user_id:
+            execution_time_seconds = time.perf_counter() - ai_start_time
+            
+            boot_fee = 0.0
+            if was_cold_start and not client_saw_hot:
+                boot_fee = 30.0
+                print(f"❄️ [COLD START] Charging 30s boot fee for user {user_id}")
+                
+            total_charge = execution_time_seconds + boot_fee
+            deduct_balance(user_id, total_charge, f"Dịch trang truyện (Trang ID: {page_id}){' - Phí khởi động GPU 30s' if boot_fee > 0 else ''}")
+        
         # Ghi nhận cache vào Redis
         try:
             img_hash = get_image_ahash(raw_path)
             if img_hash:
-                cache_key = f"ocr_translate_cache:{img_hash}:{target_language}"
+                cache_key = f"ocr_translate_cache:{img_hash}:{target_language}:{task_type}"
                 redis_client.set(cache_key, json.dumps(result_payload), ex=2592000)
         except Exception as ce:
             print(f"⚠️ [CACHE WRITE ERROR] Lỗi lưu Redis cache: {ce}")
@@ -523,24 +672,7 @@ def process_manga_page(self, page_id: str, config: dict):
         except Exception as dbe:
             print(f"⚠️ [WORKER DB ERROR] Không thể cập nhật trạng thái failed cho trang {page_id}: {dbe}")
         
-        # Hoàn Xu cho người dùng do lỗi tác vụ ngầm thất bại
-        if 'user_id' in locals() and user_id:
-            try:
-                with SessionLocal() as db:
-                    user = db.query(models.User).filter(models.User.id == user_id).with_for_update().first()
-                    if user and not user.is_pro:
-                        user.credits += 1
-                        new_txn = models.UserTransaction(
-                            user_id=user_id,
-                            amount=1,
-                            type="TOPUP",
-                            description=f"Hoàn 1 Xu: Dịch trang thất bại do lỗi hệ thống (ID: {page_id})"
-                        )
-                        db.add(new_txn)
-                        db.commit()
-                        print(f"🔄 [WORKER REFUND] Đã hoàn lại 1 Xu cho user {user_id} do lỗi dịch trang {page_id}")
-            except Exception as re:
-                print(f"⚠️ [WORKER REFUND ERROR] Không thể hoàn Xu cho user {user_id}: {re}")
+
 
         broadcast_progress(task_id, 0, f"Thất bại: {str(e)}", state="FAILURE")
         raise e

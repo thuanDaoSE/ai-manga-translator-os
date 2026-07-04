@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Sliders, Bot, AlignLeft as ListIcon, Type, MoveVertical, Settings2, Wand2,
   MessageSquareDashed, ArrowRight, RefreshCcw, Sparkles, MessageCircle, Check,
-  Globe, MousePointer2, ChevronDown, Zap, Trash2, PanelRightClose, Minus, Plus,
+  Globe, MousePointer2, ChevronDown, Trash2, PanelRightClose, Minus, Plus,
   Upload, AlignCenter, AlignLeft, AlignRight, AlignJustify,
   Copy, MoreVertical, MessageSquareText, PaintBucket, PenTool,
   Layers, X, Lock, Unlock, Diamond, Square, Triangle// <-- 🚀 3 ICON MỚI BỔ SUNG
@@ -317,7 +317,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
             className={`flex-1 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all flex items-center justify-center gap-1 ${sortMode === 'length' ? 'bg-amber-500 text-amber-950 shadow-sm' : 'text-text-muted hover:text-amber-500 hover:bg-amber-500/10'}`}
             title={t('rightSidebar.sortOcrCleanTooltip')}
           >
-            <Zap size={10} /> {t('rightSidebar.sortOcrClean')}
+            <Sparkles size={10} /> {t('rightSidebar.sortOcrClean')}
           </button>
         </div>
       </div>
@@ -1151,10 +1151,17 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
                 <button
                   onClick={() => { updateBubble(bubble.id, { text: aiResult }); setAiResult(''); onClose();
                 
-                  const { user, deductLocalCredits } = useAuthStore.getState();
+                  const { user } = useAuthStore.getState();
                     if (!user?.isPro) {
-                      deductLocalCredits(1); // Trừ 1 credit trên UI
-                      mangaApi.deductCredits(1).catch(e => console.error("Lỗi trừ tiền:", e)); // Gọi Backend trừ tiền thật
+                      mangaApi.deductCredits(1)
+                        .then(res => {
+                          if (res && res.balance_seconds !== undefined) {
+                            useAuthStore.setState(state => ({
+                              user: state.user ? { ...state.user, credits: res.balance_seconds } : null
+                            }));
+                          }
+                        })
+                        .catch(e => console.error("Lỗi trừ tiền:", e));
                     }
                   }}
                   className="w-full flex items-center justify-center gap-1.5 py-2 bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold text-[11px] uppercase tracking-wider rounded-lg transition-transform active:scale-[0.98] shadow-sm"

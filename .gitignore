@@ -60,4 +60,8 @@ temp_*.json
 temp.txt
 scratch/
 manga_studio.db
-manga_studio_v2.db
+manga_studio_v2.db
+
+# --- TEST / POC FOLDERS ---
+manga-inpainting-poc/
+manga-backend/runpod-cpu-worker/

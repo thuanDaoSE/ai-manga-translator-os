@@ -15,7 +15,6 @@ Pillow==10.3.0
 requests==2.31.0
 transformers==4.38.2
 onnxruntime==1.23.2
-manga-ocr==0.1.14
 openai==2.35.0
 shapely==2.1.2
 wandb==0.26.1

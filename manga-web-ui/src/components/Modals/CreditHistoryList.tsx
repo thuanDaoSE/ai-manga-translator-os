@@ -27,7 +27,7 @@ export default function CreditHistoryList() {
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Không thể tải lịch sử biến động số dư');
-      toast.error('Lỗi khi tải lịch sử dùng xu');
+      toast.error('Lỗi khi tải lịch sử số dư thời gian');
     } finally {
       setLoading(false);
     }
@@ -61,9 +61,9 @@ export default function CreditHistoryList() {
       case 'REGISTER_BONUS':
         return { label: 'Quà tặng', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' };
       case 'REFUND':
-        return { label: 'Hoàn xu', color: 'bg-pink-500/10 text-pink-400 border-pink-500/20' };
+        return { label: 'Hoàn giây', color: 'bg-pink-500/10 text-pink-400 border-pink-500/20' };
       case 'DEPOSIT':
-        return { label: 'Nạp xu', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' };
+        return { label: 'Nạp giây', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' };
       default:
         return { label: type, color: 'bg-slate-500/10 text-slate-400 border-slate-500/20' };
     }
@@ -100,7 +100,7 @@ export default function CreditHistoryList() {
           <Gem size={44} />
         </div>
         <span className="text-sm font-bold text-text-muted">Chưa có biến động số dư</span>
-        <span className="text-xs text-text-muted/60">Lịch sử dùng xu hoặc nạp xu của bạn sẽ hiển thị tại đây</span>
+        <span className="text-xs text-text-muted/60">Lịch sử sử dụng hoặc nạp thời gian của bạn sẽ hiển thị tại đây</span>
       </div>
     );
   }
@@ -143,7 +143,7 @@ export default function CreditHistoryList() {
                     ) : (
                       <ArrowDownRight size={14} className="text-red-400" />
                     )}
-                    {isPositive ? `+${log.amount}` : log.amount} Xu
+                    {isPositive ? `+${log.amount.toFixed(1)}` : log.amount.toFixed(1)} giây
                   </span>
                 </td>
                 <td className="py-3 px-2 text-text-muted text-right">

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { toJpeg } from "html-to-image";
 import {
-  CloudCheck, Download, Zap, User, Settings, LogOut, ChevronDown,
+  CloudCheck, Download, User, Settings, LogOut, ChevronDown,
   Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages,
   FileText, Globe, Image as ImageIcon
 } from "lucide-react";
@@ -11,6 +11,7 @@ import TranslationConfigModal from "../Modals/TranslationConfigModal";
 import PaymentHistoryModal from "../Modals/PaymentHistoryModal";
 import { saveAs } from 'file-saver';
 import { useTranslation } from "react-i18next";
+import { useServerStatusStore } from "../../store/useServerStatusStore";
 
 // Import Stores & API
 import { useToolStore } from "../../store/useToolStore";
@@ -22,6 +23,21 @@ import { mangaApi } from "../../services/api";
 import { PaywallDrawer } from "../Modals/PaywallDrawer";
 import SupportModal from "../Modals/SupportModal";
 import DeepKomaLogo from "../ui/DeepKomaLogo";
+
+const GpuIcon = ({ size = 14, className = "" }: { size?: number; className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width={size} 
+    height={size} 
+    fill="currentColor" 
+    className={className} 
+    viewBox="0 0 16 16"
+  >
+    <path d="M4 8a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0m7.5-1.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3"/>
+    <path d="M0 1.5A.5.5 0 0 1 .5 1h1a.5.5 0 0 1 .5.5V4h13.5a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H2v2.5a.5.5 0 0 1-1 0V2H.5a.5.5 0 0 1-.5-.5m5.5 4a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M9 8a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0"/>
+    <path d="M3 12.5h3.5v1a.5.5 0 0 1-.5.5H3.5a.5.5 0 0 1-.5-.5zm4 1v-1h4v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5"/>
+  </svg>
+);
 
 export default function Topbar() {
   const { t, i18n } = useTranslation();
@@ -37,6 +53,19 @@ export default function Topbar() {
   }, [storeProjectName]);
 
   const { isModalOpen, setModalOpen } = useConfigStore();
+
+  const { serverStatus, fetchStatus } = useServerStatusStore();
+ 
+  useEffect(() => {
+    if (!user) return;
+    
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 10000); // Check status every 10s
+ 
+    return () => {
+      clearInterval(interval);
+    };
+  }, [user?.id, fetchStatus]);
 
   const [isPaywallOpen, setIsPaywallOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -317,11 +346,90 @@ export default function Topbar() {
         {/* ĐƯỜNG PHÂN CÁCH DỌC */}
         <div className="w-px h-5 bg-border mx-1 shrink-0" />
 
+        {/* Server Status Badge */}
+        <div className="group relative cursor-help shrink-0 z-30">
+          {serverStatus === 'HOT' ? (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/5 text-emerald-400 text-[10px] font-black uppercase tracking-wider shadow-[0_0_12px_rgba(16,185,129,0.1)] select-none">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span>GPU Ready</span>
+            </div>
+          ) : serverStatus === 'STARTING' ? (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-amber-500/30 bg-amber-500/5 text-amber-400 text-[10px] font-black uppercase tracking-wider shadow-[0_0_12px_rgba(245,158,11,0.1)] select-none">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-spin absolute inline-flex h-full w-full rounded-full border-t border-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              </span>
+              <span>Booting GPU</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-neutral-700 bg-neutral-800/40 text-neutral-400 text-[10px] font-black uppercase tracking-wider select-none">
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-neutral-500"></span>
+              <span>GPU Sleeping</span>
+            </div>
+          )}
+          
+          <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-[#141417]/95 border border-white/10 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] backdrop-blur-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 z-[220] flex flex-col gap-1.5 text-left normal-case tracking-normal">
+            <div className="text-[11px] font-black uppercase tracking-widest border-b border-white/5 pb-1 flex items-center gap-1.5 text-slate-200">
+              {serverStatus === 'HOT' ? (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+                  <span>⚡ GPU Đang Sẵn Sàng</span>
+                </>
+              ) : serverStatus === 'STARTING' ? (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
+                  <span>⚙️ Đang Bật Máy GPU</span>
+                </>
+              ) : (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-neutral-500"></span>
+                  <span>💤 GPU Đang Tạm Nghỉ</span>
+                </>
+              )}
+            </div>
+            <div className="text-[10px] text-slate-400 leading-relaxed">
+              {serverStatus === 'HOT' && 'Hệ thống đang hoạt động ổn định. Xử lý tức thì và MIỄN PHÍ thời gian khởi động máy (Không tính Boot Fee).'}
+              {serverStatus === 'STARTING' && 'GPU đang khởi động lạnh (~30 giây). Vui lòng chờ máy sẵn sàng để bắt đầu dịch thuật.'}
+              {serverStatus === 'SLEEPING' && 'Để tiết kiệm chi phí hệ thống, GPU sẽ tạm ngủ nếu không có yêu cầu. Lượt dịch tiếp theo sẽ mất khoảng 30s khởi động (+30s phí khởi động GPU).'}
+            </div>
+            <div className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1.5 rounded-xl border border-amber-500/20">
+              💡 Mẹo: Nhìn đèn tín hiệu trước khi Dịch. Nếu đèn ĐỎ, hãy chờ người khác kích hoạt hoặc tự kích hoạt bằng cách gửi yêu cầu dịch.
+            </div>
+          </div>
+        </div>
+
         {/* Nút Credits */}
-        <button onClick={() => setIsPaywallOpen(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-[12px] font-bold ${user?.isPro ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' : 'bg-background hover:bg-border/40 border-border'}`}>
-          <Zap size={14} className={user?.isPro ? "text-indigo-400 animate-pulse" : "text-amber-500 fill-amber-500 group-hover:scale-110 transition-transform"} />
-          <span className={user?.isPro ? 'text-indigo-400' : 'text-text-main'}>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span>
-          {!user?.isPro && <span className="text-[9px] font-black uppercase text-amber-500/80 ml-1 hidden sm:inline">{t('topbar.recharge')}</span>}
+        <button 
+          onClick={() => setIsPaywallOpen(true)} 
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-[12px] font-bold ${
+            user?.isPro 
+              ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' 
+              : 'bg-background hover:bg-border/40 border-border'
+          }`}
+          title={
+            serverStatus === 'HOT' 
+              ? "GPU: Sẵn sàng (Ready)" 
+              : serverStatus === 'STARTING' 
+                ? "GPU: Đang ngủ/Đang khởi động (Cold Start)" 
+                : "GPU: Ngoại tuyến (Offline)"
+          }
+        >
+          <GpuIcon size={14} className={
+            user?.isPro 
+              ? "text-indigo-400 animate-pulse" 
+              : serverStatus === 'HOT' 
+                ? "text-emerald-500 group-hover:scale-110 transition-transform" 
+                : serverStatus === 'STARTING' 
+                  ? "text-amber-500 animate-pulse" 
+                  : "text-neutral-500 group-hover:scale-110 transition-transform"
+          } />
+          <span className={user?.isPro ? 'text-indigo-400' : 'text-text-main'}>
+            {user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}
+          </span>
+          {!user?.isPro && <span className="text-[9px] font-black uppercase text-amber-500/80 ml-0.5 hidden sm:inline">{t('topbar.recharge')}</span>}
         </button>
 
         {/* Menu Export */}
@@ -374,7 +482,7 @@ export default function Topbar() {
               </div>
               <div className="px-2 py-2 border-b border-border">
                 <div className="flex items-center justify-between px-3 py-2.5 mb-1 bg-background rounded-lg border border-border/50">
-                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><Zap size={14} className="text-amber-500 fill-amber-500" /><span>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span></div>
+                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><GpuIcon size={14} className="text-amber-500" /><span>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span></div>
                   <button onClick={() => { setIsAccountMenuOpen(false); setIsPaywallOpen(true); }} className="text-[10px] font-black uppercase text-primary hover:text-primary-hover transition-colors cursor-pointer">{t('topbar.rechargeMore')}</button>
                 </div>
                 <button

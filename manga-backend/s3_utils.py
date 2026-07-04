@@ -124,3 +124,44 @@ async def delete_from_r2(filename: str) -> None:
     Asynchronously deletes file from Cloudflare R2 in a worker thread.
     """
     await asyncio.to_thread(delete_from_r2_sync, filename)
+
+def get_presigned_put_url_sync(filename: str, content_type: str, expiration: int = 3600) -> str:
+    """
+    Synchronously generates a presigned PUT URL for Cloudflare R2.
+    """
+    access_key = os.getenv("R2_ACCESS_KEY")
+    secret_key = os.getenv("R2_SECRET_KEY")
+    endpoint_url = os.getenv("R2_ENDPOINT_URL")
+    bucket_name = os.getenv("R2_BUCKET_NAME")
+    
+    if not all([access_key, secret_key, endpoint_url, bucket_name]):
+        raise ValueError("Missing Cloudflare R2 configurations in environment variables")
+        
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(
+            signature_version="s3v4",
+            s3={'addressing_style': 'path'}
+        ),
+    )
+    
+    presigned_url = s3_client.generate_presigned_url(
+        ClientMethod='put_object',
+        Params={
+            'Bucket': bucket_name,
+            'Key': filename,
+            'ContentType': content_type
+        },
+        ExpiresIn=expiration
+    )
+    return presigned_url
+
+async def get_presigned_put_url(filename: str, content_type: str, expiration: int = 3600) -> str:
+    """
+    Asynchronously generates a presigned PUT URL for Cloudflare R2 in a worker thread.
+    """
+    return await asyncio.to_thread(get_presigned_put_url_sync, filename, content_type, expiration)
+

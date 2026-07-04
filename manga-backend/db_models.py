@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, BigInteger, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, BigInteger, UniqueConstraint, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -11,8 +11,8 @@ class User(Base):
     id = Column(String, primary_key=True, index=True) # ID từ Supabase/Firebase
     email = Column(String, unique=True, index=True)
     
-    # Chiến lược Pay-as-you-go
-    credits = Column(Integer, default=30)  # Tặng 30 credits dùng thử khi tạo nick mới
+    # Chiến lược Pay-as-you-go bằng thời gian chạy GPU (Time-Based Billing)
+    balance_seconds = Column(Float, default=900.0)  # Tặng 900 giây (15 phút) dùng thử khi tạo nick mới
     
     # Chiến lược Subscription (Thuê bao tháng)
     is_pro = Column(Boolean, default=False)
@@ -27,7 +27,7 @@ class Transaction(Base):
     
     package_name = Column(String) 
     amount = Column(Integer) 
-    credits_added = Column(Integer, default=0) 
+    seconds_added = Column(Float, default=0.0) 
     
     status = Column(String, default="PENDING") 
     checkout_url = Column(String, nullable=True) 
@@ -143,19 +143,19 @@ class UserTransaction(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    amount = Column(Integer, nullable=False) # Số Xu biến động (+ nếu nạp, - nếu trừ)
+    amount = Column(Float, nullable=False) # Số giây biến động (+ nếu nạp, - nếu trừ)
     type = Column(String, nullable=False) # "TOPUP" hoặc "DEDUCT"
     description = Column(Text, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     order_code = Column(BigInteger, nullable=True, index=True) # order_code từ PayOS nếu là nạp
 
 
-class CreditLog(Base):
-    __tablename__ = "credit_logs"
+class TimeLog(Base):
+    __tablename__ = "time_logs"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    amount = Column(Integer, nullable=False) # Số Xu thay đổi (âm hoặc dương)
+    amount = Column(Float, nullable=False) # Số giây thay đổi (âm hoặc dương)
     action_type = Column(String, nullable=False) # TRANSLATE_LAMA, VÀ_NỀN_RUNPOD, REGISTER_BONUS, REFUND, DEPOSIT
     description = Column(Text, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())

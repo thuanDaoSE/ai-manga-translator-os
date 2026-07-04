@@ -9,7 +9,6 @@ import {
   Download,
   CheckCircle2,
   FileStack,
-  Zap,
   Layers,
   ArrowRight,
 } from 'lucide-react';
@@ -124,7 +123,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
       desc: 'Thuật toán chống tràn chữ anti-overflow. Tự động co giãn kích thước, ngắt dòng theo âm tiết và căn lề chuyên nghiệp trong từng ô thoại.',
     },
     {
-      icon: Zap,
+      icon: Cpu,
       color: 'emerald',
       tag: 'Tốc độ',
       title: '10 Giây Cho Mỗi Trang',
@@ -284,7 +283,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
               </div>
               <div>
                 <div className="flex justify-between text-[10.5px] mb-1.5">
-                  <span className="text-indigo-400 font-bold flex items-center gap-1"><Zap className="w-3 h-3" /> DeepKoma AI</span>
+                  <span className="text-indigo-400 font-bold flex items-center gap-1"><Cpu className="w-3 h-3" /> DeepKoma AI</span>
                   <span className="text-emerald-400 font-bold">10 giây</span>
                 </div>
                 <div className="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">

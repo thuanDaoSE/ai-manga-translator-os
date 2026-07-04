@@ -24,6 +24,7 @@ interface ConfigState {
   customPronoun: string;
   glossary: string;
   targetLanguage: string;
+  sourceLanguage: string;
   translationMode: 'fast' | 'studio' | 'grok' | 'openai';
   setTranslationMode: (mode: 'fast' | 'studio' | 'grok' | 'openai') => void;
   grokSubModel: 'grok-2' | 'grok-imagine';
@@ -56,6 +57,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   customPronoun: '',
   glossary: '',
   targetLanguage: 'Tiếng Việt',
+  sourceLanguage: 'ja',
   translationMode: 'studio' as 'fast' | 'studio' | 'grok' | 'openai',
   setTranslationMode: (mode) => set({ translationMode: mode }),
   grokSubModel: 'grok-imagine' as 'grok-2' | 'grok-imagine',
@@ -86,6 +88,9 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         if (parsed.studioSubModel === 'nano-banana-v1' || parsed.studioSubModel === 'nano-banana-v2') {
           parsed.studioSubModel = 'nano-banana-2';
         }
+        if (!parsed.sourceLanguage) {
+          parsed.sourceLanguage = 'ja';
+        }
         set({ ...parsed });
       } catch (err) {
         console.error("Lỗi parse config từ local storage:", err);
@@ -101,6 +106,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       pronoun: state.pronoun, customPronoun: state.customPronoun,
       glossary: state.glossary,
       targetLanguage: state.targetLanguage,
+      sourceLanguage: state.sourceLanguage,
       translationMode: state.translationMode,
       grokSubModel: state.grokSubModel,
       openaiSubModel: state.openaiSubModel,

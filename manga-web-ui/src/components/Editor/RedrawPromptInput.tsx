@@ -6,9 +6,18 @@ import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
 import { useTranslation } from 'react-i18next';
 import { useToolStore } from '../../store/useToolStore';
 
-const BoltIcon = ({ className = "w-3 h-3 text-amber-500 fill-current" }: { className?: string }) => (
-  <svg className={`${className} inline-block align-middle`} viewBox="-11 0 32 32" xmlns="http://www.w3.org/2000/svg">
-    <path d="M1.84 26.24c-0.080 0-0.16 0-0.24-0.040-0.4-0.12-0.64-0.52-0.56-0.92l1.32-9.16h-1.52c-0.24 0-0.52-0.12-0.68-0.32s-0.2-0.48-0.16-0.72l2.32-8.68c0.080-0.36 0.44-0.64 0.8-0.64h5.56c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-2.6 5.12h1.24c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-6.24 12.48c-0.12 0.28-0.44 0.48-0.76 0.48zM1.92 14.44h1.4c0.24 0 0.48 0.12 0.64 0.28 0.16 0.2 0.24 0.44 0.2 0.68l-0.72 4.92 3.28-6.56h-1.24c-0.28 0-0.56-0.16-0.72-0.4s-0.16-0.56-0.040-0.8l2.6-5.12h-3.56l-1.84 7z"></path>
+const GpuIcon = ({ size = 14, className = "" }: { size?: number; className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width={size} 
+    height={size} 
+    fill="currentColor" 
+    className={`inline-block align-middle ${className}`} 
+    viewBox="0 0 16 16"
+  >
+    <path d="M4 8a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0m7.5-1.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3"/>
+    <path d="M0 1.5A.5.5 0 0 1 .5 1h1a.5.5 0 0 1 .5.5V4h13.5a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H2v2.5a.5.5 0 0 1-1 0V2H.5a.5.5 0 0 1-.5-.5m5.5 4a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M9 8a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0"/>
+    <path d="M3 12.5h3.5v1a.5.5 0 0 1-.5.5H3.5a.5.5 0 0 1-.5-.5zm4 1v-1h4v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5"/>
   </svg>
 );
 
@@ -309,7 +318,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
               </span>
               {!isTranslating && !isProcessing && (
                 <span className="absolute right-3 inline-flex items-center bg-black/25 px-1.5 py-0.5 rounded-md text-white text-[10px] font-black whitespace-nowrap">
-                  3<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
+                  3<GpuIcon className="w-2.5 h-2.5 -ml-[1px] text-white shrink-0" />
                 </span>
               )}
             </button>
@@ -383,7 +392,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             </span>
             {!isTranslating && !isProcessing && (
               <span className="absolute right-3 inline-flex items-center bg-black/25 px-1.5 py-0.5 rounded-md text-white text-[10px] font-black whitespace-nowrap">
-                3<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
+                3<GpuIcon className="w-2.5 h-2.5 -ml-[1px] text-white shrink-0" />
               </span>
             )}
           </button>

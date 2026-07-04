@@ -78,7 +78,7 @@ export const useToolStore = create<ToolState>((set) => ({
   setBrushSize: (size) => set({ brushSize: size }),
 
   currentZoom: 1.0,
-  setZoom: (zoom) => set({ currentZoom: Math.max(0.1, Math.min(zoom, 5.0)) }),
+  setZoom: (zoom) => set({ currentZoom: Math.max(0.1, Math.min(zoom, 30.0)) }),
 
   // 🚀 KHỞI TẠO GIÁ TRỊ MẶC ĐỊNH CHUẨN
   fontSize: 20,
