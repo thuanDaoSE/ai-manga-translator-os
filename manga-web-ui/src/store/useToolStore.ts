@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type AppMode = 'none' | 'erase' | 'scan' | 'restore' | 'redraw';
+type AppMode = 'none' | 'erase' | 'scan' | 'restore' | 'redraw' | 'clone' | 'speedline';
 type RestoreType = 'raw' | 'clean';
 
 interface ToolState {
@@ -50,6 +50,7 @@ interface ToolState {
   showRightPanel: boolean;
   toggleLeftPanel: () => void;
   toggleRightPanel: () => void;
+  setShowRightPanel: (val: boolean) => void;
 
   isComparing: boolean;
   setIsComparing: (isComparing: boolean) => void;
@@ -61,11 +62,30 @@ interface ToolState {
   toggleAiGuides: () => void;
   isProcessing: boolean;
   setIsProcessing: (val: boolean) => void;
+  elapsedSeconds: number;
+  setElapsedSeconds: (sec: number) => void;
   isRedrawSessionActive: boolean;
   setIsRedrawSessionActive: (val: boolean) => void;
   redrawSubmitHandler: ((prompts: { positive: string, negative: string }) => Promise<void>) | null;
   redrawCancelHandler: (() => void) | null;
   setRedrawHandlers: (submit: ((prompts: { positive: string, negative: string }) => Promise<void>) | null, cancel: (() => void) | null) => void;
+
+  // 🚀 Clone Brush states
+  cloneSource: { x: number, y: number } | null;
+  setCloneSource: (pt: { x: number, y: number } | null) => void;
+  isSelectingSource: boolean;
+  setIsSelectingSource: (val: boolean) => void;
+
+  // 🚀 Speedline states
+  speedlineColor: string;
+  setSpeedlineColor: (color: string) => void;
+  speedlineType: 'brush' | 'line' | 'eraser' | 'eyedropper';
+  setSpeedlineType: (type: 'brush' | 'line' | 'eraser' | 'eyedropper') => void;
+  isDrawingState: boolean;
+  setIsDrawingState: (val: boolean) => void;
+
+  viewLayout: 'page' | 'webtoon';
+  setViewLayout: (layout: 'page' | 'webtoon') => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
@@ -74,7 +94,7 @@ export const useToolStore = create<ToolState>((set) => ({
   setActiveMode: (mode) => set({ activeMode: mode }),
   toggleRestoreType: () => set((state) => ({ restoreType: state.restoreType === 'raw' ? 'clean' : 'raw' })),
 
-  brushSize: 25,
+  brushSize: 35,
   setBrushSize: (size) => set({ brushSize: size }),
 
   currentZoom: 1.0,
@@ -115,6 +135,7 @@ export const useToolStore = create<ToolState>((set) => ({
   showRightPanel: true,
   toggleLeftPanel: () => set((state) => ({ showLeftPanel: !state.showLeftPanel })),
   toggleRightPanel: () => set((state) => ({ showRightPanel: !state.showRightPanel })),
+  setShowRightPanel: (val) => set({ showRightPanel: val }),
 
   isComparing: false,
   setIsComparing: (val) => set({ isComparing: val }),
@@ -126,9 +147,27 @@ export const useToolStore = create<ToolState>((set) => ({
   toggleAiGuides: () => set((state) => ({ showAiGuides: !state.showAiGuides })),
   isProcessing: false,
   setIsProcessing: (val) => set({ isProcessing: val }),
+  elapsedSeconds: 0,
+  setElapsedSeconds: (sec) => set({ elapsedSeconds: sec }),
   isRedrawSessionActive: false,
   setIsRedrawSessionActive: (val) => set({ isRedrawSessionActive: val }),
   redrawSubmitHandler: null,
   redrawCancelHandler: null,
-  setRedrawHandlers: (submit, cancel) => set({ redrawSubmitHandler: submit, redrawCancelHandler: cancel })
+  setRedrawHandlers: (submit, cancel) => set({ redrawSubmitHandler: submit, redrawCancelHandler: cancel }),
+
+  // 🚀 Clone Brush actions
+  cloneSource: null,
+  setCloneSource: (pt) => set({ cloneSource: pt }),
+  isSelectingSource: false,
+  setIsSelectingSource: (val) => set({ isSelectingSource: val }),
+  // 🚀 Speedline actions
+  speedlineColor: '#000000',
+  setSpeedlineColor: (color) => set({ speedlineColor: color }),
+  speedlineType: 'brush',
+  setSpeedlineType: (type) => set({ speedlineType: type }),
+  isDrawingState: false,
+  setIsDrawingState: (val) => set({ isDrawingState: val }),
+
+  viewLayout: 'page',
+  setViewLayout: (layout) => set({ viewLayout: layout }),
 }));

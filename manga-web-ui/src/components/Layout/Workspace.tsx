@@ -682,7 +682,7 @@ export default function Workspace() {
     return () => { isMounted = false; };
   }, [projectStore.currentIndex, projectStore.pageIds]);
 
-  const { currentZoom, activeMode, setActiveMode, brushSize, setBrushSize, setZoom, isComparing, setIsComparing, actionPosition, setActionPosition, showText, isProcessing, setIsProcessing, isRedrawSessionActive, setIsRedrawSessionActive } = useToolStore();
+  const { currentZoom, activeMode, setActiveMode, brushSize, setBrushSize, setZoom, isComparing, setIsComparing, actionPosition, setActionPosition, showText, isProcessing, setIsProcessing, isRedrawSessionActive, setIsRedrawSessionActive, viewLayout, setViewLayout } = useToolStore();
   const pageStatuses = useProjectStore((s) => s.pageStatuses);
   const progresses = useProjectStore((s) => s.progresses);
   const isCurrentPageProcessing = pageStatuses[currentIndex] === 'processing' || pageStatuses[currentIndex] === 'waiting';
@@ -1358,19 +1358,40 @@ export default function Workspace() {
             className="absolute left-0 top-0 shadow-2xl will-change-transform origin-top-left"
             style={{
               width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto',
-              height: imgSize.h > 0 ? `${imgSize.h}px` : 'auto',
+              height: viewLayout === 'webtoon' ? 'auto' : (imgSize.h > 0 ? `${imgSize.h}px` : 'auto'),
               transform: `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${currentZoom})`
             }}
           >
-            {/* Render Canvas */}
-            <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none ph-no-capture" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined, imageRendering: 'pixelated' }} />
-            <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined, imageRendering: 'pixelated' }} />
-            <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
-              <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
-              <VisualGuideOverlay />
-              <div className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${showText ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                <MangaTextEngine imgWidth={imgSize.w} imgHeight={imgSize.h} />
-                {showText && <FloatingTextToolbar />}
+            {viewLayout === 'webtoon' ? (
+              <div className="flex flex-col gap-0 m-0 p-0" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto' }}>
+                {fileQueue.map((file, idx) => {
+                  if (idx === currentIndex) {
+                    return (
+                      <div key={idx} className="relative m-0 p-0 animate-fade-in" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', height: imgSize.h > 0 ? `${imgSize.h}px` : 'auto' }}>
+                        <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block w-full h-full pointer-events-none select-none ph-no-capture" style={{ imageRendering: 'pixelated' }} />
+                        <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none w-full h-full pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} />
+                        <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
+                          <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
+                          <VisualGuideOverlay />
+                          <div className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${showText ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                            <MangaTextEngine imgWidth={imgSize.w} imgHeight={imgSize.h} />
+                            {showText && <FloatingTextToolbar />}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <WebtoonImage
+                        key={idx}
+                        file={file}
+                        processedUrl={processedUrls[idx]}
+                        onClick={() => setCurrentIndex(idx)}
+                        width={imgSize.w}
+                      />
+                    );
+                  }
+                })}
               </div>
             </div>
             {/* 🏁 Pixel Grid Overlay for Zoom level >= 8x (Photoshop style) */}
@@ -1935,6 +1956,36 @@ const BetaTosModal: React.FC<BetaTosModalProps> = ({ isOpen, onClose, onAgree, t
           </button>
         </div>
       </div>
+    </div>
+  );
+};
+
+// 🚀 LIGHTWEIGHT WEBTOON IMAGE COMPONENT FOR INACTIVE PAGES
+const WebtoonImage = ({ file, processedUrl, onClick, width }: { file: File; processedUrl?: string; onClick: () => void; width: number }) => {
+  const [url, setUrl] = useState<string>('');
+  
+  useEffect(() => {
+    if (processedUrl) {
+      setUrl(processedUrl);
+      return;
+    }
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file, processedUrl]);
+
+  return (
+    <div 
+      onClick={onClick} 
+      className="relative cursor-pointer pointer-events-auto m-0 p-0 block border-b border-white/[0.03] transition-all hover:brightness-[1.03]" 
+      style={{ width: width > 0 ? `${width}px` : '100%', outline: 'none' }}
+    >
+      <img 
+        src={url || undefined} 
+        crossOrigin="anonymous"
+        className="block w-full h-auto select-none pointer-events-none m-0 p-0" 
+        alt={file.name} 
+      />
     </div>
   );
 };

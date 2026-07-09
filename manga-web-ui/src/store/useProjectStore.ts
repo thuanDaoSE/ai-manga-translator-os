@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { mangaApi } from "../services/api"; // 🚀 Đã đổi sang dùng API trung tâm
 import toast from 'react-hot-toast';
+import { splitLongImage } from "../utils";
 
 // 🚀 1. THÊM "cleaned" VÀO ĐÂY:
 // 🚀 Thêm "translating", "completed" và "waiting" vào danh sách
@@ -25,6 +26,8 @@ interface ProjectState {
 
   pastUrls: Record<number, string[]>;
   futureUrls: Record<number, string[]>;
+  originalCleanUrls: Record<number, string>;
+  setOriginalCleanUrl: (index: number, url: string) => void;
 
   uploadProjectFiles: (files: File[]) => Promise<void>;
   setCurrentIndex: (index: number) => void;
@@ -58,8 +61,21 @@ export const useProjectStore = create<ProjectState>((set) => ({
   retryCounts: {}, // 🚀 Khởi tạo
   pastUrls: {},
   futureUrls: {},
+  originalCleanUrls: {},
 
-  uploadProjectFiles: async (files: File[]) => {
+  uploadProjectFiles: async (rawFiles: File[]) => {
+    // 🚀 Tự động cắt ảnh dài (Webtoon) bên client trước khi tải lên
+    const files: File[] = [];
+    for (const file of rawFiles) {
+      try {
+        const parts = await splitLongImage(file, 2000);
+        files.push(...parts);
+      } catch (err) {
+        console.error("Lỗi cắt ảnh:", err);
+        files.push(file);
+      }
+    }
+
     const currentState = useProjectStore.getState();
     const startIndex = currentState.fileQueue.length;
 
@@ -240,6 +256,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   setPageStatus: (index, status) => set((state) => ({ pageStatuses: { ...state.pageStatuses, [index]: status } })),
   setRetryCount: (index, count) => set((state) => ({ retryCounts: { ...state.retryCounts, [index]: count } })),
+  setOriginalCleanUrl: (index, url) => set((state) => ({ originalCleanUrls: { ...state.originalCleanUrls, [index]: url } })),
   clearProgress: (index) => set((state) => {
     const newProgresses = { ...state.progresses };
     delete newProgresses[index];
@@ -340,16 +357,17 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   setProjectId: (id: string) => {
     localStorage.setItem('active_manga_project_id', id);
-    set({ projectId: id, fileQueue: [], pageIds: {}, processedUrls: {}, currentIndex: -1 });
+    set({ projectId: id, fileQueue: [], pageIds: {}, processedUrls: {}, currentIndex: -1, originalCleanUrls: {} });
   },
   clearProject: () => {
     localStorage.removeItem('active_manga_project_id');
-    set({ projectId: null, fileQueue: [], pageIds: {}, processedUrls: {}, currentIndex: -1 });
+    set({ projectId: null, fileQueue: [], pageIds: {}, processedUrls: {}, currentIndex: -1, originalCleanUrls: {} });
   }, // 🚀 THUẬT TOÁN BUNG DỮ LIỆU BẰNG FILE ẢO 0-BYTE
   restoreProject: (pages) => {
     const newPageIds: Record<number, string> = {};
     const newPageStatuses: Record<number, PageStatus> = {};
     const newProcessedUrls: Record<number, string> = {};
+    const newOriginalCleanUrls: Record<number, string> = {};
     const newRetryCounts: Record<number, number> = {};
     const newQueue: File[] = [];
 
@@ -371,7 +389,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
       newRetryCounts[index] = page.retry_count || 0; // 🚀 Trích xuất retry_count từ Server
 
       if (page.clean_url) {
-        newProcessedUrls[index] = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${page.clean_url}?t=${Date.now()}`;
+        const fullUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${page.clean_url}`;
+        newProcessedUrls[index] = `${fullUrl}?t=${Date.now()}`;
+        newOriginalCleanUrls[index] = fullUrl;
       }
 
       newQueue.push(new File([""], page.filename, { type: "image/jpeg" }));
@@ -381,6 +401,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       pageIds: newPageIds,
       pageStatuses: newPageStatuses,
       processedUrls: newProcessedUrls,
+      originalCleanUrls: newOriginalCleanUrls,
       retryCounts: newRetryCounts,
       fileQueue: newQueue,
       currentIndex: pages.length > 0 ? 0 : -1

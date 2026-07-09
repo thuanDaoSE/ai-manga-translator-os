@@ -2,8 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { toJpeg } from "html-to-image";
 import {
   CloudCheck, Download, User, Settings, LogOut, ChevronDown,
-  Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages,
-  FileText, Globe, Image as ImageIcon
+  Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages, Sparkles,
+  FileText, Globe, Image as ImageIcon, ArrowRight, Lock, Zap
 } from "lucide-react";
 import toast from 'react-hot-toast';
 import { useConfigStore } from "../../store/useConfigStore";
@@ -41,7 +41,7 @@ const GpuIcon = ({ size = 14, className = "" }: { size?: number; className?: str
 
 export default function Topbar() {
   const { t, i18n } = useTranslation();
-  const { isComparing, setIsComparing, showLeftPanel, toggleLeftPanel } = useToolStore();
+  const { isComparing, setIsComparing, showLeftPanel, toggleLeftPanel, viewLayout, setViewLayout } = useToolStore();
   const { user, signOut } = useAuthStore();
   const projectStore = useProjectStore();
 
@@ -52,7 +52,34 @@ export default function Topbar() {
     setLocalProjectName(storeProjectName);
   }, [storeProjectName]);
 
-  const { isModalOpen, setModalOpen } = useConfigStore();
+  const { isModalOpen, setModalOpen, useGpu, setUseGpu, sourceLanguage } = useConfigStore();
+  const [showGpuConfirm, setShowGpuConfirm] = useState(false);
+
+  const handleToggleGpu = () => {
+    const newValue = !useGpu;
+    setUseGpu(newValue);
+    setTimeout(() => {
+      useConfigStore.getState().saveToLocal();
+    }, 50);
+    if (newValue) {
+      toast.success("Đã kích hoạt GPU Premium ⚡");
+    } else {
+      toast.success("Đã khóa chốt an toàn GPU 🔒");
+    }
+  };
+
+  const confirmGpuOn = () => {
+    setUseGpu(true);
+    setTimeout(() => {
+      useConfigStore.getState().saveToLocal();
+    }, 50);
+    toast.success("Đã bật GPU Premium 🚀");
+    setShowGpuConfirm(false);
+  };
+
+  const cancelGpuOn = () => {
+    setShowGpuConfirm(false);
+  };
 
   const { serverStatus, fetchStatus } = useServerStatusStore();
  
@@ -299,32 +326,37 @@ export default function Topbar() {
     <header className="h-14 border-b border-border bg-panel px-4 flex items-center justify-between select-none shrink-0 relative" style={{ zIndex: 99 }}>
 
       {/* 1. LEFT ZONE: LOGO & PROJECT */}
-      <div className="flex items-center gap-4 flex-1">
+      <div className="flex items-center gap-3 flex-1">
         <DeepKomaLogo onClick={handleLogoClick} className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
 
-        {/* <div className="w-px h-8 bg-border mx-2 hidden sm:block" /> */}
+        {/* Đường phân cách dọc mảnh */}
+        <div className="w-px h-5 bg-border/80 mx-2 hidden sm:block" />
 
-
-        {/* Project name + sync status — ẩn tạm thời (tính năng .manga sẽ phát triển sau) */}
-        {/* <div className="flex flex-col justify-center min-w-0 max-w-[300px]">
-          <input
-            type="text"
-            value={localProjectName}
-            onChange={(e) => setLocalProjectName(e.target.value)}
-            className="bg-transparent font-bold text-[13px] text-text-main focus:outline-none focus:border-b border-[#8A2BE2] w-full truncate transition-all placeholder-text-muted/50"
-            placeholder={t('topbar.projectNamePlaceholder')}
-          />
-          <div className="flex items-center text-[10px] text-text-muted font-medium mt-0.5">
-            <CloudCheck size={12} className="mr-1 text-[#06B6D4]" />
-            <span>{t('topbar.synced')}</span>
-          </div>
-        </div> */}
-
+        {/* Nút Cài đặt dự án chung (Cấu hình dịch) */}
+        <button
+          onClick={() => setModalOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-panel hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm group whitespace-nowrap shrink-0 text-[12px] font-bold"
+          title="Cài đặt từ điển & Xưng hô AI"
+        >
+          <Languages size={14} className="text-primary group-hover:scale-110 transition-transform" />
+          <span>{t('topbar.configBtn')}</span>
+        </button>
       </div>
 
       {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa) */}
-      <div className="flex items-center justify-center flex-1">
+      <div className="flex items-center justify-center flex-1 gap-4">
+        {/* Toggle Page/Webtoon View Mode */}
         <div className="flex items-center bg-background p-1 rounded-lg border border-border shadow-inner">
+          <button onClick={() => setViewLayout('page')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${viewLayout === 'page' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>
+            Từng trang
+          </button>
+          <button onClick={() => setViewLayout('webtoon')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${viewLayout === 'webtoon' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>
+            Cuộn dọc (Webtoon)
+          </button>
+        </div>
+
+        {/* Toggle Raw/Clean View Mode */}
+        <div className="flex items-center bg-[#18181b] border border-white/[0.04] p-1 rounded-lg">
           <button onClick={() => setIsComparing(false)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${!isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeAi')}</button>
           <button onClick={() => setIsComparing(true)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeRaw')}</button>
         </div>
@@ -333,104 +365,144 @@ export default function Topbar() {
       {/* 3. RIGHT ZONE: CONFIG, CREDITS, EXPORT, ACCOUNT */}
       <div className="flex items-center justify-end gap-3 flex-1 relative">
 
-        {/* Nút Cài đặt dự án chung (Cấu hình dịch) */}
-        <button
-          onClick={() => setModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm group whitespace-nowrap shrink-0 text-[12px] font-bold"
-          title="Cài đặt từ điển & Xưng hô AI"
+        {/* Bảng Điều Khiển Động Cơ & Số Dư GPU Tích Hợp (Premium Console) */}
+        <div className={`flex items-center gap-2.5 pl-3 pr-1.5 py-1 rounded-full border transition-all duration-300 select-none shrink-0 relative group/gpuconsole z-30
+          ${useGpu 
+            ? 'bg-purple-950/20 border-purple-500/40 shadow-[0_0_15px_rgba(168,85,247,0.25)]' 
+            : 'bg-panel/40 border-border/80 hover:border-border-hover'
+          }`}
         >
-          <Languages size={14} className="text-primary group-hover:scale-110 transition-transform" />
-          <span>{t('topbar.configBtn')}</span>
-        </button>
-
-        {/* ĐƯỜNG PHÂN CÁCH DỌC */}
-        <div className="w-px h-5 bg-border mx-1 shrink-0" />
-
-        {/* Server Status Badge */}
-        <div className="group relative cursor-help shrink-0 z-30">
-          {serverStatus === 'HOT' ? (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/5 text-emerald-400 text-[10px] font-black uppercase tracking-wider shadow-[0_0_12px_rgba(16,185,129,0.1)] select-none">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          {/* 1. Phần Switch bật/tắt (Chốt an toàn) */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleToggleGpu}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border border-transparent transition-all duration-300 ease-in-out focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
+                useGpu 
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 shadow-[0_0_8px_rgba(168,85,247,0.5)]' 
+                  : 'bg-neutral-800'
+              }`}
+              title={useGpu ? "Tắt GPU để khóa chức năng dịch (Tránh bấm nhầm trừ số dư)" : "Bật GPU Premium để kích hoạt chức năng dịch truyện"}
+            >
+              <span
+                className={`pointer-events-none flex items-center justify-center h-4 w-4 transform rounded-full bg-white shadow transition-all duration-300 ease-in-out mt-0.5 ${
+                  useGpu ? 'translate-x-4.5 text-purple-600 shadow-[0_0_5px_rgba(168,85,247,0.5)]' : 'translate-x-0.5 text-neutral-500'
+                }`}
+              >
+                {useGpu ? (
+                  <Zap size={9} fill="currentColor" className="animate-pulse text-purple-600" />
+                ) : (
+                  <Lock size={8} className="text-neutral-500" />
+                )}
               </span>
-              <span>GPU Ready</span>
-            </div>
-          ) : serverStatus === 'STARTING' ? (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-amber-500/30 bg-amber-500/5 text-amber-400 text-[10px] font-black uppercase tracking-wider shadow-[0_0_12px_rgba(245,158,11,0.1)] select-none">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-spin absolute inline-flex h-full w-full rounded-full border-t border-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+            </button>
+          </div>
+
+          {/* Đường phân cách mảnh trong capsule */}
+          <div className="w-px h-4 bg-border/60 shrink-0" />
+
+          {/* 2. Phần hiển thị thời gian còn lại (Click để mở Paywall nạp tiền) */}
+          <button 
+            onClick={() => setIsPaywallOpen(true)} 
+            className={`flex items-center gap-2 pl-1 pr-2.5 py-0.5 rounded-full transition-all group/balance cursor-pointer text-[11px] font-extrabold whitespace-nowrap shrink-0 relative
+              ${user?.isPro 
+                ? 'text-indigo-400' 
+                : useGpu 
+                  ? 'text-purple-300 hover:text-purple-200' 
+                  : 'text-text-muted hover:text-text-main'
+              }`}
+          >
+            <div className="relative flex items-center justify-center">
+              <GpuIcon size={13} className={
+                user?.isPro 
+                  ? "text-indigo-400 animate-pulse" 
+                  : serverStatus === 'HOT' 
+                    ? "text-emerald-400 group-hover/balance:scale-110 transition-transform" 
+                    : serverStatus === 'STARTING' 
+                      ? "text-amber-400 animate-pulse" 
+                      : "text-neutral-500 group-hover/balance:scale-110 transition-transform"
+              } />
+              
+              {/* Đốm màu nhỏ chỉ thị trạng thái máy chủ */}
+              <span className="absolute -top-1 -right-1 flex h-1.5 w-1.5">
+                {serverStatus === 'HOT' ? (
+                  <>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400"></span>
+                  </>
+                ) : serverStatus === 'STARTING' ? (
+                  <>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-400"></span>
+                  </>
+                ) : (
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-neutral-500"></span>
+                )}
               </span>
-              <span>Booting GPU</span>
             </div>
-          ) : (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-neutral-700 bg-neutral-800/40 text-neutral-400 text-[10px] font-black uppercase tracking-wider select-none">
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-neutral-500"></span>
-              <span>GPU Sleeping</span>
+            
+            <span>
+              {user?.isPro ? t('topbar.proPlan') : `${Math.round(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}
+            </span>
+            {!user?.isPro && (
+              <span className={`text-[8.5px] font-black uppercase ml-0.5 px-1 py-0.5 rounded transition-all hidden sm:inline
+                ${useGpu 
+                  ? 'bg-purple-500/20 text-purple-300 group-hover/balance:bg-purple-500/30' 
+                  : 'bg-white/[0.06] text-text-muted group-hover/balance:bg-white/10 group-hover/balance:text-text-main'
+                }`}
+              >
+                {t('topbar.recharge')}
+              </span>
+            )}
+          </button>
+
+          {/* Unified Hover Dashboard Popover */}
+          <div className="absolute right-0 top-full mt-2.5 w-64 p-3 bg-[#141417]/95 border border-white/10 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] backdrop-blur-md opacity-0 pointer-events-none group-hover/gpuconsole:opacity-100 transition-all duration-200 z-[220] flex flex-col gap-2 text-left normal-case tracking-normal">
+            <div className="flex flex-col gap-1 border-b border-white/5 pb-1.5">
+              <span className={`text-[10px] font-black uppercase tracking-wider ${useGpu ? 'text-purple-400' : 'text-neutral-400'}`}>
+                {useGpu ? '⚡ Động cơ: ĐANG CHẠY' : '🔒 Động cơ: ĐANG KHÓA'}
+              </span>
+              <span className="text-[9.5px] text-white/50 leading-normal">
+                {useGpu 
+                  ? 'Tất cả lượt dịch sẽ sử dụng GPU Premium và trừ vào giây tích lũy trong tài khoản.' 
+                  : 'Đã khóa chức năng dịch để bảo vệ số dư của bạn khỏi bấm nhầm.'
+                }
+              </span>
             </div>
-          )}
-          
-          <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-[#141417]/95 border border-white/10 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] backdrop-blur-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 z-[220] flex flex-col gap-1.5 text-left normal-case tracking-normal">
-            <div className="text-[11px] font-black uppercase tracking-widest border-b border-white/5 pb-1 flex items-center gap-1.5 text-slate-200">
+
+            <div className="text-[10.5px] font-bold text-slate-200 flex items-center gap-1.5">
               {serverStatus === 'HOT' ? (
                 <>
-                  <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
-                  <span>⚡ GPU Đang Sẵn Sàng</span>
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span>Máy chủ GPU: SẴN SÀNG</span>
                 </>
               ) : serverStatus === 'STARTING' ? (
                 <>
                   <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
-                  <span>⚙️ Đang Bật Máy GPU</span>
+                  <span>Máy chủ GPU: ĐANG KHỞI ĐỘNG</span>
                 </>
               ) : (
                 <>
                   <span className="h-2 w-2 rounded-full bg-neutral-500"></span>
-                  <span>💤 GPU Đang Tạm Nghỉ</span>
+                  <span>Máy chủ GPU: ĐANG NGHỈ</span>
                 </>
               )}
             </div>
-            <div className="text-[10px] text-slate-400 leading-relaxed">
-              {serverStatus === 'HOT' && 'Hệ thống đang hoạt động ổn định. Xử lý tức thì và MIỄN PHÍ thời gian khởi động máy (Không tính Boot Fee).'}
-              {serverStatus === 'STARTING' && 'GPU đang khởi động lạnh (~30 giây). Vui lòng chờ máy sẵn sàng để bắt đầu dịch thuật.'}
-              {serverStatus === 'SLEEPING' && 'Để tiết kiệm chi phí hệ thống, GPU sẽ tạm ngủ nếu không có yêu cầu. Lượt dịch tiếp theo sẽ mất khoảng 30s khởi động (+30s phí khởi động GPU).'}
+            
+            <div className="text-[9.5px] text-slate-400 leading-relaxed">
+              {serverStatus === 'HOT' && 'Hệ thống đang chạy ổn định. Dịch tức thì và miễn phí thời gian giữ máy.'}
+              {serverStatus === 'STARTING' && 'GPU đang khởi động nguội (~30 giây). Vui lòng chờ vài giây để bắt đầu.'}
+              {serverStatus === 'SLEEPING' && 'GPU đang ngủ để tiết kiệm tài nguyên. Lượt dịch tiếp theo sẽ tự động đánh thức GPU (~30 giây).'}
             </div>
-            <div className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1.5 rounded-xl border border-amber-500/20">
-              💡 Mẹo: Nhìn đèn tín hiệu trước khi Dịch. Nếu đèn ĐỎ, hãy chờ người khác kích hoạt hoặc tự kích hoạt bằng cách gửi yêu cầu dịch.
+
+            <div className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-2 py-1.5 rounded-lg border border-amber-500/20 leading-snug">
+              💡 Mẹo: Click vào mục hiển thị thời gian để nạp thêm giây dịch GPU Premium.
             </div>
           </div>
         </div>
 
-        {/* Nút Credits */}
-        <button 
-          onClick={() => setIsPaywallOpen(true)} 
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-[12px] font-bold ${
-            user?.isPro 
-              ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' 
-              : 'bg-background hover:bg-border/40 border-border'
-          }`}
-          title={
-            serverStatus === 'HOT' 
-              ? "GPU: Sẵn sàng (Ready)" 
-              : serverStatus === 'STARTING' 
-                ? "GPU: Đang ngủ/Đang khởi động (Cold Start)" 
-                : "GPU: Ngoại tuyến (Offline)"
-          }
-        >
-          <GpuIcon size={14} className={
-            user?.isPro 
-              ? "text-indigo-400 animate-pulse" 
-              : serverStatus === 'HOT' 
-                ? "text-emerald-500 group-hover:scale-110 transition-transform" 
-                : serverStatus === 'STARTING' 
-                  ? "text-amber-500 animate-pulse" 
-                  : "text-neutral-500 group-hover:scale-110 transition-transform"
-          } />
-          <span className={user?.isPro ? 'text-indigo-400' : 'text-text-main'}>
-            {user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}
-          </span>
-          {!user?.isPro && <span className="text-[9px] font-black uppercase text-amber-500/80 ml-0.5 hidden sm:inline">{t('topbar.recharge')}</span>}
-        </button>
+        {/* ĐƯỜNG PHÂN CÁCH DỌC */}
+        <div className="w-px h-5 bg-border mx-1 shrink-0" />
 
         {/* Menu Export */}
         <div className="relative shrink-0" ref={exportMenuRef}>
@@ -482,7 +554,7 @@ export default function Topbar() {
               </div>
               <div className="px-2 py-2 border-b border-border">
                 <div className="flex items-center justify-between px-3 py-2.5 mb-1 bg-background rounded-lg border border-border/50">
-                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><GpuIcon size={14} className="text-amber-500" /><span>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span></div>
+                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><GpuIcon size={14} className="text-amber-500" /><span>{user?.isPro ? t('topbar.proPlan') : `${Math.round(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span></div>
                   <button onClick={() => { setIsAccountMenuOpen(false); setIsPaywallOpen(true); }} className="text-[10px] font-black uppercase text-primary hover:text-primary-hover transition-colors cursor-pointer">{t('topbar.rechargeMore')}</button>
                 </div>
                 <button
@@ -531,6 +603,56 @@ export default function Topbar() {
 
       {/* 🚀 Bảng cấu hình dịch thuật sẽ hiện lên khi isModalOpen = true */}
       {isModalOpen && <TranslationConfigModal />}
+
+      {/* 🚀 Hộp thoại xác nhận kích hoạt GPU Premium */}
+      {showGpuConfirm && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/80 animate-in fade-in duration-200" style={{ zIndex: 99999 }}>
+          <div className="bg-[#141416] w-full max-w-sm rounded-3xl border border-white/[0.08] shadow-2xl p-6 flex flex-col text-left text-text-main animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 border-b border-white/5 pb-3">
+              <div className="flex items-center justify-center w-9 h-9 bg-amber-500/10 border border-amber-500/30 rounded-xl shadow-inner text-amber-400">
+                <GpuIcon size={18} className="animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-text-main">
+                  Kích hoạt GPU Premium?
+                </h3>
+                <p className="text-[9px] text-text-muted mt-0.5">
+                  Xác nhận thay đổi cấu hình xử lý dịch thuật
+                </p>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-300 leading-relaxed py-4 border-b border-white/5 flex flex-col gap-2.5">
+              <p>
+                Bạn đang yêu cầu kích hoạt chế độ <strong className="text-amber-400 font-extrabold">GPU Premium ⚡</strong>.
+              </p>
+              <ul className="list-disc pl-4 flex flex-col gap-1.5 text-slate-400">
+                <li>
+                  <strong className="text-slate-200">Ưu điểm:</strong> Tốc độ dịch siêu tốc (&lt;1 giây/trang) và dịch tự động toàn bộ chương.
+                </li>
+                <li>
+                  <strong className="text-slate-200">Lưu ý:</strong> Chế độ này sẽ tiêu thụ số dư <strong className="text-slate-200">Credit</strong> trong tài khoản của bạn.
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-4">
+              <button
+                onClick={cancelGpuOn}
+                className="px-4 py-2 rounded-xl text-[10px] font-bold text-text-muted hover:text-text-main hover:bg-white/[0.04] transition-colors cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={confirmGpuOn}
+                className="flex items-center gap-1.5 px-4.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-black text-[10px] font-black uppercase tracking-wider transition-all active:scale-[0.98] cursor-pointer shadow-lg shadow-amber-500/20"
+              >
+                Đồng ý kích hoạt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </header>
   );
