@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from openai import OpenAI
 from dotenv import load_dotenv
+import numpy as np
 
 # Chống văng app trên Windows
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -44,8 +45,139 @@ RUNPOD_ENDPOINT_ID = os.environ.get("RUNPOD_TRANSLATE_ENDPOINT_ID")
 from PIL import Image
 
 _ocr_manager = None
+_yolo_model = None
 _text_detector = None
 _lama_session = None
+
+def get_yolo_model():
+    global _yolo_model
+    if _yolo_model is None:
+        print("[WORKER] Lazy-loading YOLOv11-seg model...")
+        from ultralytics import YOLO
+        model_path = os.path.join(os.path.dirname(__file__), "models", "yolo_seg", "yolo11n-seg-manga.pt")
+        if os.path.exists(model_path):
+            _yolo_model = YOLO(model_path)
+        else:
+            raise FileNotFoundError(f"Missing yolo11n-seg-manga.pt at {model_path}")
+    return _yolo_model
+
+def run_adaptive_monochrome_fill(image, mask):
+    # 1. Dilate the mask to grab surrounding background pixels
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    dilated_mask = cv2.dilate(mask, kernel, iterations=1)
+    
+    # 2. Get the border region just outside the original mask
+    border_mask = cv2.subtract(dilated_mask, mask)
+    
+    # 3. Extract the BGR pixels in the border region
+    border_pixels = image[border_mask > 0]
+    
+    if len(border_pixels) > 0:
+        # Calculate brightness (grayscale value) for each BGR pixel
+        # using the standard luminance formula: Y = 0.114*B + 0.587*G + 0.299*R
+        brightness = (0.114 * border_pixels[:, 0] + 
+                      0.587 * border_pixels[:, 1] + 
+                      0.299 * border_pixels[:, 2])
+        
+        # Classify bubble background using median brightness
+        median_bright = np.median(brightness)
+        
+        if median_bright > 127:
+            # Light bubble: keep pixels close to or brighter than the median, filtering out dark text/borders
+            threshold = max(0.0, median_bright - 45.0)
+            valid_pixels = border_pixels[brightness >= threshold]
+        else:
+            # Dark bubble: keep pixels close to or darker than the median, filtering out light text/backgrounds
+            threshold = min(255.0, median_bright + 45.0)
+            valid_pixels = border_pixels[brightness <= threshold]
+        
+        if len(valid_pixels) > 0:
+            bg_color = np.median(valid_pixels, axis=0).astype(np.uint8)
+        else:
+            bg_color = np.median(border_pixels, axis=0).astype(np.uint8)
+    else:
+        bg_color = np.array([255, 255, 255], dtype=np.uint8)
+        
+    # 4. Fill the masked region with the detected background color
+    clean_crop = image.copy()
+    clean_crop[mask > 0] = bg_color
+    return clean_crop
+
+def run_local_lama(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """
+    Runs local LaMa inpainting on the image using the mask.
+    Assumes mask is binary (0 or 255) and of the same shape as img.
+    """
+    session = get_lama_session()
+    h_img, w_img = img.shape[:2]
+    clean_img = img.copy()
+    
+    # Find contours to run LaMa on smaller bounding regions (better quality + faster)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
+        if w == 0 or h == 0:
+            continue
+        # Add padding for background context
+        pad_x = max(40, min(int(w * 0.5), 150))
+        pad_y = max(40, min(int(h * 0.5), 150))
+        x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
+        x2_pad, y2_pad = min(w_img, x + w + pad_x), min(h_img, y + h + pad_y)
+        
+        crop_img = clean_img[y1_pad:y2_pad, x1_pad:x2_pad]
+        crop_mask = mask[y1_pad:y2_pad, x1_pad:x2_pad]
+        
+        if cv2.countNonZero(crop_mask) == 0:
+            continue
+            
+        h_crop, w_crop = crop_img.shape[:2]
+        
+        # Dilate mask slightly (5x5 ellipse) to fully cover text boundaries/strokes
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        crop_mask_dilated = cv2.dilate(crop_mask, kernel, iterations=1)
+        
+        # Resize if larger than 512x512
+        scale = 1.0
+        if h_crop > 512 or w_crop > 512:
+            scale = 512.0 / max(h_crop, w_crop)
+            new_w, new_h = int(w_crop * scale), int(h_crop * scale)
+            crop_img_resized = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            crop_mask_resized = cv2.resize(crop_mask_dilated, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+        else:
+            new_w, new_h = w_crop, h_crop
+            crop_img_resized = crop_img.copy()
+            crop_mask_resized = crop_mask_dilated.copy()
+            
+        # Pad to 512x512 with replication border
+        pad_bottom, pad_right = 512 - new_h, 512 - new_w
+        if pad_bottom > 0 or pad_right > 0:
+            crop_img_resized = cv2.copyMakeBorder(crop_img_resized, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+            crop_mask_resized = cv2.copyMakeBorder(crop_mask_resized, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+            
+        # Prepare tensors for ONNX Runtime
+        img_t = np.transpose(cv2.cvtColor(crop_img_resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
+        mask_t = np.transpose((crop_mask_resized > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
+        
+        # Run inference
+        ort_outs = session.run(None, {
+            session.get_inputs()[0].name: img_t,
+            session.get_inputs()[1].name: mask_t
+        })
+        
+        out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
+        clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+        
+        # Resize back if scaled
+        if scale != 1.0:
+            clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+            
+        # Paste back using mask-based blending to preserve 100% of original background details
+        crop_original = clean_img[y1_pad:y2_pad, x1_pad:x2_pad]
+        mask_indices = (crop_mask_dilated > 0)[:, :, np.newaxis]
+        composite = np.where(mask_indices, clean_crop, crop_original)
+        clean_img[y1_pad:y2_pad, x1_pad:x2_pad] = composite
+        
+    return clean_img
 
 def get_ocr_manager():
     global _ocr_manager
@@ -65,7 +197,6 @@ def get_text_detector():
             
         # Mock wandb to bypass protobuf version conflicts/lock issues on Windows
         try:
-            import sys
             from unittest.mock import MagicMock
             sys.modules['wandb'] = MagicMock()
             sys.modules['wandb.proto'] = MagicMock()
@@ -88,9 +219,13 @@ def get_lama_session():
     if _lama_session is None:
         print("[WORKER] Lazy-loading LaMa session...")
         import onnxruntime as ort
+        sess_options = ort.SessionOptions()
+        sess_options.add_session_config_entry("session.use_mmap", "1")
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        sess_options.enable_cpu_mem_arena = True
         model_path = os.path.join(os.path.dirname(__file__), "lama-manga.onnx")
         if os.path.exists(model_path):
-            _lama_session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+            _lama_session = ort.InferenceSession(model_path, sess_options=sess_options, providers=['CPUExecutionProvider'])
         else:
             raise FileNotFoundError(f"Missing lama-manga.onnx at {model_path}")
     return _lama_session
@@ -293,6 +428,44 @@ def sync_update_page_db(page_id, clean_url, bubbles):
             db.commit()
             print(f"✅ [WORKER DB] Đã cập nhật kết quả dịch cho trang {page_id} vào PostgreSQL (Sync)!")
 
+def log_gpu_session_action_sync(db, user_id: str, action: str, credits: float):
+    import json
+    import datetime
+    import db_models as models
+    session = db.query(models.GPUSession).filter(
+        models.GPUSession.user_id == user_id,
+        models.GPUSession.is_active == True
+    ).first()
+    if session:
+        try:
+            calls = json.loads(session.apis_called)
+        except Exception:
+            calls = []
+        
+        action_name = action
+        action_upper = action.upper()
+        if any(kw in action_upper for kw in ["CTD-ERASE", "ERASE-MASK", "QUICK-SCAN", "TẨY"]):
+            action_name = "Tẩy nét AI 🧹"
+        elif "REDRAW" in action_upper:
+            action_name = "Vẽ lại AI 🎨"
+        elif "TRANSLATE" in action_upper:
+            action_name = "Dịch trang truyện 📖"
+        elif "AI-PROCESS" in action_upper:
+            action_name = "Dịch tự động GPU ⚡"
+        elif "KIE" in action_upper:
+            action_name = "Xử lý Kie.ai ⚙️"
+        elif "AI-EXTRACT" in action_upper:
+            action_name = "Trích xuất chữ AI 📝"
+
+        calls.append({
+            "action": action_name,
+            "credits": float(credits),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        })
+        session.apis_called = json.dumps(calls)
+        session.credits_deducted += credits
+        db.add(session)
+
 def deduct_balance(user_id: str, execution_time_seconds: float, description: str):
     import db_models as models
     try:
@@ -325,6 +498,10 @@ def deduct_balance(user_id: str, execution_time_seconds: float, description: str
                     description=description
                 )
                 db.add(new_log)
+                
+                # Ghi nhận hoạt động vào phiên GPU active
+                log_gpu_session_action_sync(db, user_id, description, execution_time_seconds)
+                
                 db.commit()
                 print(f"💰 [WORKER DEDUCT] Deducted {execution_time_seconds:.2f}s from user {user_id}. New balance: {user.balance_seconds:.2f}s")
     except Exception as e:
@@ -343,6 +520,8 @@ def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = 
         source_language = config.get("source_language", "ja")
         if not source_language:
             source_language = "ja"
+            
+        task_type = config.get("task_type", "clean_only")
         
         # 1. Kiểm tra checkpoint hủy đầu tiên trước khi đọc DB
         if is_task_cancelled(task_id):
@@ -353,6 +532,7 @@ def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = 
         project_id = None
         is_vip = False
         # Lấy thông tin trang truyện từ CSDL (Sync)
+        is_vip = True
         with SessionLocal() as db:
             page = db.query(models.Page).filter(models.Page.id == page_id).first()
             if not page:
@@ -362,9 +542,6 @@ def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = 
             project = db.query(models.Project).filter(models.Project.id == project_id).first()
             if project:
                 user_id = project.user_id
-                user = db.query(models.User).filter(models.User.id == user_id).first()
-                if user:
-                    is_vip = getattr(user, "is_pro", False)
             
         if not raw_url:
             raise ValueError(f"Không tìm thấy URL ảnh gốc cho page_id: {page_id}")
@@ -382,105 +559,147 @@ def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = 
                 img_bytes = f.read()
         else:
             success, encoded_img = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-            i        # 2. Checkpoint hủy lần 2: TRƯỚC KHI BẮT ĐẦU XỬ LÝ (LOCAL PROCESS)
-        if is_task_cancelled(task_id):
-            print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước khi bắt đầu xử lý. Dừng!")
-            return {"status": "cancelled", "message": "Task was cancelled before processing"}
+        # Check if we are running locally (Windows or RUN_LOCAL_AI=true)
+        run_local = os.getenv("RUN_LOCAL_AI", "false").lower() == "true" or sys.platform == "win32"
+        
+        if run_local:
+            # 2. Checkpoint hủy lần 2: TRƯỚC KHI BẮT ĐẦU XỬ LÝ (LOCAL PROCESS)
+            if is_task_cancelled(task_id):
+                print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước khi bắt đầu xử lý. Dừng!")
+                return {"status": "cancelled", "message": "Task was cancelled before processing"}
 
-        broadcast_progress(task_id, 25, "Đang nhận diện vùng chữ (Local)...")
-        
-        # Load image via cv2 if not already done
-        if img is None:
-            img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+            broadcast_progress(task_id, 25, "Đang nhận diện vùng chữ (Local)...")
             
-        h_img, w_img = img.shape[:2]
-        clean_img = img.copy()
-        
-        # Ensure start_time = time.perf_counter() is called right before the AI logic
-        ai_start_time = time.perf_counter()
-        
-        # Run local text detection
-        detector = get_text_detector()
-        res_mask, res_mask_refined, blk_list = detector(img)
-        
-        if res_mask_refined.max() <= 1.0: 
-            ctd_mask_bin = (res_mask_refined * 255).astype(np.uint8)
-        else: 
-            ctd_mask_bin = res_mask_refined.astype(np.uint8)
-        _, ctd_mask_bin = cv2.threshold(ctd_mask_bin, 127, 255, cv2.THRESH_BINARY)
-        fat_mask = cv2.dilate(ctd_mask_bin, np.ones((7, 7), np.uint8), iterations=2)
-        _, white_regions = cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 200, 255, cv2.THRESH_BINARY)
-        smart_mask = cv2.dilate(cv2.bitwise_and(fat_mask, cv2.bitwise_or(ctd_mask_bin, white_regions)), np.ones((3, 3), np.uint8), iterations=1)
-        mask = cv2.dilate(smart_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
-        
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        broadcast_progress(task_id, 45, "Đang quét chữ OCR (Local)...")
-        
-        extracted_data = []
-        ocr_manager = get_ocr_manager()
-        count = 1
-        
-        for cnt in contours:
-            x, y, w, h = cv2.boundingRect(cnt)
-            if w < 16 or h < 16: 
-                continue
+            # Load image via cv2 if not already done
+            if img is None:
+                img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
                 
-            crop_bgr = img[y:y+h, x:x+w]
+            h_img, w_img = img.shape[:2]
+            clean_img = img.copy()
             
-            # Run OCR via OCRManager
-            japanese_text = ocr_manager.recognize_crop(crop_bgr, language=source_language, is_vip=is_vip)
-            extracted_data.append({
-                "id": count,
-                "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h},
-                "japanese": japanese_text.strip(),
-                "vietnamese": ""
-            })
-            count += 1
+            # Ensure start_time = time.perf_counter() is called right before the AI logic
+            ai_start_time = time.perf_counter()
             
-            # Clean phase using LaMa locally
-            pad_x, pad_y = max(40, min(int(w * 0.5), 150)), max(40, min(int(h * 0.5), 150))
-            x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
-            x2_pad, y2_pad = min(w_img, x + w + pad_x), min(h_img, y + h + pad_y)
-            crop_img = clean_img[y1_pad:y2_pad, x1_pad:x2_pad]
-            crop_mask = mask[y1_pad:y2_pad, x1_pad:x2_pad]
+            # 1. Run comic_text_detector to generate text mask
+            detector = get_text_detector()
+            result = detector(img)
+            ctd_mask = result[1] if isinstance(result, tuple) else result  # Use refined text stroke mask
+            if ctd_mask.max() <= 1.0: 
+                ctd_mask = (ctd_mask * 255).astype(np.uint8)
+            else: 
+                ctd_mask = ctd_mask.astype(np.uint8)
+                
+            _, ctd_mask_bin = cv2.threshold(ctd_mask, 127, 255, cv2.THRESH_BINARY)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+            lama_mask = cv2.dilate(ctd_mask_bin, kernel, iterations=1)
             
-            if cv2.countNonZero(crop_mask) == 0: 
-                continue
-            
-            h_crop, w_crop = crop_img.shape[:2]
-            original_crop_mask = crop_mask.copy()
-            
-            scale = 1.0
-            if h_crop > 512 or w_crop > 512:
-                scale = 512.0 / max(h_crop, w_crop)
-                new_w, new_h = int(w_crop * scale), int(h_crop * scale)
-                crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+            # Find contours from lama_mask to get text bounding boxes (same as RunPod handler)
+            contours, _ = cv2.findContours(lama_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            detector_boxes = []
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                if w < 16 or h < 16: 
+                    continue
+                detector_boxes.append((x, y, x + w, y + h))
+                
+            # Sort bounding boxes by reading order
+            if source_language == 'ja':
+                detector_boxes.sort(key=lambda b: (-b[2], b[1]))
             else:
-                new_w, new_h = w_crop, h_crop
-
-            pad_bottom, pad_right = 512 - new_h, 512 - new_w
-            if pad_bottom > 0 or pad_right > 0:
-                crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
-                crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
-
-            img_t = np.transpose(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
-            mask_t = np.transpose((crop_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
-
-            lama_session = get_lama_session()
-            ort_outs = lama_session.run(None, {lama_session.get_inputs()[0].name: img_t, lama_session.get_inputs()[1].name: mask_t})
-            out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
-            clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+                detector_boxes.sort(key=lambda b: (b[1], b[0]))
+                
+            broadcast_progress(task_id, 45, "Đang quét chữ OCR (Local)...")
             
-            if scale != 1.0: 
-                clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
-            mask_bool = original_crop_mask > 0
-            clean_img[y1_pad:y2_pad, x1_pad:x2_pad][mask_bool] = clean_crop[mask_bool]
+            # 4. Inpaint using LaMa via helper
+            clean_img = run_local_lama(img, lama_mask)
+            
+            # 5. Crop raw image at the bounding boxes and perform OCR recognition
+            extracted_data = []
+            count = 1
+            ocr_manager = get_ocr_manager()
+            for (bx1, by1, bx2, by2) in detector_boxes:
+                crop_raw = img[by1:by2, bx1:bx2]
+                if crop_raw.size == 0:
+                    continue
+                
+                recognized_text = ocr_manager.recognize_crop(crop_raw, language=source_language, is_vip=is_vip)
+                
+                extracted_data.append({
+                    "id": count,
+                    "box_coordinates": {"x1": bx1, "y1": by1, "x2": bx2, "y2": by2},
+                    "japanese": recognized_text.strip(),
+                    "vietnamese": ""
+                })
+                count += 1
 
-        broadcast_progress(task_id, 70, "Đang nén kết quả...")
-        _, buffer = cv2.imencode('.jpg', clean_img)
-        clean_b64 = base64.b64encode(buffer).decode('utf-8')
+            broadcast_progress(task_id, 70, "Đang nén kết quả...")
+            _, buffer = cv2.imencode('.jpg', clean_img)
+            clean_b64 = base64.b64encode(buffer).decode('utf-8')
+        
+        else:
+            # ─── VPS / RUNPOD MODE ───
+            # 2. Checkpoint hủy lần 2: TRƯỚC KHI GỌI RUNPOD API (PAID API)
+            if is_task_cancelled(task_id):
+                print(f"🛑 [WORKER] Task {task_id} đã bị hủy trước cuộc gọi RunPod API. Dừng!")
+                return {"status": "cancelled", "message": "Task was cancelled before RunPod call"}
+
+            broadcast_progress(task_id, 25, "Đang khởi tạo dịch vụ xử lý (RunPod)...")
+            
+            # Đọc ảnh và chuyển sang Base64
+            img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+            
+            runpod_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/run"
+            headers = {
+                "Authorization": f"Bearer {RUNPOD_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "input": {
+                    "image_base64": img_b64,
+                    "genre": config.get("genre", ""),
+                    "tone": config.get("tone", ""),
+                    "pronouns": config.get("pronouns", ""),
+                    "glossary": config.get("glossary", "")
+                }
+            }
+            
+            ai_start_time = time.perf_counter() # Đo thời gian
+            
+            res = httpx.post(runpod_url, json=payload, headers=headers, timeout=60.0)
+            if res.status_code != 200:
+                raise Exception(f"RunPod failed with status {res.status_code}: {res.text}")
+                
+            runpod_job_id = res.json()["id"]
+            
+            # 3. Server-side Polling để cập nhật tiến độ
+            broadcast_progress(task_id, 40, "Đang nhận diện chữ và tách nền (RunPod)...")
+            status_url = f"https://api.runpod.ai/v2/{RUNPOD_ENDPOINT_ID}/status/{runpod_job_id}"
+            
+            runpod_result = None
+            while True:
+                # Checkpoint hủy trong vòng lặp polling
+                if is_task_cancelled(task_id):
+                    print(f"🛑 [WORKER] Task {task_id} đã bị hủy trong khi polling RunPod. Dừng!")
+                    return {"status": "cancelled", "message": "Task was cancelled during RunPod execution"}
+
+                time.sleep(2)
+                status_res = httpx.get(status_url, headers=headers, timeout=15.0)
+                status_data = status_res.json()
+                status = status_data.get("status")
+                
+                if status == "COMPLETED":
+                    runpod_result = status_data.get("output", {})
+                    break
+                elif status in ["FAILED", "CANCELLED"]:
+                    raise Exception(f"RunPod job failed or cancelled: {status_data}")
+                elif status == "IN_PROGRESS":
+                    broadcast_progress(task_id, 60, "Đang tiến hành tẩy nền và đọc chữ (RunPod)...")
+                elif status == "IN_QUEUE":
+                    broadcast_progress(task_id, 45, "Đang xếp hàng chờ máy chủ xử lý...")
+                    
+            # 4. Trích xuất kết quả RunPod
+            clean_b64 = runpod_result.get("clean_image_base64")
+            extracted_data = runpod_result.get("data", [])
         
         # 5. Checkpoint hủy lần 3: TRƯỚC KHI GỌI DEEPSEEK API (PAID API)
         if is_task_cancelled(task_id):
@@ -491,7 +710,22 @@ def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = 
         if extracted_data:
             broadcast_progress(task_id, 80, "Đang tiến hành dịch thuật ngữ cảnh...")
             try:
-                ocr_batch_payload = [{"id": item["id"], "japanese": item["japanese"]} for item in extracted_data]
+                source_lang_names_vi = {
+                    "ja": "Tiếng Nhật",
+                    "en": "Tiếng Anh",
+                    "zh": "Tiếng Trung",
+                    "ko": "Tiếng Hàn"
+                }
+                source_lang_names_en = {
+                    "ja": "Japanese",
+                    "en": "English",
+                    "zh": "Chinese",
+                    "ko": "Korean"
+                }
+                source_lang_name_vi = source_lang_names_vi.get(source_language, "Tiếng Nhật")
+                source_lang_name_en = source_lang_names_en.get(source_language, "Japanese")
+
+                ocr_batch_payload = [{"id": item["id"], "text": item["japanese"]} for item in extracted_data]
                 # Tinh chỉnh prompt động theo target_language
                 lang_instruction = ""
                 if target_language == "Tiếng Việt":
@@ -502,8 +736,8 @@ def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = 
                     lang_instruction = f"Bạn BẮT BUỘC phải dịch hoàn toàn sang {target_language}."
 
                 prompt = (
-                    f"Nhiệm vụ của bạn là dịch đoạn thoại truyện tranh sau sang {target_language}.\n"
-                    f"{lang_instruction} Không được dịch sang bất kỳ ngôn ngữ nào khác (như chữ Trung Quốc hay giữ nguyên tiếng Nhật).\n"
+                    f"Nhiệm vụ của bạn là dịch các đoạn hội thoại truyện tranh sau từ {source_lang_name_vi} sang {target_language}.\n"
+                    f"{lang_instruction} Không được dịch sang bất kỳ ngôn ngữ nào khác (như giữ nguyên {source_lang_name_vi}).\n"
                     f"Thể loại: {config.get('genre', '')}. Xưng hô: {config.get('pronouns', '')}. Văn phong: {config.get('tone', '')}.\n"
                     f"Yêu cầu: Giữ nguyên văn phong truyện tranh tự nhiên.\n"
                     f"Bạn BẮT BUỘC TRẢ VỀ FORMAT JSON chứa mảng 'translations', ví dụ: {{\\\"translations\\\": [{{\\\"id\\\": 1, \\\"translation\\\": \\\"bản dịch\\\"}}]}}.\n"
@@ -522,9 +756,9 @@ def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = 
                                 {
                                     "role": "system", 
                                     "content": (
-                                        "You are a professional manga translator. "
-                                        f"You must translate the text strictly and fully to {target_language}. "
-                                        "Do not output Chinese, Japanese, or any other language. "
+                                        f"You are a professional manga/comic translator. "
+                                        f"You must translate the text strictly and fully from {source_lang_name_en} to {target_language}. "
+                                        f"Do not output {source_lang_name_en} or any other language characters. "
                                         "You output strict JSON containing a 'translations' array of dicts with 'id' and 'translation'."
                                     )
                                 },
@@ -545,21 +779,24 @@ def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = 
                             raise e
                     time.sleep(1)
                 
-                # 5.5. Hậu kiểm: Phát hiện chữ Nhật/Trung (dịch sai ngôn ngữ đầu ra) và tự động dịch lại đúng 1 lần
+                # 5.5. Hậu kiểm: Phát hiện chữ chưa được dịch và tự động dịch lại đúng 1 lần
                 failed_items = []
                 for item in extracted_data:
                     item_id = str(item["id"])
                     translated_text = translations.get(item_id, "")
-                    # Nếu đích là Tiếng Việt hoặc English nhưng đầu ra vẫn chứa chữ Nhật/Trung (mã CJK)
-                    if target_language in ["Tiếng Việt", "English"] and contains_cjk_characters(translated_text):
-                        failed_items.append({"id": item["id"], "japanese": item["japanese"]})
+                    if source_language in ["ja", "zh", "ko"] and target_language in ["Tiếng Việt", "English"]:
+                        if contains_cjk_characters(translated_text):
+                            failed_items.append({"id": item["id"], "text": item["japanese"]})
+                    elif source_language == "en" and target_language == "Tiếng Việt":
+                        if translated_text.strip().lower() == item["japanese"].strip().lower() and len(item["japanese"].strip()) > 3:
+                            failed_items.append({"id": item["id"], "text": item["japanese"]})
 
                 if failed_items:
-                    print(f"⚠️ [CHECK-LANG] Phát hiện {len(failed_items)} câu dịch ra vẫn chứa chữ Trung/Nhật. Tiến hành dịch lại đúng 1 lần...")
+                    print(f"⚠️ [CHECK-LANG] Phát hiện {len(failed_items)} câu dịch bị lỗi (chưa dịch hoặc giữ nguyên chữ gốc). Tiến hành dịch lại đúng 1 lần...")
                     retry_prompt = (
                         f"Nhiệm vụ của bạn là dịch đoạn thoại truyện tranh sau sang {target_language}.\n"
-                        f"CẢNH BÁO CỰC KỲ NGHIÊM NGẶT: Lần dịch trước của bạn bị lỗi dịch ra chữ tiếng Trung hoặc tiếng Nhật gốc. "
-                        f"Bạn BẮT BUỘC phải dịch HOÀN TOÀN sang {target_language}. TUYỆT ĐỐI không được trả về chữ Trung Quốc hay chữ Nhật gốc.\n"
+                        f"CẢNH BÁO CỰC KỲ NGHIÊM NGẶT: Lần dịch trước của bạn bị lỗi dịch ra chữ {source_lang_name_vi} hoặc giữ nguyên văn bản gốc. "
+                        f"Bạn BẮT BUỘC phải dịch HOÀN TOÀN sang {target_language}. TUYỆT ĐỐI không được trả về chữ {source_lang_name_vi} hay chữ gốc.\n"
                         f"Dữ liệu cần dịch lại: {json.dumps(failed_items, ensure_ascii=False)}"
                     )
                     try:
@@ -569,9 +806,9 @@ def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = 
                                 {
                                     "role": "system", 
                                     "content": (
-                                        "You are a professional manga translator. "
-                                        f"You must translate the text strictly and fully to {target_language}. "
-                                        "Do not output Chinese, Japanese, or any other language characters. Only output standard translated text."
+                                        f"You are a professional manga/comic translator. "
+                                        f"You must translate the text strictly and fully from {source_lang_name_en} to {target_language}. "
+                                        f"Do not output {source_lang_name_en} or any other language characters. Only output standard translated text."
                                     )
                                 },
                                 {"role": "user", "content": retry_prompt}
@@ -632,17 +869,8 @@ def process_manga_page(self, page_id: str, config: dict, client_saw_hot: bool = 
         # 7. Cập nhật cơ sở dữ liệu đồng bộ
         sync_update_page_db(page_id, clean_url, extracted_data)
         
-        # Trừ thời gian sử dụng thực tế của user
-        if user_id:
-            execution_time_seconds = time.perf_counter() - ai_start_time
-            
-            boot_fee = 0.0
-            if was_cold_start and not client_saw_hot:
-                boot_fee = 30.0
-                print(f"❄️ [COLD START] Charging 30s boot fee for user {user_id}")
-                
-            total_charge = execution_time_seconds + boot_fee
-            deduct_balance(user_id, total_charge, f"Dịch trang truyện (Trang ID: {page_id}){' - Phí khởi động GPU 30s' if boot_fee > 0 else ''}")
+        # Trừ thời gian sử dụng thực tế của user (Bỏ qua vì frontend đã quản lý trừ trực tiếp theo giây khi bật công tắc GPU!)
+        pass
         
         # Ghi nhận cache vào Redis
         try:

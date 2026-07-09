@@ -1761,6 +1761,57 @@ async def ai_redraw_mask(
                     dl_res = await dl_client.get(final_img_url, timeout=30.0)
                     dl_res.raise_for_status()
                     clean_crop_b64 = base64.b64encode(dl_res.content).decode("utf-8")
+            elif mode == "anytext":
+                print(f"[ai_redraw_mask] Mode anytext: calling RunPod AnyText endpoint...")
+                _, img_buf = cv2.imencode('.png', crop_image)
+                img_b64 = base64.b64encode(img_buf.tobytes()).decode('utf-8')
+                
+                _, mask_buf = cv2.imencode('.png', crop_mask)
+                mask_b64 = base64.b64encode(mask_buf.tobytes()).decode('utf-8')
+                
+                anytext_endpoint_id = os.getenv("RUNPOD_ANYTEXT_ENDPOINT_ID")
+                if not anytext_endpoint_id or anytext_endpoint_id == "template_anytext_endpoint_id_please_replace_me":
+                    raise Exception("Chưa cấu hình RUNPOD_ANYTEXT_ENDPOINT_ID trong file .env")
+                
+                runpod_url = f"https://api.runpod.ai/v2/{anytext_endpoint_id}/run"
+                headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
+                
+                async with httpx.AsyncClient() as client:
+                    res = await client.post(runpod_url, json={
+                        "input": {
+                            "action": "text-editing",
+                            "image": img_b64,
+                            "draw_pos": mask_b64,
+                            "prompt": payload.prompt,
+                            "seed": 8943410
+                        }
+                    }, headers=headers, timeout=30.0)
+                    res.raise_for_status()
+                    res_json = res.json()
+                    runpod_job_id = res_json.get("id")
+                    
+                    if not runpod_job_id:
+                        raise Exception(f"RunPod failed to start AnyText job: {res_json}")
+                        
+                    for _ in range(60):
+                        await asyncio.sleep(2)
+                        status_res = await client.get(f"https://api.runpod.ai/v2/{anytext_endpoint_id}/status/{runpod_job_id}", headers=headers)
+                        status_res.raise_for_status()
+                        status_json = status_res.json()
+                        job_status = status_json.get("status")
+                        
+                        if job_status == "COMPLETED":
+                            output_data = status_json.get("output", {})
+                            if isinstance(output_data, dict) and output_data.get("status") == "success":
+                                clean_crop_b64 = output_data.get("image")
+                            else:
+                                raise Exception(f"AnyText job completed but failed internal execution: {output_data}")
+                            break
+                        elif job_status in ["FAILED", "CANCELLED"]:
+                            raise Exception(f"RunPod AnyText job failed with status: {job_status}")
+                    
+                    if not clean_crop_b64:
+                        raise Exception("RunPod AnyText job polling timed out")
             else:
                 print(f"⚠️ [AI-REDRAW] Mode {mode} not supported for mask redraw. Falling back to local LaMa!")
                 session = get_lama_session()
@@ -2109,10 +2160,14 @@ def get_lama_session():
     if _lama_session is None:
         try:
             import onnxruntime as ort
+            sess_options = ort.SessionOptions()
+            sess_options.add_session_config_entry("session.use_mmap", "1")
+            sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            sess_options.enable_cpu_mem_arena = True
             providers = ["CPUExecutionProvider"]
             model_path = os.path.join(os.path.dirname(__file__), "lama-manga.onnx")
             if os.path.exists(model_path):
-                _lama_session = ort.InferenceSession(model_path, providers=providers)
+                _lama_session = ort.InferenceSession(model_path, sess_options=sess_options, providers=providers)
                 print("🚀 [LAMA FALLBACK] Local LaMa ONNX session loaded successfully!")
             else:
                 print("⚠️ [LAMA FALLBACK] lama-manga.onnx not found locally!")
@@ -3842,6 +3897,10 @@ _status_cache = {
 }
 
 async def fetch_runpod_server_status() -> str:
+    # Luôn trả về "HOT" khi chạy cục bộ để mở khóa toàn bộ tính năng và nút dịch trên UI
+    return "HOT"
+
+async def deprecated_fetch_runpod_server_status() -> str:
     global _status_cache
     now = time.time()
     if now - _status_cache["last_fetched"] < 10.0:
@@ -4560,7 +4619,7 @@ async def ai_process(
                 
                 h_img, w_img = img.shape[:2]
                 
-                # Load text detector
+                # Load text detector (CTD)
                 detector = await run_in_threadpool(get_ctd_detector)
                 if detector is None:
                     raise ValueError("Không thể tải mô hình Comic Text Detector cục bộ")
@@ -4573,34 +4632,42 @@ async def ai_process(
                 else: 
                     ctd_mask_bin = res_mask_refined.astype(np.uint8)
                 _, ctd_mask_bin = cv2.threshold(ctd_mask_bin, 127, 255, cv2.THRESH_BINARY)
-                fat_mask = cv2.dilate(ctd_mask_bin, np.ones((7, 7), np.uint8), iterations=2)
-                _, white_regions = cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 200, 255, cv2.THRESH_BINARY)
-                smart_mask = cv2.dilate(cv2.bitwise_and(fat_mask, cv2.bitwise_or(ctd_mask_bin, white_regions)), np.ones((3, 3), np.uint8), iterations=1)
-                mask = cv2.dilate(smart_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
                 
-                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                # Run detector.onnx via ONNXDBDetector to get bounding box positions
+                ocr_manager = get_ocr_manager()
+                detector_onnx = ocr_manager.get_detector()
+                det_results = detector_onnx.ocr(img, rec=False)
                 
+                detector_boxes = []
+                if det_results and det_results[0]:
+                    for poly in det_results[0]:
+                        pts = np.array(poly, dtype=np.int32)
+                        x, y, w, h = cv2.boundingRect(pts)
+                        if w > 4 and h > 4:
+                            detector_boxes.append((x, y, x + w, y + h))
+                
+                # Sort bounding boxes by reading order
+                if source_language == 'ja':
+                    detector_boxes.sort(key=lambda b: (-b[2], b[1]))
+                else:
+                    detector_boxes.sort(key=lambda b: (b[1], b[0]))
+                
+                # OCR the raw crops of the boxes
                 boxes = []
                 texts = []
-                ocr_manager = get_ocr_manager()
-                
-                # For each contour, crop and run OCR
-                for cnt in contours:
-                    x_c, y_c, w_c, h_c = cv2.boundingRect(cnt)
-                    if w_c < 16 or h_c < 16: 
+                for (bx1, by1, bx2, by2) in detector_boxes:
+                    crop_raw = img[by1:by2, bx1:bx2]
+                    if crop_raw.size == 0:
                         continue
                     
-                    crop_bgr = img[y_c:y_c+h_c, x_c:x_c+w_c]
-                    
-                    # Run OCR via OCRManager
-                    text = await run_in_threadpool(ocr_manager.recognize_crop, crop_bgr, source_language, is_vip)
+                    text = await run_in_threadpool(ocr_manager.recognize_crop, crop_raw, source_language, is_vip)
                     text = text.strip()
                     
                     boxes.append({
-                        "x1": x_c,
-                        "y1": y_c,
-                        "x2": x_c + w_c,
-                        "y2": y_c + h_c
+                        "x1": bx1,
+                        "y1": by1,
+                        "x2": bx2,
+                        "y2": by2
                     })
                     texts.append(text)
                 
@@ -4820,14 +4887,32 @@ async def ai_process(
                             clean_img = image_cv.copy()
                             h_img, w_img = image_cv.shape[:2]
                             
-                            # Create mask from boxes
-                            mask_img = np.zeros((h_img, w_img), dtype=np.uint8)
-                            for box in boxes:
-                                x1, y1 = box["x1"], box["y1"]
-                                x2, y2 = box["x2"], box["y2"]
-                                cv2.rectangle(mask_img, (x1, y1), (x2, y2), 255, -1)
-                            
-                            mask_img = cv2.dilate(mask_img, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
+                            # Create mask by generating the dilated text stroke mask (sát dính chữ kèm nở chữ)
+                            try:
+                                from worker import get_text_detector
+                                detector = get_text_detector()
+                                result = detector(image_cv)
+                                ctd_mask = result[1] if isinstance(result, tuple) else result
+                                if ctd_mask.max() <= 1.0: 
+                                    ctd_mask = (ctd_mask * 255).astype(np.uint8)
+                                else: 
+                                    ctd_mask = ctd_mask.astype(np.uint8)
+                                    
+                                _, ctd_mask_bin = cv2.threshold(ctd_mask, 127, 255, cv2.THRESH_BINARY)
+                                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+                                mask_img = cv2.dilate(ctd_mask_bin, kernel, iterations=1)
+                            except Exception as e:
+                                print(f"⚠️ [main.py] Failed to generate raw stroke mask: {e}. Falling back to solid boxes!")
+                                mask_img = np.zeros((h_img, w_img), dtype=np.uint8)
+                                expand_px = 5
+                                for box in boxes:
+                                    x1, y1 = box["x1"], box["y1"]
+                                    x2, y2 = box["x2"], box["y2"]
+                                    ex1 = max(0, x1 - expand_px)
+                                    ey1 = max(0, y1 - expand_px)
+                                    ex2 = min(w_img, x2 + expand_px)
+                                    ey2 = min(h_img, y2 + expand_px)
+                                    cv2.rectangle(mask_img, (ex1, ey1), (ex2, ey2), 255, -1)
                             
                             # Run LaMa on individual contours to optimize details
                             contours_lama, _ = cv2.findContours(mask_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -4849,16 +4934,21 @@ async def ai_process(
                                     continue
                                 
                                 h_crop, w_crop = crop_img.shape[:2]
-                                original_crop_mask = crop_mask.copy()
+                                
+                                # Dilate mask slightly (5x5 ellipse) to fully cover text boundaries/strokes
+                                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+                                crop_mask_dilated = cv2.dilate(crop_mask, kernel, iterations=1)
+                                original_crop_mask = crop_mask_dilated.copy()
                                 
                                 scale = 1.0
                                 if h_crop > 512 or w_crop > 512:
                                     scale = 512.0 / max(h_crop, w_crop)
                                     new_w, new_h = int(w_crop * scale), int(h_crop * scale)
                                     crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                                    crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                                    crop_mask = cv2.resize(crop_mask_dilated, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
                                 else:
                                     new_w, new_h = w_crop, h_crop
+                                    crop_mask = crop_mask_dilated.copy()
 
                                 pad_bottom, pad_right = 512 - new_h, 512 - new_w
                                 if pad_bottom > 0 or pad_right > 0:
