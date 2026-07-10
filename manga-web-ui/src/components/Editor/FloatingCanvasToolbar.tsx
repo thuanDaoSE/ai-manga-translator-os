@@ -384,9 +384,7 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
           <div className="w-px h-6 bg-border mx-1"></div>
 
           <ToolButton mode="erase" icon={Eraser} label="Tẩy nền (E)" shortLabel="Tẩy nền (E)" />
-          {user?.email === 'td2005dataeg@gmail.com' && (
-            <ToolButton mode="redraw" icon={Sparkles} label="Vẽ lại AI (R)" shortLabel="Vẽ lại AI (R)" />
-          )}
+
           <ToolButton mode="clone" icon={Copy} label="Clone Stamp (S)" shortLabel="Clone Stamp" />
           <ToolButton mode="speedline" icon={Brush} label="Cọ vẽ tay (B)" shortLabel="Cọ vẽ tay" />
           <ToolButton mode="restore" icon={RotateCcw} label="Khôi phục gốc (Y)" shortLabel="Khôi phục gốc (Y)" />

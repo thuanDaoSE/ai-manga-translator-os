@@ -1503,7 +1503,7 @@ export default function Workspace() {
           {actionPosition && activeMode === 'erase' && (
             <>
               {showAiPromptInput ? (
-                <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-2 p-2 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto w-[450px]">
+                <div className="absolute bottom-[82px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-2 p-1.5 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto w-[430px]">
                   {/* Model AI selection (Grok/KIE models) */}
                   <div className="relative flex items-center shrink-0" ref={dropdownRef}>
                     <button
@@ -1512,7 +1512,7 @@ export default function Workspace() {
                         setShowModelDropdown(!showModelDropdown);
                       }}
                       disabled={isCurrentPageProcessing || isProcessing}
-                      className="flex items-center justify-center w-8 h-8 rounded-xl hover:bg-white/10 transition-all cursor-pointer overflow-hidden border border-white/10 bg-black/40 hover:scale-105 active:scale-95 shadow-sm"
+                      className="flex items-center justify-center w-7.5 h-7.5 rounded-xl hover:bg-white/10 transition-all cursor-pointer overflow-hidden border border-white/10 bg-black/40 hover:scale-105 active:scale-95 shadow-sm"
                       title="Chọn mô hình AI"
                     >
                       {translationMode === 'grok' && (
@@ -1712,7 +1712,7 @@ export default function Workspace() {
 
                   <input
                     type="text"
-                    className="flex-1 px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-white text-xs font-medium placeholder-white/30 focus:outline-none focus:border-primary/50"
+                    className="flex-1 px-2.5 py-1.5 bg-black/40 border border-white/10 rounded-xl text-white text-xs font-medium placeholder-white/30 focus:outline-none focus:border-primary/50"
                     placeholder="Mô tả vẽ lại (để trống để tự động làm sạch)..."
                     value={aiErasePrompt}
                     onChange={(e) => setAiErasePrompt(e.target.value)}
@@ -1726,69 +1726,51 @@ export default function Workspace() {
                   <button
                     onClick={() => handleAiErase(aiErasePrompt)}
                     disabled={isCurrentPageProcessing || isProcessing}
-                    className="px-4 py-2 rounded-xl font-bold text-xs bg-primary text-white hover:bg-primary/80 disabled:opacity-50 cursor-pointer transition-colors shadow-sm shrink-0"
+                    className="px-3.5 py-1.5 rounded-xl font-bold text-xs bg-primary text-white hover:bg-primary/80 disabled:opacity-50 cursor-pointer transition-colors shadow-sm shrink-0"
                   >
                     Thực hiện
                   </button>
                   <button
                     onClick={() => setShowAiPromptInput(false)}
-                    className="px-3 py-2 rounded-xl font-bold text-xs bg-white/5 text-white/70 hover:bg-white/10 cursor-pointer transition-colors shrink-0"
+                    className="px-2.5 py-1.5 rounded-xl font-bold text-xs bg-white/5 text-white/70 hover:bg-white/10 cursor-pointer transition-colors shrink-0"
                   >
                     Hủy
                   </button>
                 </div>
               ) : (
-                <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-1.5 p-1.5 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto">
+                <div className="absolute bottom-[82px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-1 p-1 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-xl pointer-events-auto">
                   {/* Button 1: Xóa nền thông minh */}
                   <button 
                     onClick={handleErase} 
                     disabled={isCurrentPageProcessing || isProcessing} 
-                    className={`relative flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm
-                      ${!(isCurrentPageProcessing || isProcessing) ? 'pl-4 pr-12' : 'px-4'}`}
+                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm"
                   >
-                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} className="group-hover:text-white transition-colors" />}
+                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className="group-hover:text-white transition-colors" />}
                     <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa nền thông minh"}</span>
-                    {!(isCurrentPageProcessing || isProcessing) && (
-                      <span className="absolute right-3 inline-flex items-center bg-primary/10 group-hover:bg-black/20 px-1.5 py-0.5 rounded-md text-primary group-hover:text-white text-[10px] font-black transition-all">
-                        1<BoltIcon />
-                      </span>
-                    )}
                   </button>
 
-                  <div className="w-px h-8 bg-border mx-1"></div>
+                  <div className="w-px h-6 bg-border mx-0.5"></div>
 
                   {/* Button 2: Xóa chữ thông minh */}
                   <button 
                     onClick={handleCtdErase} 
                     disabled={isCurrentPageProcessing || isProcessing} 
-                    className={`relative flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm
-                      ${!(isCurrentPageProcessing || isProcessing) ? 'pl-4 pr-12' : 'px-4'}`}
+                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm"
                   >
-                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} className="group-hover:text-slate-950 transition-colors" />}
+                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} className="group-hover:text-slate-950 transition-colors" />}
                     <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa chữ thông minh"}</span>
-                    {!(isCurrentPageProcessing || isProcessing) && (
-                      <span className="absolute right-3 inline-flex items-center bg-emerald-500/20 group-hover:bg-black/20 px-1.5 py-0.5 rounded-md text-emerald-400 group-hover:text-slate-950 text-[10px] font-black transition-all">
-                        1<BoltIcon />
-                      </span>
-                    )}
                   </button>
 
-                  <div className="w-px h-8 bg-border mx-1"></div>
+                  <div className="w-px h-6 bg-border mx-0.5"></div>
 
                   {/* Button 3: Xóa với AI */}
                   <button 
                     onClick={() => setShowAiPromptInput(true)} 
                     disabled={isCurrentPageProcessing || isProcessing} 
-                    className={`relative flex items-center justify-center gap-1.5 py-2.5 rounded-xl font-bold text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm pl-4 pr-12`}
+                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm"
                   >
-                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={16} /> : <Bot size={16} className="group-hover:text-slate-950 transition-colors" />}
+                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Bot size={14} className="group-hover:text-slate-950 transition-colors" />}
                     <span>✨ Xóa với AI</span>
-                    {!(isCurrentPageProcessing || isProcessing) && (
-                      <span className="absolute right-3 inline-flex items-center bg-amber-500/20 group-hover:bg-black/20 px-1.5 py-0.5 rounded-md text-amber-400 group-hover:text-slate-950 text-[10px] font-black transition-all">
-                        {translationMode === 'grok' ? '8' : getKieCost(studioSubModel, kieResolution)}
-                        <BoltIcon />
-                      </span>
-                    )}
                   </button>
                 </div>
               )}
