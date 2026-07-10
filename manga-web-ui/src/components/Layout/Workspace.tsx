@@ -1504,6 +1504,212 @@ export default function Workspace() {
             <>
               {showAiPromptInput ? (
                 <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-2 p-2 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-2xl pointer-events-auto w-[450px]">
+                  {/* Model AI selection (Grok/KIE models) */}
+                  <div className="relative flex items-center shrink-0" ref={dropdownRef}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowModelDropdown(!showModelDropdown);
+                      }}
+                      disabled={isCurrentPageProcessing || isProcessing}
+                      className="flex items-center justify-center w-8 h-8 rounded-xl hover:bg-white/10 transition-all cursor-pointer overflow-hidden border border-white/10 bg-black/40 hover:scale-105 active:scale-95 shadow-sm"
+                      title="Chọn mô hình AI"
+                    >
+                      {translationMode === 'grok' && (
+                        <GrokIcon className="w-4 h-4 text-slate-200" />
+                      )}
+                      {translationMode === 'studio' && studioSubModel === 'gpt-image-2-image-to-image' && (
+                        <OpenaiIcon className="w-4 h-4 text-white" />
+                      )}
+                      {translationMode === 'studio' && studioSubModel !== 'gpt-image-2-image-to-image' && (
+                        <img src="/nanobanana.webp" className="w-full h-full object-cover" alt="Studio" />
+                      )}
+                    </button>
+
+                    {showModelDropdown && (
+                      <div 
+                        onClick={(e) => e.stopPropagation()} 
+                        className="absolute bottom-10 left-0 w-64 bg-[#141417]/95 backdrop-blur-md border border-white/10 rounded-xl p-2 shadow-[0_10px_30px_rgba(0,0,0,0.5)] flex flex-col gap-1 z-[210] text-left pointer-events-auto"
+                      >
+                        {/* Tiêu đề */}
+                        <div className="px-2 py-0.5 border-b border-white/5 mb-0.5 select-none flex items-center justify-between">
+                          <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Mô hình AI</span>
+                          <div 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowAdvancedModels(!showAdvancedModels);
+                            }}
+                            className="flex items-center gap-1 cursor-pointer"
+                          >
+                            <span className="text-[8px] font-black text-slate-400 select-none uppercase tracking-wider">Tùy chọn</span>
+                            <div className={`w-6 h-3.5 rounded-full p-0.5 transition-all duration-200 ${showAdvancedModels ? 'bg-amber-500' : 'bg-white/10'}`}>
+                              <div className={`w-2.5 h-2.5 rounded-full bg-[#141417] transition-all duration-200 transform ${showAdvancedModels ? 'translate-x-2.5' : 'translate-x-0'}`} />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Grok */}
+                        <div
+                          onClick={() => setTranslationMode('grok')}
+                          className={`w-full text-left p-1.5 rounded-lg hover:bg-white/5 flex flex-col gap-1 transition-all cursor-pointer ${translationMode === 'grok' ? 'bg-amber-500/5' : ''}`}
+                        >
+                          <div className="flex items-start gap-2 w-full">
+                            <div className="flex-shrink-0 w-6 h-6 rounded bg-black border border-white/10 flex items-center justify-center">
+                              <GrokIcon className="w-3.5 h-3.5 text-slate-200" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-slate-200">Grok Imagine</span>
+                                <span className="text-[9px] font-bold text-amber-500 flex items-center gap-0.5">
+                                  <BoltIcon />
+                                  8 Xu
+                                </span>
+                              </div>
+                              <p className="text-[8px] text-slate-400 leading-normal truncate">
+                                Mô hình Grok mới nhất
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* OpenAI GPT */}
+                        <div className={`w-full text-left p-1.5 rounded-lg flex flex-col gap-1 transition-all ${translationMode === 'studio' && studioSubModel === 'gpt-image-2-image-to-image' ? 'bg-amber-500/5' : ''}`}>
+                          <div
+                            onClick={() => {
+                              setTranslationMode('studio');
+                              setStudioSubModel('gpt-image-2-image-to-image');
+                            }}
+                            className="flex items-start gap-2 w-full cursor-pointer hover:bg-white/5 p-1 rounded"
+                          >
+                            <div className="flex-shrink-0 w-6 h-6 rounded bg-[#10a37f] border border-white/10 flex items-center justify-center">
+                              <OpenaiIcon className="w-3.5 h-3.5 text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-slate-200">GPT Image 2</span>
+                                <span className="text-[9px] font-bold text-amber-500 flex items-center gap-0.5">
+                                  <BoltIcon />
+                                  {getKieCost('gpt-image-2-image-to-image', kieResolution)} Xu
+                                </span>
+                              </div>
+                              <p className="text-[8px] text-slate-400 leading-normal truncate">
+                                OpenAI image-to-image
+                              </p>
+                            </div>
+                          </div>
+                          {showAdvancedModels && translationMode === 'studio' && studioSubModel === 'gpt-image-2-image-to-image' && (
+                            <div className="flex flex-col gap-1 pl-8 mt-1 select-none">
+                              <span className="text-[7.5px] font-semibold text-slate-500 uppercase tracking-wider">Độ phân giải:</span>
+                              <div className="flex gap-1.5">
+                                {(['1K', '2K'] as const).map((res) => {
+                                  const addon = res === '1K' ? '+0' : '+3';
+                                  return (
+                                    <button
+                                      key={res}
+                                      type="button"
+                                      onClick={() => {
+                                        setKieResolution(res);
+                                      }}
+                                      className={`text-[8px] px-1.5 py-0.5 rounded transition-all font-black cursor-pointer ${
+                                        kieResolution === res
+                                          ? 'bg-amber-500/20 text-amber-400'
+                                          : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                                      }`}
+                                    >
+                                      {res} ({addon} Xu)
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Nano Banana */}
+                        <div className={`w-full text-left p-1.5 rounded-lg flex flex-col gap-1 transition-all ${translationMode === 'studio' && studioSubModel !== 'gpt-image-2-image-to-image' ? 'bg-amber-500/5' : ''}`}>
+                          <div
+                            onClick={() => {
+                              setTranslationMode('studio');
+                              if (studioSubModel === 'gpt-image-2-image-to-image') {
+                                setStudioSubModel('nano-banana-2');
+                              }
+                            }}
+                            className="flex items-start gap-2 w-full cursor-pointer hover:bg-white/5 p-1 rounded"
+                          >
+                            <div className="flex-shrink-0 w-6 h-6 rounded border border-white/10 flex items-center justify-center overflow-hidden">
+                              <img src="/nanobanana.webp" className="w-full h-full object-cover" alt="Studio" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-slate-200">Nano Banana</span>
+                                <span className="text-[9px] font-bold text-amber-500 flex items-center gap-0.5">
+                                  <BoltIcon />
+                                  {getKieCost(studioSubModel, kieResolution)} Xu
+                                </span>
+                              </div>
+                              <p className="text-[8px] text-slate-400 leading-normal truncate">
+                                Dịch ảnh giữ chi tiết gốc
+                              </p>
+                            </div>
+                          </div>
+                          {showAdvancedModels && translationMode === 'studio' && studioSubModel !== 'gpt-image-2-image-to-image' && (
+                            <>
+                              <div className="flex flex-col gap-1 pl-8 mt-1 select-none">
+                                <span className="text-[7.5px] font-semibold text-slate-500 uppercase tracking-wider">Mô hình:</span>
+                                <div className="flex flex-col gap-0.5">
+                                  {[
+                                    { id: 'google/nano-banana-edit', name: 'nano banana v1', cost: 8 },
+                                    { id: 'nano-banana-2', name: 'nano banana v2', cost: 10 },
+                                    { id: 'nano-banana-pro', name: 'nano banana v2 pro', cost: 15 }
+                                  ].map((m) => (
+                                    <button
+                                      key={m.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setStudioSubModel(m.id as any);
+                                      }}
+                                      className={`w-full text-left text-[8px] px-1.5 py-0.5 rounded transition-all font-black cursor-pointer ${
+                                        studioSubModel === m.id
+                                          ? 'bg-amber-500/20 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                                          : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                                      }`}
+                                    >
+                                      {m.name} - {m.cost} Xu
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="flex flex-col gap-1 pl-8 mt-1 select-none">
+                                <span className="text-[7.5px] font-semibold text-slate-500 uppercase tracking-wider">Độ phân giải:</span>
+                                <div className="flex gap-1.5">
+                                  {(['1K', '2K'] as const).map((res) => {
+                                    const addon = res === '1K' ? '+0' : '+3';
+                                    return (
+                                      <button
+                                        key={res}
+                                        type="button"
+                                        onClick={() => {
+                                          setKieResolution(res);
+                                        }}
+                                        className={`text-[8px] px-1.5 py-0.5 rounded transition-all font-black cursor-pointer ${
+                                          kieResolution === res
+                                            ? 'bg-amber-500/20 text-amber-400'
+                                            : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                                        }`}
+                                      >
+                                        {res} ({addon} Xu)
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <input
                     type="text"
                     className="flex-1 px-3 py-2 bg-black/40 border border-white/10 rounded-xl text-white text-xs font-medium placeholder-white/30 focus:outline-none focus:border-primary/50"
