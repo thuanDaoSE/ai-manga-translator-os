@@ -40,7 +40,7 @@ interface ProjectState {
 
   undoUrl: () => void;
   redoUrl: () => void;
-  removePage: (index: number) => Promise<void>;
+  removePage: (index: number, silent?: boolean) => Promise<void>;
 
   setProjectId: (id: string) => void;
   clearProject: () => void;
@@ -197,7 +197,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       };
     }),
 
-  removePage: async (indexToRemove) => {
+  removePage: async (indexToRemove, silent = false) => {
     const currentState = useProjectStore.getState();
     const pageId = currentState.pageIds[indexToRemove];
 
@@ -207,7 +207,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
         await mangaApi.deletePage(pageId);
       } catch (err) {
         console.error("Lỗi xóa trang:", err);
-        toast.error("Lỗi xóa trang. Vui lòng thử lại sau.");
+        if (!silent) toast.error("Lỗi xóa trang. Vui lòng thử lại sau.");
       }
     }
 
@@ -245,7 +245,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
       } else if (state.currentIndex > indexToRemove) {
         newCurrentIndex--;
       }
-      toast.success("Đã xóa trang và giải phóng bộ nhớ máy chủ!");
+      if (!silent) {
+        toast.success("Đã xóa trang và giải phóng bộ nhớ máy chủ!");
+      }
       return {
         fileQueue: newQueue, processedUrls: newProcessed, pageStatuses: newStatuses,
         progresses: newProgresses, pageIds: newPageIds, retryCounts: newRetryCounts, pastUrls: newPast, futureUrls: newFuture,

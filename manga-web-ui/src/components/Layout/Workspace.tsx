@@ -38,6 +38,11 @@ const dataURLtoBlob = (dataurl: string) => {
   return new Blob([u8arr], { type: mime });
 };
 
+function getPageGroupKey(filename: string): string {
+  const match = filename.match(/^(.*)_part_\d+\.[^.]+$/i);
+  return match ? match[1] : filename.split('.')[0] || filename;
+}
+
 
 const BoltIcon = () => (
   <svg className="w-3.5 h-3.5 text-amber-500 fill-current inline-block align-middle" viewBox="-11 0 32 32" xmlns="http://www.w3.org/2000/svg">
@@ -66,6 +71,19 @@ export default function Workspace() {
   const [showPaywall, setShowPaywall] = useState(false);
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
+  const activeFile = fileQueue[currentIndex];
+  const activeGroupKey = activeFile ? getPageGroupKey(activeFile.name) : "";
+  const activeGroupPages = fileQueue
+    .map((file, idx) => ({ file, idx }))
+    .filter(({ file }) => getPageGroupKey(file.name) === activeGroupKey)
+    .sort((a, b) => {
+      const matchA = a.file.name.match(/_part_(\d+)/i);
+      const matchB = b.file.name.match(/_part_(\d+)/i);
+      if (matchA && matchB) {
+        return parseInt(matchA[1], 10) - parseInt(matchB[1], 10);
+      }
+      return a.file.name.localeCompare(b.file.name);
+    });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isEraseProcessingRef = useRef(false);
@@ -738,6 +756,15 @@ export default function Workspace() {
     setIsRedrawSessionActive(isActive);
   }, [currentIndex, pageId, setIsRedrawSessionActive]);
 
+  // 🚀 TỰ ĐỘNG CHUYỂN SANG BẢN CUỘN WEBTOON NẾU PHÁT HIỆN HƠN 1 PHẦN CẮT
+  useEffect(() => {
+    if (activeGroupPages.length > 1) {
+      if (viewLayout !== 'webtoon') {
+        setViewLayout('webtoon');
+      }
+    }
+  }, [activeGroupPages.length, viewLayout, setViewLayout]);
+
   // Đăng ký các handler vẽ lại lên store để sidebar gọi được
   useEffect(() => {
     useToolStore.getState().setRedrawHandlers(
@@ -1190,7 +1217,7 @@ export default function Workspace() {
 
       // Call API with originalImageHash to prevent hash mismatch
       const originalImageHash = pageId || fileName || "default";
-      const newUrl = await mangaApi.redrawMask(targetUrl, maskBase64, positivePrompt, pageId, negativePrompt, originalImageHash);
+      const { newUrl, updatedPages } = await mangaApi.redrawMask(targetUrl, maskBase64, positivePrompt, pageId, negativePrompt, originalImageHash);
 
       // Save history and set image in editor store
       useMangaEditorStore.getState().saveHistory();
@@ -1198,6 +1225,21 @@ export default function Workspace() {
 
       // Sync stored URL with projectStore
       projectStore.setProcessedUrl(currentIndex, newUrl);
+
+      // Sync all other boundary-stitched updated pages
+      if (updatedPages) {
+        Object.entries(updatedPages).forEach(([pid, purl]) => {
+          const idxStr = Object.keys(projectStore.pageIds).find(
+            (k) => projectStore.pageIds[Number(k)] === pid
+          );
+          if (idxStr !== undefined) {
+            const idx = Number(idxStr);
+            if (idx !== currentIndex) {
+              projectStore.setProcessedUrl(idx, purl as string);
+            }
+          }
+        });
+      }
 
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       toast.success("Vẽ lại vùng chọn bằng AI thành công!");
@@ -1364,7 +1406,8 @@ export default function Workspace() {
           >
             {viewLayout === 'webtoon' ? (
               <div className="flex flex-col gap-0 m-0 p-0" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto' }}>
-                {fileQueue.map((file, idx) => {
+
+                {activeGroupPages.map(({ file, idx }) => {
                   if (idx === currentIndex) {
                     return (
                       <div key={idx} className="relative m-0 p-0 animate-fade-in" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', height: imgSize.h > 0 ? `${imgSize.h}px` : 'auto' }}>
@@ -1385,6 +1428,8 @@ export default function Workspace() {
                       <WebtoonImage
                         key={idx}
                         file={file}
+                        pageId={projectStore.pageIds[idx]}
+                        projectId={projectStore.projectId || undefined}
                         processedUrl={processedUrls[idx]}
                         onClick={() => setCurrentIndex(idx)}
                         width={imgSize.w}
@@ -1393,7 +1438,20 @@ export default function Workspace() {
                   }
                 })}
               </div>
-            </div>
+            ) : (
+              <>
+                <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none ph-no-capture" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined, imageRendering: 'pixelated' }} />
+                <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
+                <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
+                  <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
+                  <VisualGuideOverlay />
+                  <div className={`absolute inset-0 w-full h-full transition-opacity duration-200 ${showText ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                    <MangaTextEngine imgWidth={imgSize.w} imgHeight={imgSize.h} />
+                    {showText && <FloatingTextToolbar />}
+                  </div>
+                </div>
+              </>
+            )}
             {/* 🏁 Pixel Grid Overlay for Zoom level >= 8x (Photoshop style) */}
             {currentZoom >= 8 && (
               <div
@@ -1409,7 +1467,7 @@ export default function Workspace() {
                 }}
               />
             )}
-            </div>
+          </div>
         )}
       </div>
 
@@ -1424,7 +1482,7 @@ export default function Workspace() {
       )}
 
       {/* 🚀 BẢN VÁ UX 2: HIỆU ỨNG LOADING MƯỢT MÀ KHI CHUYỂN TRANG */}
-      {fileQueue.length > 0 && !displayUrl && (
+      {fileQueue.length > 0 && !displayUrl && viewLayout !== 'webtoon' && (
         <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center z-10 bg-[#121212]">
           <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin shadow-[0_0_15px_rgba(99,102,241,0.5)]"></div>
           <p className="text-text-muted text-[13px] mt-4 font-semibold tracking-widest uppercase animate-pulse">
@@ -1440,6 +1498,7 @@ export default function Workspace() {
       {displayUrl && (
         <>
           <FloatingCanvasToolbar />
+
 
           {actionPosition && activeMode === 'erase' && (
             <>
@@ -1961,7 +2020,21 @@ const BetaTosModal: React.FC<BetaTosModalProps> = ({ isOpen, onClose, onAgree, t
 };
 
 // 🚀 LIGHTWEIGHT WEBTOON IMAGE COMPONENT FOR INACTIVE PAGES
-const WebtoonImage = ({ file, processedUrl, onClick, width }: { file: File; processedUrl?: string; onClick: () => void; width: number }) => {
+const WebtoonImage = ({ 
+  file, 
+  pageId, 
+  projectId, 
+  processedUrl, 
+  onClick, 
+  width 
+}: { 
+  file: File; 
+  pageId?: string; 
+  projectId?: string; 
+  processedUrl?: string; 
+  onClick: () => void; 
+  width: number; 
+}) => {
   const [url, setUrl] = useState<string>('');
   
   useEffect(() => {
@@ -1969,25 +2042,32 @@ const WebtoonImage = ({ file, processedUrl, onClick, width }: { file: File; proc
       setUrl(processedUrl);
       return;
     }
+
+    if (file.size === 0 && pageId && projectId) {
+      const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
+      const backendUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectId}/raw/${pageId}.${ext}`;
+      setUrl(backendUrl);
+      return;
+    }
+
     const u = URL.createObjectURL(file);
     setUrl(u);
     return () => URL.revokeObjectURL(u);
-  }, [file, processedUrl]);
+  }, [file, pageId, projectId, processedUrl]);
 
   return (
     <div 
       onClick={onClick} 
-      className="relative cursor-pointer pointer-events-auto m-0 p-0 block border-b border-white/[0.03] transition-all hover:brightness-[1.03]" 
+      className="relative cursor-pointer pointer-events-auto m-0 p-0 block outline-none" 
       style={{ width: width > 0 ? `${width}px` : '100%', outline: 'none' }}
     >
       <img 
         src={url || undefined} 
         crossOrigin="anonymous"
+        loading="lazy"
         className="block w-full h-auto select-none pointer-events-none m-0 p-0" 
         alt={file.name} 
       />
     </div>
   );
 };
-
-

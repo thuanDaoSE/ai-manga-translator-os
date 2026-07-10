@@ -22,6 +22,10 @@ import { exportTranslationToText } from "../Editor/ExportTextButton";
 import { mangaApi } from "../../services/api";
 import { PaywallDrawer } from "../Modals/PaywallDrawer";
 import SupportModal from "../Modals/SupportModal";
+function getPageGroupKey(filename: string): string {
+  const match = filename.match(/^(.*)_part_\d+\.[^.]+$/i);
+  return match ? match[1] : filename.split('.')[0] || filename;
+}
 import DeepKomaLogo from "../ui/DeepKomaLogo";
 
 const GpuIcon = ({ size = 14, className = "" }: { size?: number; className?: string }) => (
@@ -44,6 +48,21 @@ export default function Topbar() {
   const { isComparing, setIsComparing, showLeftPanel, toggleLeftPanel, viewLayout, setViewLayout } = useToolStore();
   const { user, signOut } = useAuthStore();
   const projectStore = useProjectStore();
+  const { fileQueue, currentIndex } = projectStore;
+  const activeFile = fileQueue[currentIndex];
+  const activeGroupKey = activeFile ? getPageGroupKey(activeFile.name) : "";
+  const activeGroupPages = fileQueue
+    .map((file, idx) => ({ file, idx }))
+    .filter(({ file }) => getPageGroupKey(file.name) === activeGroupKey)
+    .sort((a, b) => {
+      const matchA = a.file.name.match(/_part_(\d+)/i);
+      const matchB = b.file.name.match(/_part_(\d+)/i);
+      if (matchA && matchB) {
+        return parseInt(matchA[1], 10) - parseInt(matchB[1], 10);
+      }
+      return a.file.name.localeCompare(b.file.name);
+    });
+  const isSlicedWebtoon = activeGroupPages.length > 1;
 
   const storeProjectName = (projectStore as any).projectName || "";
   const [localProjectName, setLocalProjectName] = useState(storeProjectName);
@@ -180,18 +199,7 @@ export default function Topbar() {
     setIsExportMenuOpen(false);
     const loadId = toast.loading("Đang xuất ảnh JPG...");
     try {
-      // Lấy ảnh display (clean/processed)
-      const projectStore = useProjectStore.getState();
-      const idx = projectStore.currentIndex;
-      const pageId = projectStore.pageIds[idx];
-      const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
-      const serverRawUrl = pageId
-        ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
-        : null;
-      const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
-      if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
-
-      // Tải ảnh chính vào Image
+      // Helper to load image
       const loadImg = (src: string): Promise<HTMLImageElement> =>
         new Promise((res, rej) => {
           const img = new Image();
@@ -201,38 +209,94 @@ export default function Topbar() {
           img.src = src;
         });
 
-      const baseImg = await loadImg(displayUrl);
-      const w = baseImg.naturalWidth;
-      const h = baseImg.naturalHeight;
+      if (isSlicedWebtoon) {
+        // Resolve URLs for all active group slices
+        const pageUrls = activeGroupPages.map(({ file, idx }) => {
+          const pageId = projectStore.pageIds[idx];
+          const fileExt = file.name.split('.').pop() || 'jpg';
+          const serverRawUrl = pageId
+            ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+            : null;
+          return projectStore.processedUrls?.[idx] || serverRawUrl;
+        });
 
-      // Tạo canvas tổng hợp
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = w;
-      exportCanvas.height = h;
-      const ctx = exportCanvas.getContext('2d')!;
+        if (pageUrls.some(u => !u)) throw new Error("Có trang chưa tải xong, vui lòng thử lại.");
 
-      // Layer 1: vẽ ảnh nền
-      ctx.drawImage(baseImg, 0, 0, w, h);
+        // Load all slice images asynchronously
+        const imgs = await Promise.all(pageUrls.map(url => loadImg(url!)));
+        
+        // Calculate stitched dimensions
+        const w = Math.max(...imgs.map(img => img.naturalWidth));
+        const totalH = imgs.reduce((sum, img) => sum + img.naturalHeight, 0);
 
-      // Layer 2: vẽ Fabric canvas (text layer) nếu có
-      const fabricCanvasEl = document.querySelector('#workspace-container canvas.lower-canvas') as HTMLCanvasElement
-        || document.querySelector('#workspace-container canvas') as HTMLCanvasElement;
-      if (fabricCanvasEl) {
-        ctx.drawImage(fabricCanvasEl, 0, 0, w, h);
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = w;
+        exportCanvas.height = totalH;
+        const ctx = exportCanvas.getContext('2d')!;
+
+        // Draw each slice at its vertical offset
+        let currentY = 0;
+        imgs.forEach((img, sliceIdx) => {
+          const sliceH = img.naturalHeight;
+          ctx.drawImage(img, 0, currentY, w, sliceH);
+
+          // If this slice is the active page, also overlay the fabric canvas (translated text layer)
+          if (activeGroupPages[sliceIdx].idx === projectStore.currentIndex) {
+            const fabricCanvasEl = document.querySelector('#workspace-container canvas.lower-canvas') as HTMLCanvasElement
+              || document.querySelector('#workspace-container canvas') as HTMLCanvasElement;
+            if (fabricCanvasEl) {
+              ctx.drawImage(fabricCanvasEl, 0, currentY, w, sliceH);
+            }
+          }
+          currentY += sliceH;
+        });
+
+        // Export stitched JPEG
+        exportCanvas.toBlob((blob) => {
+          if (!blob) throw new Error('Không tạo được file ảnh.');
+          saveAs(blob, `deepkoma-${Date.now()}.jpg`);
+          toast.success('Xuất ảnh thành công!', { id: loadId });
+          setIsExporting(false);
+        }, 'image/jpeg', 0.95);
+
+      } else {
+        // Standard single page export
+        const idx = projectStore.currentIndex;
+        const pageId = projectStore.pageIds[idx];
+        const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
+        const serverRawUrl = pageId
+          ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+          : null;
+        const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
+        if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
+
+        const baseImg = await loadImg(displayUrl);
+        const w = baseImg.naturalWidth;
+        const h = baseImg.naturalHeight;
+
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = w;
+        exportCanvas.height = h;
+        const ctx = exportCanvas.getContext('2d')!;
+
+        ctx.drawImage(baseImg, 0, 0, w, h);
+
+        const fabricCanvasEl = document.querySelector('#workspace-container canvas.lower-canvas') as HTMLCanvasElement
+          || document.querySelector('#workspace-container canvas') as HTMLCanvasElement;
+        if (fabricCanvasEl) {
+          ctx.drawImage(fabricCanvasEl, 0, 0, w, h);
+        }
+
+        exportCanvas.toBlob((blob) => {
+          if (!blob) throw new Error('Không tạo được file ảnh.');
+          saveAs(blob, `deepkoma-${Date.now()}.jpg`);
+          toast.success('Xuất ảnh thành công!', { id: loadId });
+          setIsExporting(false);
+        }, 'image/jpeg', 0.95);
       }
-
-      // Xuất JPEG
-      exportCanvas.toBlob((blob) => {
-        if (!blob) throw new Error('Không tạo được file ảnh.');
-        saveAs(blob, `deepkoma-${Date.now()}.jpg`);
-        toast.success('Xuất ảnh thành công!', { id: loadId });
-        setIsExporting(false);
-      }, 'image/jpeg', 0.95);
-      return; // early return, setIsExporting handled inside toBlob
+      return;
     } catch (e: any) {
       toast.error(e.message || 'Lỗi khi xuất ảnh!', { id: loadId });
-    } finally {
-      // chỉ set false nếu chưa được set bởi toBlob
     }
     setIsExporting(false);
   };
@@ -245,15 +309,6 @@ export default function Topbar() {
     const loadId = toast.loading("Đang xuất ảnh Clean...");
 
     try {
-      const pageId = projectStore.pageIds[idx];
-      const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
-      const serverRawUrl = pageId
-        ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
-        : null;
-      const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
-      if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
-
-      // Tải ảnh chính vào Image
       const loadImg = (src: string): Promise<HTMLImageElement> =>
         new Promise((res, rej) => {
           const img = new Image();
@@ -263,26 +318,75 @@ export default function Topbar() {
           img.src = src;
         });
 
-      const baseImg = await loadImg(displayUrl);
-      const w = baseImg.naturalWidth;
-      const h = baseImg.naturalHeight;
+      if (isSlicedWebtoon) {
+        // Resolve URLs for all active group slices
+        const pageUrls = activeGroupPages.map(({ file, idx }) => {
+          const pageId = projectStore.pageIds[idx];
+          const fileExt = file.name.split('.').pop() || 'jpg';
+          const serverRawUrl = pageId
+            ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+            : null;
+          return projectStore.processedUrls?.[idx] || serverRawUrl;
+        });
 
-      // Tạo canvas tổng hợp
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = w;
-      exportCanvas.height = h;
-      const ctx = exportCanvas.getContext('2d')!;
+        if (pageUrls.some(u => !u)) throw new Error("Có trang chưa tải xong, vui lòng thử lại.");
 
-      // Chỉ vẽ ảnh nền (đây là ảnh đã inpaint/sạch chữ)
-      ctx.drawImage(baseImg, 0, 0, w, h);
+        // Load all slice images asynchronously
+        const imgs = await Promise.all(pageUrls.map(url => loadImg(url!)));
+        
+        // Calculate stitched dimensions
+        const w = Math.max(...imgs.map(img => img.naturalWidth));
+        const totalH = imgs.reduce((sum, img) => sum + img.naturalHeight, 0);
 
-      // Xuất JPEG
-      exportCanvas.toBlob((blob) => {
-        if (!blob) throw new Error('Không tạo được file ảnh.');
-        saveAs(blob, `deepkoma-clean-${Date.now()}.jpg`);
-        toast.success('Xuất ảnh sạch thành công!', { id: loadId });
-        setIsExporting(false);
-      }, 'image/jpeg', 0.95);
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = w;
+        exportCanvas.height = totalH;
+        const ctx = exportCanvas.getContext('2d')!;
+
+        // Draw each slice at its vertical offset
+        let currentY = 0;
+        imgs.forEach((img) => {
+          const sliceH = img.naturalHeight;
+          ctx.drawImage(img, 0, currentY, w, sliceH);
+          currentY += sliceH;
+        });
+
+        // Export clean stitched JPEG
+        exportCanvas.toBlob((blob) => {
+          if (!blob) throw new Error('Không tạo được file ảnh.');
+          saveAs(blob, `deepkoma-clean-${Date.now()}.jpg`);
+          toast.success('Xuất ảnh sạch thành công!', { id: loadId });
+          setIsExporting(false);
+        }, 'image/jpeg', 0.95);
+
+      } else {
+        // Standard single page clean export
+        const pageId = projectStore.pageIds[idx];
+        const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
+        const serverRawUrl = pageId
+          ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+          : null;
+        const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
+        if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
+
+        const baseImg = await loadImg(displayUrl);
+        const w = baseImg.naturalWidth;
+        const h = baseImg.naturalHeight;
+
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = w;
+        exportCanvas.height = h;
+        const ctx = exportCanvas.getContext('2d')!;
+
+        ctx.drawImage(baseImg, 0, 0, w, h);
+
+        exportCanvas.toBlob((blob) => {
+          if (!blob) throw new Error('Không tạo được file ảnh.');
+          saveAs(blob, `deepkoma-clean-${Date.now()}.jpg`);
+          toast.success('Xuất ảnh sạch thành công!', { id: loadId });
+          setIsExporting(false);
+        }, 'image/jpeg', 0.95);
+      }
       return;
     } catch (e: any) {
       toast.error(e.message || 'Lỗi khi xuất ảnh!', { id: loadId });
@@ -346,14 +450,16 @@ export default function Topbar() {
       {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa) */}
       <div className="flex items-center justify-center flex-1 gap-4">
         {/* Toggle Page/Webtoon View Mode */}
-        <div className="flex items-center bg-background p-1 rounded-lg border border-border shadow-inner">
-          <button onClick={() => setViewLayout('page')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${viewLayout === 'page' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>
-            Từng trang
-          </button>
-          <button onClick={() => setViewLayout('webtoon')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${viewLayout === 'webtoon' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>
-            Cuộn dọc (Webtoon)
-          </button>
-        </div>
+        {!isSlicedWebtoon && (
+          <div className="flex items-center bg-background p-1 rounded-lg border border-border shadow-inner">
+            <button onClick={() => setViewLayout('page')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${viewLayout === 'page' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>
+              Từng trang
+            </button>
+            <button onClick={() => setViewLayout('webtoon')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${viewLayout === 'webtoon' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>
+              Cuộn dọc (Webtoon)
+            </button>
+          </div>
+        )}
 
         {/* Toggle Raw/Clean View Mode */}
         <div className="flex items-center bg-[#18181b] border border-white/[0.04] p-1 rounded-lg">

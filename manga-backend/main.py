@@ -2275,9 +2275,122 @@ async def redraw_image(
         else:
             raise HTTPException(status_code=400, detail="Vui lòng cung cấp mask_base64 hoặc mask_url")
 
-        # Read input image bytes
-        with open(img_path, "rb") as f:
-            img_bytes = f.read()
+        # 🚀 KIỂM TRA VÀ XỬ LÝ VẼ ĐÈ QUA BIÊN GIỚI (STITCHING & SPLITTING)
+        import io
+        import re
+        page = None
+        top_neighbor = None
+        bottom_neighbor = None
+        is_stitched_mode = False
+        heights = []
+        pages_to_stitch = []
+
+        if req.page_id:
+            page_res = await db.execute(select(models.Page).where(models.Page.id == req.page_id))
+            page = page_res.scalars().first()
+
+        if page and "_part_" in page.filename:
+            # Query all pages in the same project
+            res_pages = await db.execute(
+                select(models.Page).where(models.Page.project_id == page.project_id)
+            )
+            all_pages = res_pages.scalars().all()
+            
+            # Helper to get part number from filename
+            def get_part_num(name):
+                m = re.search(r"_part_(\d+)", name)
+                return int(m.group(1)) if m else -1
+            
+            # Filter pages with same group prefix
+            match_prefix = re.match(r"^(.*)_part_\d+\.[^.]+$", page.filename)
+            if match_prefix:
+                group_prefix = match_prefix.group(1)
+                group_pages = [p for p in all_pages if p.filename.startswith(group_prefix + "_part_")]
+                # Sort group pages by part number
+                group_pages.sort(key=lambda p: get_part_num(p.filename))
+                
+                try:
+                    curr_idx = [p.id for p in group_pages].index(page.id)
+                    if curr_idx > 0:
+                        top_neighbor = group_pages[curr_idx - 1]
+                    if curr_idx < len(group_pages) - 1:
+                        bottom_neighbor = group_pages[curr_idx + 1]
+                except ValueError:
+                    pass
+
+        # Detect mask border touches using PIL
+        mask_image = Image.open(io.BytesIO(mask_bytes)).convert("RGBA")
+        width, height = mask_image.size
+        mask_data = mask_image.load()
+        
+        touches_top = False
+        touches_bottom = False
+        
+        # Check top 8 rows
+        for y in range(min(8, height)):
+            for x in range(width):
+                if mask_data[x, y][3] > 0:
+                    touches_top = True
+                    break
+            if touches_top:
+                break
+                
+        # Check bottom 8 rows
+        for y in range(max(0, height - 8), height):
+            for x in range(width):
+                if mask_data[x, y][3] > 0:
+                    touches_bottom = True
+                    break
+            if touches_bottom:
+                break
+
+        # Setup pages to stitch
+        if touches_top and top_neighbor:
+            pages_to_stitch.append(top_neighbor)
+        if page:
+            pages_to_stitch.append(page)
+        if touches_bottom and bottom_neighbor:
+            pages_to_stitch.append(bottom_neighbor)
+
+        # Check if stitching is actually needed
+        if len(pages_to_stitch) > 1 and page:
+            is_stitched_mode = True
+            
+            def get_page_image_path(p):
+                if p.clean_url:
+                    local_clean = get_local_path_from_url(p.clean_url)
+                    if os.path.exists(local_clean):
+                        return local_clean
+                return get_local_path_from_url(p.raw_url)
+                
+            pil_images = [Image.open(get_page_image_path(p)).convert("RGB") for p in pages_to_stitch]
+            stitch_w = max(img.width for img in pil_images)
+            stitch_h = sum(img.height for img in pil_images)
+            
+            stitched_img = Image.new("RGB", (stitch_w, stitch_h))
+            curr_y = 0
+            for img in pil_images:
+                stitched_img.paste(img, (0, curr_y))
+                heights.append(img.height)
+                curr_y += img.height
+                
+            stitched_mask = Image.new("RGBA", (stitch_w, stitch_h), (0, 0, 0, 0))
+            curr_page_idx = pages_to_stitch.index(page)
+            y_offset = sum(heights[:curr_page_idx])
+            stitched_mask.paste(mask_image, (0, y_offset))
+            
+            # Save to bytes
+            img_byte_arr = io.BytesIO()
+            stitched_img.save(img_byte_arr, format="JPEG", quality=95)
+            img_bytes = img_byte_arr.getvalue()
+            
+            mask_byte_arr = io.BytesIO()
+            stitched_mask.save(mask_byte_arr, format="PNG")
+            mask_bytes = mask_byte_arr.getvalue()
+        else:
+            # Read input image bytes
+            with open(img_path, "rb") as f:
+                img_bytes = f.read()
 
         ext = os.path.splitext(img_path)[1].lower()
         content_type = "image/png"
@@ -2358,9 +2471,44 @@ async def redraw_image(
             result_bytes = download_res.content
 
         # Save result locally
-        os.makedirs(os.path.dirname(clean_path), exist_ok=True)
-        with open(clean_path, "wb") as f:
-            f.write(result_bytes)
+        updated_pages = {}
+        base_url = str(request.base_url).rstrip('/')
+        forwarded_proto = request.headers.get("x-forwarded-proto") or request.headers.get("X-Forwarded-Proto")
+        if "deepkoma.pro" in base_url or forwarded_proto == "https":
+            if base_url.startswith("http://"):
+                base_url = "https://" + base_url[7:]
+
+        if is_stitched_mode:
+            # Split result back into parts
+            result_img = Image.open(io.BytesIO(result_bytes))
+            curr_y = 0
+            for i, p in enumerate(pages_to_stitch):
+                h = heights[i]
+                part_img = result_img.crop((0, curr_y, result_img.width, curr_y + h))
+                curr_y += h
+                
+                p_clean_path = get_local_path_from_url(p.raw_url).replace("/raw/", "/clean/")
+                if not p_clean_path.startswith("workspace/"):
+                    p_clean_path = f"workspace/{p_clean_path}"
+                os.makedirs(os.path.dirname(p_clean_path), exist_ok=True)
+                part_img.save(p_clean_path, format="JPEG", quality=95)
+                
+                p.clean_url = f"/{p_clean_path}"
+                p.status = "cleaned"
+                db.add(p)
+                
+                p_url = f"{base_url}/{p_clean_path}?t={int(time.time())}"
+                updated_pages[p.id] = p_url
+            
+            # Use current page's clean path as primary return path
+            page_clean_path = get_local_path_from_url(page.raw_url).replace("/raw/", "/clean/")
+            if not page_clean_path.startswith("workspace/"):
+                page_clean_path = f"workspace/{page_clean_path}"
+            clean_path = page_clean_path
+        else:
+            os.makedirs(os.path.dirname(clean_path), exist_ok=True)
+            with open(clean_path, "wb") as f:
+                f.write(result_bytes)
 
         # Deduct balance based on execution time
         execution_time_seconds = time.time() - redraw_start
@@ -2370,8 +2518,8 @@ async def redraw_image(
         description = f"Vẽ lại bằng AI (Redraw) - Target: {target_key}"
         user_obj = await deduct_balance(db, user_id, execution_time_seconds, description)
 
-        # 6. Đồng bộ DB nếu có page_id
-        if req.page_id:
+        # 6. Đồng bộ DB nếu có page_id và không phải stitched mode (stitched đã lưu ở trên)
+        if req.page_id and not is_stitched_mode:
             result = await db.execute(select(models.Page).where(models.Page.id == req.page_id))
             page = result.scalars().first()
             if page:
@@ -2380,11 +2528,6 @@ async def redraw_image(
 
         await db.commit()
 
-        base_url = str(request.base_url).rstrip('/')
-        forwarded_proto = request.headers.get("x-forwarded-proto") or request.headers.get("X-Forwarded-Proto")
-        if "deepkoma.pro" in base_url or forwarded_proto == "https":
-            if base_url.startswith("http://"):
-                base_url = "https://" + base_url[7:]
         new_url = f"{base_url}/{clean_path}?t={int(time.time())}"
 
         # Capture telemetry event in PostHog upon successful redraw completion
@@ -2406,7 +2549,13 @@ async def redraw_image(
 
         current_balance = user_obj.balance_seconds if user_obj else 0.0
 
-        return {"status": "success", "new_url": new_url, "balance_seconds": current_balance, "credits": current_balance}
+        return {
+            "status": "success", 
+            "new_url": new_url, 
+            "updated_pages": updated_pages, 
+            "balance_seconds": current_balance, 
+            "credits": current_balance
+        }
 
     except Exception as e:
         # Capture error/OOM in Sentry with extra context

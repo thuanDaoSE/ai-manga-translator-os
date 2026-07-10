@@ -271,7 +271,10 @@ export const mangaApi = {
     if (window.location.protocol === 'https:' && cleanUrl.startsWith('http://')) {
       cleanUrl = cleanUrl.replace('http://', 'https://');
     }
-    return `${cleanUrl}?t=${Date.now()}`;
+    return {
+      newUrl: `${cleanUrl}?t=${Date.now()}`,
+      updatedPages: data.updated_pages || {}
+    };
   },
 
   betaTranslate: async (imageBlob: Blob, maskBlob: Blob, tosAgreed: boolean) => {
@@ -471,6 +474,22 @@ export const mangaApi = {
     await handleApiError(response, "Lỗi tải lịch sử dùng xu");
     return await response.json();
   },
+  startGpuSession: async () => {
+    const response = await fetch(`${API_URL}/gpu-sessions/start`, {
+      method: "POST",
+      headers: await getAuthHeaders()
+    });
+    await handleApiError(response, "Lỗi khởi tạo phiên GPU");
+    return await response.json();
+  },
+  stopGpuSession: async () => {
+    const response = await fetch(`${API_URL}/gpu-sessions/stop`, {
+      method: "POST",
+      headers: await getAuthHeaders()
+    });
+    await handleApiError(response, "Lỗi dừng phiên GPU");
+    return await response.json();
+  },
 
   translatePageById: async (pageId: string, config: any) => {
     const response = await fetch(`${API_URL}/pages/${pageId}/translate`, {
@@ -483,6 +502,7 @@ export const mangaApi = {
         glossary: config.glossary,
         target_language: config.targetLanguage || "Tiếng Việt",
         source_language: config.sourceLanguage || config.source_language || "ja",
+        use_gpu: config.useGpu !== undefined ? config.useGpu : true,
         client_saw_hot: config.client_saw_hot || false
       }),
     });
@@ -517,6 +537,16 @@ export const mangaApi = {
       body: JSON.stringify({ amount }),
     });
     await handleApiError(response, "Lỗi tạo link thanh toán!");
+    return await response.json();
+  },
+
+  uploadCleanImage: async (path: string, blob: Blob) => {
+    const response = await fetch(`${API_URL}/upload-file?path=${encodeURIComponent(path)}`, {
+      method: "PUT",
+      headers: await getAuthHeaders(true),
+      body: blob
+    });
+    await handleApiError(response, "Lỗi upload ảnh sạch!");
     return await response.json();
   },
 

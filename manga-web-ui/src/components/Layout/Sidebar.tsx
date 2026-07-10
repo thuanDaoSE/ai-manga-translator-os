@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search } from 'lucide-react';
+import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Lock, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
@@ -15,11 +15,16 @@ import { mangaApi } from '../../services/api';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 
+export function getPageGroupKey(filename: string): string {
+  const match = filename.match(/^(.*)_part_\d+\.[^.]+$/i);
+  return match ? match[1] : filename.split('.')[0] || filename;
+}
+
 // =========================================
 // 1. COMPONENT CON: THẺ TRANG TRUYỆN (UI NÂNG CẤP)
 // =========================================
 function SortableItem({
-  id, file, isActive, status, displayImg, progress,
+  id, file, displayName, pagesCount, isActive, status, displayImg, progress,
   onClick, onTranslate, onDelete, onCancel, onRetry,
   isSelected, isSelectionMode, onToggleSelection, hasCleanUrl,
   isProcessing, disabled, retryCount
@@ -39,6 +44,7 @@ function SortableItem({
   });
 
   const { t } = useTranslation();
+  const useGpu = useConfigStore((state) => state.useGpu);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -104,8 +110,13 @@ function SortableItem({
             : 'pr-[80px]'
         }`}>
           <span className={`text-xs font-bold truncate block w-full ${isActive || isSelected ? 'text-primary' : status === 'error' ? 'text-danger' : 'text-text-main'}`}>
-            {file.name}
+            {displayName || file.name}
           </span>
+          {pagesCount > 1 && (
+            <span className="text-[9px] text-primary font-black uppercase mt-0.5 bg-primary/10 px-1.5 py-0.5 rounded-md inline-block w-fit">
+              Webtoon
+            </span>
+          )}
           
           {(status === 'unprocessed' || status === 'cleaned' || status === 'translating') && <span className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold uppercase truncate"><Clock size={12} /> {t('sidebar.waiting')}</span>}
           {status === 'waiting' && <span className="flex items-center gap-1.5 text-[10px] text-amber-500 font-bold uppercase truncate animate-pulse"><Clock size={12} /> {t('sidebar.waitingQueue')}</span>}
@@ -159,10 +170,25 @@ function SortableItem({
             {(status === 'unprocessed' || status === 'cleaned' || status === 'translating') && (
               <button
                 disabled={disabled}
-                onClick={(e) => { e.stopPropagation(); onTranslate(); }}
-                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (disabled) return;
+                  if (!useGpu) {
+                    useConfigStore.getState().setUseGpu(true);
+                    setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
+                    toast.success("Đã mở khóa GPU Premium ⚡");
+                    return;
+                  }
+                  onTranslate();
+                }}
+                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-white rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer 
+                  ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''} 
+                  ${useGpu 
+                    ? 'bg-primary hover:bg-primary-hover border border-purple-400/80 shadow-[0_0_10px_rgba(168,85,247,0.55)]' 
+                    : 'bg-neutral-800 hover:bg-neutral-700 text-text-muted border border-border/40 opacity-70 grayscale'
+                  }`}
               >
-                <Wand2 size={11} className="shrink-0" />
+                {useGpu ? <Wand2 size={11} className="shrink-0" /> : <Lock size={11} className="shrink-0" />}
                 <span>{t('canvas.translateAction', 'Dịch')}</span>
               </button>
             )}
@@ -170,18 +196,40 @@ function SortableItem({
             {status === 'error' && (
               <button
                 disabled={disabled || (hasCleanUrl && retryCount >= 3)}
-                onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }}
-                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${(disabled || (hasCleanUrl && retryCount >= 3)) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (disabled || (hasCleanUrl && retryCount >= 3)) return;
+                  if (!useGpu) {
+                    useConfigStore.getState().setUseGpu(true);
+                    setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
+                    toast.success("Đã mở khóa GPU Premium ⚡");
+                    return;
+                  }
+                  hasCleanUrl ? onRetry() : onTranslate();
+                }}
+                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-white rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer 
+                  ${(disabled || (hasCleanUrl && retryCount >= 3)) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}
+                  ${useGpu 
+                    ? 'bg-danger hover:bg-red-600 border border-purple-400/80 shadow-[0_0_10px_rgba(168,85,247,0.55)]' 
+                    : 'bg-neutral-800 hover:bg-neutral-700 text-text-muted border border-border/40 opacity-70 grayscale'
+                  }`}
               >
-                {hasCleanUrl ? (
-                  <>
-                    <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
-                    <span>Dịch lại</span>
-                  </>
+                {useGpu ? (
+                  hasCleanUrl ? (
+                    <>
+                      <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
+                      <span>Dịch lại</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw size={12} />
+                      <span>{t('sidebar.retrySingle')}</span>
+                    </>
+                  )
                 ) : (
                   <>
-                    <RefreshCw size={12} />
-                    <span>{t('sidebar.retrySingle')}</span>
+                    <Lock size={11} />
+                    <span>Dịch lại</span>
                   </>
                 )}
               </button>
@@ -191,11 +239,26 @@ function SortableItem({
               <div className="relative shrink-0">
                 <button 
                   disabled={disabled || retryCount >= 3}
-                  onClick={(e) => { e.stopPropagation(); onRetry(); }} 
-                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer ${(disabled || retryCount >= 3) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`} 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (disabled || retryCount >= 3) return;
+                    if (!useGpu) {
+                      useConfigStore.getState().setUseGpu(true);
+                      setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
+                      toast.success("Đã mở khóa GPU Premium ⚡");
+                      return;
+                    }
+                    onRetry();
+                  }} 
+                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer 
+                    ${(disabled || retryCount >= 3) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}
+                    ${useGpu 
+                      ? 'bg-background/95 backdrop-blur-md border border-purple-400/80 text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.45)]' 
+                      : 'bg-neutral-800/80 backdrop-blur-md border border-border/40 text-text-muted hover:bg-neutral-700 opacity-70'
+                    }`} 
                   title={t('sidebar.retranslate')}
                 >
-                  <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
+                  {useGpu ? <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} /> : <Lock size={11} />}
                   <span>Dịch lại</span>
                 </button>
               </div>
@@ -228,6 +291,7 @@ export default function Sidebar() {
   const { t } = useTranslation();
   const user = useAuthStore((state) => state.user);
   const currentCredits = user?.credits || 0;
+  const useGpu = useConfigStore((state) => state.useGpu);
 
   const modeCost = 1; // Chi phí dịch chạy ngầm Celery mặc định là 1 Xu/trang
 
@@ -402,8 +466,9 @@ export default function Sidebar() {
   };
 
   const processSinglePage = (pageIndex: number) => {
+    const configStore = useConfigStore.getState();
     const serverStatus = useServerStatusStore.getState().serverStatus;
-    if (serverStatus === 'STARTING') {
+    if (configStore.useGpu && serverStatus === 'STARTING') {
       toast.error("Vui lòng chờ GPU nổ máy...");
       return Promise.resolve();
     }
@@ -427,6 +492,7 @@ export default function Sidebar() {
           glossary: configStore.glossary,
           targetLanguage: configStore.targetLanguage || "Tiếng Việt",
           sourceLanguage: configStore.sourceLanguage || "ja",
+          useGpu: configStore.useGpu,
           client_saw_hot: serverStatus === 'HOT'
         });
 
@@ -472,8 +538,10 @@ export default function Sidebar() {
 
               if (taskData && taskData.result) {
                 const result = taskData.result;
-                const fullCleanUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${result.clean_url}?t=${Date.now()}`;
+                const cleanBaseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${result.clean_url}`;
+                const fullCleanUrl = `${cleanBaseUrl}?t=${Date.now()}`;
                 projectStore.setProcessedUrl(pageIndex, fullCleanUrl);
+                projectStore.setOriginalCleanUrl(pageIndex, cleanBaseUrl);
 
                 const toolState = useToolStore.getState();
 
@@ -781,14 +849,84 @@ export default function Sidebar() {
   // 🚀 FIX: TÌM ẢNH BẰNG UNIQUE ID MỚI TRÁNH CRASH KHI KÉO THẢ
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    if (over && active.id !== over.id) {
-      const oldItem = visibleFiles.find(f => f.uniqueId === active.id);
-      const newItem = visibleFiles.find(f => f.uniqueId === over.id);
+    if (!over || active.id === over.id) return;
 
-      if (oldItem && newItem) {
-        reorderFiles(oldItem.index, newItem.index);
+    const activeKey = active.id as string;
+    const overKey = over.id as string;
+
+    const activeGroup = groupedMap.get(activeKey);
+    const overGroup = groupedMap.get(overKey);
+    if (!activeGroup || !overGroup) return;
+
+    const activeIndices = activeGroup.pages.map(p => p.index);
+    const overIndices = overGroup.pages.map(p => p.index);
+
+    const allIndices = Array.from({ length: fileQueue.length }, (_, i) => i);
+    const remainingIndices = allIndices.filter(i => !activeIndices.includes(i));
+    
+    const overStartIdx = remainingIndices.indexOf(overIndices[0]);
+    const activeWasBefore = activeIndices[0] < overIndices[0];
+    const insertPos = activeWasBefore ? overStartIdx + overIndices.length : overStartIdx;
+
+    remainingIndices.splice(insertPos, 0, ...activeIndices);
+
+    // Update the Zustand store using setState
+    useProjectStore.setState((state) => {
+      const tempArr = state.fileQueue.map((f, i) => ({
+        file: f, url: state.processedUrls[i], status: state.pageStatuses[i],
+        progress: state.progresses[i], pageId: state.pageIds[i], retryCount: state.retryCounts[i],
+        past: state.pastUrls[i], future: state.futureUrls[i]
+      }));
+
+      const reorderedTemp = remainingIndices.map(oldIdx => tempArr[oldIdx]);
+
+      const newQueue = reorderedTemp.map(item => item.file);
+      const newProcessed: Record<number, string> = {};
+      const newStatuses: Record<number, any> = {};
+      const newProgresses: Record<number, any> = {};
+      const newPageIds: Record<number, string> = {};
+      const newRetryCounts: Record<number, number> = {};
+      const newPast: Record<number, string[]> = {};
+      const newFuture: Record<number, string[]> = {};
+
+      reorderedTemp.forEach((item, i) => {
+        if (item.url) newProcessed[i] = item.url;
+        if (item.status) newStatuses[i] = item.status;
+        if (item.progress) newProgresses[i] = item.progress;
+        if (item.pageId) newPageIds[i] = item.pageId;
+        if (item.retryCount !== undefined) newRetryCounts[i] = item.retryCount;
+        if (item.past) newPast[i] = item.past;
+        if (item.future) newFuture[i] = item.future;
+      });
+
+      let newCurrentIndex = state.currentIndex;
+      const oldActiveFile = state.fileQueue[state.currentIndex];
+      const oldActiveUniqueId = oldActiveFile
+        ? (state.pageIds[state.currentIndex] || `temp-${state.currentIndex}-${oldActiveFile.name}`)
+        : null;
+
+      if (oldActiveUniqueId) {
+        const foundIdx = reorderedTemp.findIndex((item, i) => {
+          const uid = item.pageId || `temp-${remainingIndices[i]}-${item.file.name}`;
+          return uid === oldActiveUniqueId;
+        });
+        if (foundIdx !== -1) {
+          newCurrentIndex = foundIdx;
+        }
       }
-    }
+
+      return {
+        fileQueue: newQueue,
+        processedUrls: newProcessed,
+        pageStatuses: newStatuses,
+        progresses: newProgresses,
+        pageIds: newPageIds,
+        retryCounts: newRetryCounts,
+        pastUrls: newPast,
+        futureUrls: newFuture,
+        currentIndex: newCurrentIndex
+      };
+    });
   };
 
   const handlePageClick = (index: number) => {
@@ -845,6 +983,20 @@ export default function Sidebar() {
     };
   }, [fileQueue, projectStore.processedUrls]);
 
+  // ── GROUPING DEFINITIONS ──
+  interface GroupedItem {
+    key: string;
+    displayName: string;
+    pages: {
+      file: File;
+      index: number;
+      uniqueId: string;
+    }[];
+  }
+
+  const groupedItems: GroupedItem[] = [];
+  const groupedMap = new Map<string, GroupedItem>();
+
   const allProjectFiles = fileQueue
     .map((file, index) => {
       const pageId = projectStore.pageIds[index];
@@ -857,12 +1009,24 @@ export default function Sidebar() {
     })
     .filter(({ uniqueId }) => !pendingDeletes.has(uniqueId));
 
-  const visibleFiles = allProjectFiles.filter(({ file }) => {
-    if (!searchQuery.trim()) return true;
-    return file.name.toLowerCase().includes(searchQuery.trim().toLowerCase());
+  allProjectFiles.forEach(({ file, index, uniqueId }) => {
+    const key = getPageGroupKey(file.name);
+    if (!groupedMap.has(key)) {
+      const ext = file.name.split('.').pop() || '';
+      const displayName = key.includes('.') ? key : `${key}.${ext}`;
+      const newItem: GroupedItem = { key, displayName, pages: [] };
+      groupedItems.push(newItem);
+      groupedMap.set(key, newItem);
+    }
+    groupedMap.get(key)!.pages.push({ file, index, uniqueId });
   });
 
-  const itemIds = visibleFiles.map(f => f.uniqueId);
+  const visibleGroups = groupedItems.filter(group => {
+    if (!searchQuery.trim()) return true;
+    return group.displayName.toLowerCase().includes(searchQuery.trim().toLowerCase());
+  });
+
+  const itemIds = visibleGroups.map(g => g.key);
 
   const totalPages = allProjectFiles.length;
   const completedPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'completed').length;
@@ -874,10 +1038,18 @@ export default function Sidebar() {
   const hasUnprocessed = allProjectFiles.some(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error');
   const isAnyProcessingOrWaiting = allProjectFiles.some(({ index }) => pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting');
 
-  const isAllVisibleSelected = visibleFiles.length > 0 && visibleFiles.every(f => selectedPages.has(f.uniqueId));
-  const isSomeVisibleSelected = visibleFiles.some(f => selectedPages.has(f.uniqueId)) && !isAllVisibleSelected;
+  const visibleFiles = visibleGroups.flatMap(g => g.pages);
+
+  const isAllVisibleSelected = visibleGroups.length > 0 && visibleGroups.every(g => g.pages.every(p => selectedPages.has(p.uniqueId)));
+  const isSomeVisibleSelected = visibleGroups.some(g => g.pages.some(p => selectedPages.has(p.uniqueId))) && !isAllVisibleSelected;
 
   const handleTranslateAll = async () => {
+    if (!useGpu) {
+      useConfigStore.getState().setUseGpu(true);
+      setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
+      toast.success("Đã mở khóa GPU Premium ⚡");
+      return;
+    }
     if (visibleFiles.length === 0) return;
 
     // Lọc ra các trang cần dịch
@@ -922,6 +1094,12 @@ export default function Sidebar() {
   };
 
   const handleTranslateSelected = async () => {
+    if (!useGpu) {
+      useConfigStore.getState().setUseGpu(true);
+      setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
+      toast.success("Đã mở khóa GPU Premium ⚡");
+      return;
+    }
     if (selectedPages.size === 0) return;
 
     // Lấy danh sách index của các trang đã chọn và chưa dịch / lỗi
@@ -952,6 +1130,107 @@ export default function Sidebar() {
       try { await processSinglePage(index); } catch (err) { console.error('Lỗi dịch selected:', index, err); } finally { runNext(); }
     };
     for (let i = 0; i < Math.min(limit, selectedIndexes.length); i++) { runNext(); }
+  };
+
+  const handleTranslateGroup = async (group: GroupedItem) => {
+    if (!useGpu) {
+      useConfigStore.getState().setUseGpu(true);
+      setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
+      toast.success("Đã mở khóa GPU Premium ⚡");
+      return;
+    }
+    const pendingIndexes = group.pages
+      .map(p => p.index)
+      .filter(idx => pageStatuses[idx] === 'unprocessed' || pageStatuses[idx] === 'cleaned' || pageStatuses[idx] === 'translating' || pageStatuses[idx] === 'error');
+    
+    if (pendingIndexes.length === 0) return;
+
+    if (currentCredits <= 0) {
+      toast.error("Tài khoản đã hết số dư thời gian! Vui lòng nạp thêm để tiếp tục.");
+      return;
+    }
+
+    pendingIndexes.forEach(idx => projectStore.setPageStatus(idx, 'waiting'));
+
+    const limit = 3;
+    let nextIdx = 0;
+    const runNext = async () => {
+      if (nextIdx >= pendingIndexes.length) return;
+      const idx = pendingIndexes[nextIdx++];
+      if (useProjectStore.getState().pageStatuses[idx] !== 'waiting') { runNext(); return; }
+      try { await processSinglePage(idx); } catch (err) { console.error('Lỗi dịch group:', idx, err); } finally { runNext(); }
+    };
+    for (let i = 0; i < Math.min(limit, pendingIndexes.length); i++) { runNext(); }
+  };
+
+  const handleDeleteGroup = async (group: GroupedItem) => {
+    if (group.pages.length === 1) {
+      handleDeletePage(group.pages[0].index);
+      return;
+    }
+    
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa Webtoon "${group.displayName}"?`)) return;
+    
+    const state = useProjectStore.getState();
+    const pagesToRemove = [...group.pages].sort((a, b) => b.index - a.index);
+    
+    const activePageInGroup = group.pages.find(p => p.index === state.currentIndex);
+    if (activePageInGroup) {
+      const nextIndex = state.fileQueue.findIndex((f, i) => {
+        const isPart = group.pages.some(p => p.index === i);
+        return !isPart;
+      });
+      projectStore.setCurrentIndex(nextIndex);
+    }
+    
+    for (const p of pagesToRemove) {
+      const idx = useProjectStore.getState().fileQueue.findIndex((f, i) => {
+        const pageId = state.pageIds[i];
+        const uniqueId = pageId || `temp-${i}-${f.name}`;
+        return uniqueId === p.uniqueId;
+      });
+      if (idx !== -1) {
+        if (state.pageStatuses[idx] === 'processing') {
+          handleCancelTask(idx);
+        }
+        await state.removePage(idx, true);
+      }
+    }
+    
+    toast.success(`Đã xóa Webtoon "${group.displayName}"`);
+  };
+
+  const handleCancelGroup = (group: GroupedItem) => {
+    group.pages.forEach(p => {
+      const status = pageStatuses[p.index];
+      if (status === 'processing' || status === 'waiting') {
+        handleCancelTask(p.index);
+      }
+    });
+  };
+
+  const handleRetryGroup = (group: GroupedItem) => {
+    group.pages.forEach(p => {
+      const status = pageStatuses[p.index];
+      if (status === 'error' || status === 'completed') {
+        handleRetrySinglePage(p.index);
+      }
+    });
+  };
+
+  const toggleGroupSelection = (group: GroupedItem) => {
+    const allSelected = group.pages.every(p => selectedPages.has(p.uniqueId));
+    setSelectedPages(prev => {
+      const next = new Set(prev);
+      group.pages.forEach(p => {
+        if (allSelected) {
+          next.delete(p.uniqueId);
+        } else {
+          next.add(p.uniqueId);
+        }
+      });
+      return next;
+    });
   };
 
   if (fileQueue.length === 0) return null;
@@ -1139,13 +1418,42 @@ export default function Sidebar() {
 
           {isSelectionMode && (
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (!window.confirm(`Xóa ${selectedPages.size} trang đã chọn?`)) return;
-                Array.from(selectedPages).forEach((uid) => {
-                  const idx = allProjectFiles.findIndex(f => f.uniqueId === uid);
-                  if (idx !== -1) handleDeletePage(allProjectFiles[idx].index);
-                });
+                
+                const state = useProjectStore.getState();
+                const uids = Array.from(selectedPages);
+                
+                // Get all indexes to remove
+                const indexesToRemove = uids
+                  .map(uid => {
+                    const idx = state.pageIds.indexOf(uid);
+                    if (idx !== -1) return idx;
+                    return state.fileQueue.findIndex((f, i) => {
+                      const pageId = state.pageIds[i];
+                      return (pageId || `temp-${i}-${f.name}`) === uid;
+                    });
+                  })
+                  .filter(idx => idx !== -1)
+                  .sort((a, b) => b - a); // Sort descending
+
+                // Determine if active page is being deleted
+                const isActiveDeleted = indexesToRemove.includes(state.currentIndex);
+                if (isActiveDeleted) {
+                  const nextIndex = state.fileQueue.findIndex((f, i) => !indexesToRemove.includes(i));
+                  projectStore.setCurrentIndex(nextIndex);
+                }
+
+                // Batch delete directly
+                for (const idx of indexesToRemove) {
+                  if (state.pageStatuses[idx] === 'processing') {
+                    handleCancelTask(idx);
+                  }
+                  await state.removePage(idx, true);
+                }
+                
                 clearSelection();
+                toast.success(`Đã xóa thành công ${uids.length} trang`);
               }}
               className="flex items-center gap-1 text-[10px] font-semibold text-danger hover:text-red-400 cursor-pointer transition-all duration-150"
               title="Xóa các trang đang chọn"
@@ -1162,28 +1470,69 @@ export default function Sidebar() {
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
               <div className="space-y-1.5">
-                {visibleFiles.map(({ file, index, uniqueId }) => { // 🚀 Lấy uniqueId ra
+                {visibleGroups.map((group) => {
+                  const firstPage = group.pages[0];
+                  const isGroupActive = group.pages.some(p => p.index === currentIndex);
+                  
+                  let overallStatus = 'unprocessed';
+                  const statuses = group.pages.map(p => pageStatuses[p.index] || 'unprocessed');
+                  
+                  if (statuses.some(s => s === 'processing')) {
+                    overallStatus = 'processing';
+                  } else if (statuses.some(s => s === 'waiting')) {
+                    overallStatus = 'waiting';
+                  } else if (statuses.some(s => s === 'error')) {
+                    overallStatus = 'error';
+                  } else if (statuses.every(s => s === 'completed')) {
+                    overallStatus = 'completed';
+                  } else if (statuses.some(s => s === 'translating')) {
+                    overallStatus = 'translating';
+                  } else {
+                    overallStatus = statuses[0];
+                  }
+                  
+                  const firstIndex = firstPage.index;
+                  const displayImg = processedUrls[firstIndex] || previews[firstIndex];
+                  
+                  const totalInGroup = group.pages.length;
+                  const completedInGroup = group.pages.filter(p => pageStatuses[p.index] === 'completed').length;
+                  
+                  let groupProgressMessage = undefined;
+                  if (totalInGroup > 1) {
+                    groupProgressMessage = {
+                      percent: Math.round((completedInGroup / totalInGroup) * 100),
+                      message: "Đang xử lý dịch thuật..."
+                    };
+                  } else {
+                    groupProgressMessage = progresses[firstIndex];
+                  }
+
+                  const isSelected = group.pages.every(p => selectedPages.has(p.uniqueId));
+                  const isProcessingGroup = group.pages.some(p => p.index === currentIndex && isProcessing);
+
                   return (
                     <SortableItem
-                      key={uniqueId}  // 🚀 Dùng ID an toàn
-                      id={uniqueId}   // 🚀 Dùng ID an toàn
-                      file={file}
-                      isActive={index === currentIndex}
-                      status={pageStatuses[index] || 'unprocessed'}
-                      displayImg={processedUrls[index] || previews[index]}
-                      progress={progresses[index]}
-                      onClick={() => handlePageClick(index)}
-                      onTranslate={() => processSinglePage(index)}
-                      onDelete={() => handleDeletePage(index)}
-                      onCancel={() => handleCancelTask(index)}
-                      onRetry={() => handleRetrySinglePage(index)}
-                      isSelected={selectedPages.has(uniqueId)} // 🚀 Dùng ID an toàn
+                      key={group.key}
+                      id={group.key}
+                      file={firstPage.file}
+                      displayName={group.displayName}
+                      pagesCount={totalInGroup}
+                      isActive={isGroupActive}
+                      status={overallStatus}
+                      displayImg={displayImg}
+                      progress={groupProgressMessage}
+                      onClick={() => handlePageClick(firstPage.index)}
+                      onTranslate={() => handleTranslateGroup(group)}
+                      onDelete={() => handleDeleteGroup(group)}
+                      onCancel={() => handleCancelGroup(group)}
+                      onRetry={() => handleRetryGroup(group)}
+                      isSelected={isSelected}
                       isSelectionMode={isSelectionMode}
-                      onToggleSelection={() => toggleSelection(uniqueId)}
-                      hasCleanUrl={!!processedUrls[index]} // 🚀 Dùng ID an toàn
-                      isProcessing={index === currentIndex && isProcessing}
+                      onToggleSelection={() => toggleGroupSelection(group)}
+                      hasCleanUrl={group.pages.some(p => !!processedUrls[p.index])}
+                      isProcessing={isProcessingGroup}
                       disabled={isAnyProcessingOrWaiting}
-                      retryCount={retryCounts[index] || 0} // 🚀 Truyền số lần dịch lại
+                      retryCount={Math.max(...group.pages.map(p => retryCounts[p.index] || 0))}
                     />
                   );
                 })}
@@ -1196,28 +1545,35 @@ export default function Sidebar() {
         <div className={`absolute bottom-0 left-0 w-full p-3 bg-sidebar/95 backdrop-blur-md border-t border-border z-30 transition-transform duration-300 ${isSelectionMode ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
           <button
             onClick={handleTranslateAll}
-            disabled={!hasUnprocessed || isAnyProcessingOrWaiting}
-            className={`w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold
-              ${(hasUnprocessed && !isAnyProcessingOrWaiting)
-                ? 'bg-primary hover:bg-primary-hover text-white shadow-primary/20 hover:scale-[1.02] cursor-pointer pl-4 pr-12'
-                : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 font-medium'
-              }`}
+            disabled={useGpu ? (!hasUnprocessed || isAnyProcessingOrWaiting) : false}
+              className={`w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold
+                ${!useGpu
+                  ? 'bg-neutral-800 hover:bg-neutral-700 text-text-muted border border-border/40 cursor-pointer opacity-80'
+                  : (hasUnprocessed && !isAnyProcessingOrWaiting)
+                    ? 'bg-primary hover:bg-primary-hover text-white border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] hover:scale-[1.02] cursor-pointer pl-4 pr-12'
+                    : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 font-medium'
+                }`}
+            title={!useGpu ? "Yêu cầu bật GPU Premium để sử dụng dịch hàng loạt" : undefined}
           >
             {isAnyProcessingOrWaiting ? (
               <Loader2 className="animate-spin" size={16} />
+            ) : !useGpu ? (
+              <Lock size={15} />
             ) : errorPages > 0 ? (
               <RefreshCw size={16} />
             ) : (
               <Sparkles size={16} />
             )}
             <span>
-              {isAnyProcessingOrWaiting
-                ? t('sidebar.batchTranslating')
-                : errorPages > 0
-                  ? t('sidebar.retryError', { count: errorPages })
-                  : hasUnprocessed
-                    ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
-                    : t('sidebar.completedAll')}
+              {!useGpu
+                ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
+                : isAnyProcessingOrWaiting
+                  ? t('sidebar.batchTranslating')
+                  : errorPages > 0
+                    ? t('sidebar.retryError', { count: errorPages })
+                    : hasUnprocessed
+                      ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
+                      : t('sidebar.completedAll')}
             </span>
           </button>
         </div>
@@ -1264,18 +1620,24 @@ export default function Sidebar() {
           return (
             <button
               onClick={handleTranslateSelected}
-              disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
-              title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết số dư thời gian GPU' : `Dịch ${selectedUnprocessedCount} trang`}
+              disabled={useGpu ? (nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting) : false}
+              title={!useGpu ? 'Yêu cầu bật GPU Premium để sử dụng' : nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết số dư thời gian GPU' : `Dịch ${selectedUnprocessedCount} trang`}
               className={`relative flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
-                ${nothingToTranslate || isAnyProcessingOrWaiting
-                  ? 'bg-border/30 text-text-muted cursor-not-allowed'
-                  : !hasEnough
-                    ? 'bg-danger/10 border border-danger/30 text-danger cursor-not-allowed'
-                    : 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/25 cursor-pointer'
+                ${!useGpu
+                  ? 'bg-neutral-800 hover:bg-neutral-700 text-text-muted border border-border/40 cursor-pointer opacity-80'
+                  : nothingToTranslate || isAnyProcessingOrWaiting
+                    ? 'bg-border/30 text-text-muted cursor-not-allowed border border-transparent'
+                    : !hasEnough
+                      ? 'bg-danger/10 border border-danger/30 text-danger cursor-not-allowed'
+                      : 'bg-amber-500 hover:bg-amber-400 text-black border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] cursor-pointer'
                 }`}
             >
-              <Sparkles size={15} strokeWidth={2.5} />
-              {!hasEnough && !nothingToTranslate ? (
+              {!useGpu ? (
+                <Lock size={14} />
+              ) : (
+                <Sparkles size={15} strokeWidth={2.5} />
+              )}
+              {useGpu && !hasEnough && !nothingToTranslate ? (
                 <span>Hết thời gian GPU</span>
               ) : (
                 <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size} trang</span>
