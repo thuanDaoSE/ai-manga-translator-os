@@ -411,6 +411,21 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           cleanCtx.drawImage(img, 0, 0);
         }
       }
+
+      const origCanvas = originalCleanRef.current;
+      if (origCanvas) {
+        if (origCanvas.width !== img.naturalWidth || origCanvas.height !== img.naturalHeight) {
+          origCanvas.width = img.naturalWidth;
+          origCanvas.height = img.naturalHeight;
+        }
+        const origCtx = origCanvas.getContext('2d');
+        if (origCtx) {
+          origCtx.imageSmoothingEnabled = false;
+          origCtx.clearRect(0, 0, origCanvas.width, origCanvas.height);
+          origCtx.drawImage(img, 0, 0);
+          isOriginalCleanLoadedRef.current = true;
+        }
+      }
     };
     img.src = displayUrl;
 
@@ -1034,6 +1049,16 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             targetCtx.restore();
           } else if (type === 'eraser') {
             const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
+            console.log("DEBUG_ERASER_UP:", {
+              isOriginalCleanLoaded: isOriginalCleanLoadedRef.current,
+              sourceCanvasWidth: sourceCanvas?.width,
+              sourceCanvasHeight: sourceCanvas?.height,
+              rawWidth: rawRef.current?.width,
+              originalCleanWidth: originalCleanRef.current?.width,
+              targetWidth: targetCanvas?.width,
+              pointsLength: currentPoints.current.length,
+              size
+            });
             if (sourceCanvas && sourceCanvas.width > 0) {
               try {
                 const tempCanvas = document.createElement('canvas');
