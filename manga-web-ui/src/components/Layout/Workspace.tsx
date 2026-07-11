@@ -1420,7 +1420,7 @@ export default function Workspace() {
                 {activeGroupPages.map(({ file, idx }) => {
                   if (idx === currentIndex) {
                     return (
-                      <div key={idx} className={`relative m-0 p-0 ${viewLayout === 'webtoon' ? '' : 'animate-fade-in'}`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', height: viewLayout === 'webtoon' ? 'auto' : (imgSize.h > 0 ? `${imgSize.h}px` : 'auto') }}>
+                      <div key={idx} className={`relative m-0 p-0 ${viewLayout === 'webtoon' ? '' : 'animate-fade-in'}`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', height: viewLayout === 'webtoon' ? 'auto' : (imgSize.h > 0 ? `${imgSize.h}px` : 'auto'), marginTop: viewLayout === 'webtoon' ? '-1px' : '0px' }}>
                         <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className={`block w-full ${viewLayout === 'webtoon' ? 'h-auto' : 'h-full'} pointer-events-none select-none ph-no-capture`} style={{ imageRendering: 'pixelated' }} draggable={false} onDragStart={(e) => e.preventDefault()} />
                         <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none w-full ${viewLayout === 'webtoon' ? 'h-auto' : 'h-full'} pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} draggable={false} onDragStart={(e) => e.preventDefault()} />
                         <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
@@ -1951,7 +1951,8 @@ const WebtoonImage = ({
       style={{ 
         width: width > 0 ? `${width}px` : '100%', 
         outline: 'none',
-        cursor: cursorStyle
+        cursor: cursorStyle,
+        marginTop: '-1px'
       }}
     >
       <img 
