@@ -269,19 +269,6 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
     }, 2000);
   };
 
-  const updateEditorStateFromCanvas = (canvas: HTMLCanvasElement) => {
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const newUrl = URL.createObjectURL(blob);
-        lastSavedDataUrlRef.current = newUrl;
-        useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
-        useMangaEditorStore.getState().saveHistory();
-        useMangaEditorStore.getState().setImageUrl(newUrl);
-        saveCleanImageToServerDebounced(newUrl);
-      }
-    }, 'image/png');
-  };
-
   // Tự động lưu ngay khi chuyển trang hoặc đóng tab nếu còn hàng chờ lưu
   useEffect(() => {
     return () => {
@@ -676,6 +663,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
         return;
       }
       
+      e.preventDefault();
       const pos = getPointerPos(e);
       updateCursors(pos, e);
 
@@ -783,6 +771,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
 
     const handlePointerMove = (e: PointerEvent) => {
       let pos = getPointerPos(e);
+      e.preventDefault();
 
       // 🚀 Shift-key constraint for drawing straight horizontal/vertical lines (like Photoshop)
       if (e.shiftKey && currentPoints.current.length > 0) {
@@ -948,7 +937,14 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
                   targetCtx.restore();
                 }
 
-                updateEditorStateFromCanvas(targetCanvas);
+                setTimeout(() => {
+                  const newUrl = targetCanvas.toDataURL("image/png");
+                  lastSavedDataUrlRef.current = newUrl;
+                  useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
+                  useMangaEditorStore.getState().saveHistory();
+                  useMangaEditorStore.getState().setImageUrl(newUrl);
+                  saveCleanImageToServerDebounced(newUrl);
+                }, 50);
               } catch (err) {
                 console.error("Canvas Crash:", err);
                 toast.error("Lỗi trình duyệt: Không thể lưu (Chặn CORS ảnh).");
@@ -995,7 +991,14 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           }
           targetCtx.restore();
 
-          updateEditorStateFromCanvas(targetCanvas);
+          setTimeout(() => {
+            const newUrl = targetCanvas.toDataURL("image/png");
+            lastSavedDataUrlRef.current = newUrl;
+            useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
+            useMangaEditorStore.getState().saveHistory();
+            useMangaEditorStore.getState().setImageUrl(newUrl);
+            saveCleanImageToServerDebounced(newUrl);
+          }, 50);
         }
         cloneCopyCanvasRef.current = null;
         isOffsetSetRef.current = false;
@@ -1050,7 +1053,14 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           } else {
             drawStroke(targetCtx, currentPoints.current, size, color);
           }
-          updateEditorStateFromCanvas(targetCanvas);
+          setTimeout(() => {
+            const newUrl = targetCanvas.toDataURL("image/png");
+            lastSavedDataUrlRef.current = newUrl;
+            useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
+            useMangaEditorStore.getState().saveHistory();
+            useMangaEditorStore.getState().setImageUrl(newUrl);
+            saveCleanImageToServerDebounced(newUrl);
+          }, 50);
         }
         setTimeout(() => {
           isDrawing.current = false;

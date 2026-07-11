@@ -1421,8 +1421,8 @@ export default function Workspace() {
                   if (idx === currentIndex) {
                     return (
                       <div key={idx} className={`relative m-0 p-0 ${viewLayout === 'webtoon' ? '' : 'animate-fade-in'}`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', height: viewLayout === 'webtoon' ? 'auto' : (imgSize.h > 0 ? `${imgSize.h}px` : 'auto') }}>
-                        <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className={`block w-full ${viewLayout === 'webtoon' ? 'h-auto' : 'h-full'} pointer-events-none select-none ph-no-capture`} style={{ imageRendering: 'pixelated' }} />
-                        <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none w-full ${viewLayout === 'webtoon' ? 'h-auto' : 'h-full'} pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} />
+                        <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className={`block w-full ${viewLayout === 'webtoon' ? 'h-auto' : 'h-full'} pointer-events-none select-none ph-no-capture`} style={{ imageRendering: 'pixelated' }} draggable={false} onDragStart={(e) => e.preventDefault()} />
+                        <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none w-full ${viewLayout === 'webtoon' ? 'h-auto' : 'h-full'} pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} draggable={false} onDragStart={(e) => e.preventDefault()} />
                         <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
                           <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
                           <VisualGuideOverlay />
@@ -1450,8 +1450,8 @@ export default function Workspace() {
               </div>
             ) : (
               <>
-                <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none ph-no-capture" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined, imageRendering: 'pixelated' }} />
-                <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} />
+                <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block m-0 p-0 pointer-events-none select-none ph-no-capture" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined, imageRendering: 'pixelated' }} draggable={false} onDragStart={(e) => e.preventDefault()} />
+                <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none m-0 p-0 pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : undefined, height: imgSize.h > 0 ? `${imgSize.h}px` : undefined }} draggable={false} onDragStart={(e) => e.preventDefault()} />
                 <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
                   <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
                   <VisualGuideOverlay />
@@ -1960,6 +1960,8 @@ const WebtoonImage = ({
         loading="lazy"
         className="block w-full h-auto select-none pointer-events-none m-0 p-0" 
         alt={file.name} 
+        draggable={false}
+        onDragStart={(e) => e.preventDefault()}
       />
     </div>
   );
