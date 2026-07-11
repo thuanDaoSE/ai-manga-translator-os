@@ -269,64 +269,32 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
     }, 2000);
   };
 
-  const syncStoreTimeoutRef = useRef<any>(null);
-
-  const debouncedSyncStore = () => {
-    if (syncStoreTimeoutRef.current) {
-      clearTimeout(syncStoreTimeoutRef.current);
-    }
-    syncStoreTimeoutRef.current = setTimeout(() => {
-      const cleanCanvas = cleanRef.current;
-      if (cleanCanvas) {
-        try {
-          const newUrl = cleanCanvas.toDataURL("image/png");
-          lastSavedDataUrlRef.current = newUrl;
-          useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
-          useMangaEditorStore.getState().saveHistory();
-          useMangaEditorStore.getState().setImageUrl(newUrl);
-          saveCleanImageToServerDebounced(newUrl);
-        } catch (e) {
-          console.error("Debounced sync store failed:", e);
-        }
+  const updateEditorStateFromCanvas = (canvas: HTMLCanvasElement) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const newUrl = URL.createObjectURL(blob);
+        lastSavedDataUrlRef.current = newUrl;
+        useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
+        useMangaEditorStore.getState().saveHistory();
+        useMangaEditorStore.getState().setImageUrl(newUrl);
+        saveCleanImageToServerDebounced(newUrl);
       }
-      syncStoreTimeoutRef.current = null;
-    }, 400); // 400ms debounce
+    }, 'image/png');
   };
 
   // Tự động lưu ngay khi chuyển trang hoặc đóng tab nếu còn hàng chờ lưu
   useEffect(() => {
     return () => {
-      let finalUrl: string | null = null;
-      if (syncStoreTimeoutRef.current) {
-        clearTimeout(syncStoreTimeoutRef.current);
-        const cleanCanvas = cleanRef.current;
-        if (cleanCanvas) {
-          try {
-            finalUrl = cleanCanvas.toDataURL("image/png");
-            lastSavedDataUrlRef.current = finalUrl;
-            useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, finalUrl);
-            useMangaEditorStore.getState().saveHistory();
-            useMangaEditorStore.getState().setImageUrl(finalUrl);
-            saveCleanImageToServer(finalUrl);
-          } catch (e) {
-            console.error("Flush sync failed on unmount:", e);
-          }
-        }
-      }
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
-        if (!finalUrl) {
-          const targetCanvas = cleanRef.current;
-          if (targetCanvas) {
-            try {
-              finalUrl = targetCanvas.toDataURL("image/png");
-              saveCleanImageToServer(finalUrl);
-            } catch (e) {
-              console.error("Flush save failed:", e);
-            }
+        const targetCanvas = cleanRef.current;
+        if (targetCanvas) {
+          try {
+            const newUrl = targetCanvas.toDataURL("image/png");
+                 saveCleanImageToServerDebounced(newUrl);
+          } catch (e) {
+            console.error("Flush save failed:", e);
           }
-        } else {
-          saveCleanImageToServer(finalUrl);
         }
       }
     };
@@ -980,7 +948,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
                   targetCtx.restore();
                 }
 
-                debouncedSyncStore();
+                updateEditorStateFromCanvas(targetCanvas);
               } catch (err) {
                 console.error("Canvas Crash:", err);
                 toast.error("Lỗi trình duyệt: Không thể lưu (Chặn CORS ảnh).");
@@ -1027,7 +995,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           }
           targetCtx.restore();
 
-          debouncedSyncStore();
+          updateEditorStateFromCanvas(targetCanvas);
         }
         cloneCopyCanvasRef.current = null;
         isOffsetSetRef.current = false;
@@ -1082,7 +1050,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           } else {
             drawStroke(targetCtx, currentPoints.current, size, color);
           }
-          debouncedSyncStore();
+          updateEditorStateFromCanvas(targetCanvas);
         }
         setTimeout(() => {
           isDrawing.current = false;
