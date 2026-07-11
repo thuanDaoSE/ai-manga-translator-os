@@ -785,7 +785,15 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
 
       updateCursors(pos, e);
 
-      if (!isDrawing.current) return;
+      if (!isDrawing.current) {
+        const mode = useToolStore.getState().activeMode;
+        if (e.buttons === 1 && mode !== 'none' && mode !== 'scan') {
+          handlePointerDown(e);
+          if (!isDrawing.current) return;
+        } else {
+          return;
+        }
+      }
       const mode = useToolStore.getState().activeMode;
       const type = useToolStore.getState().speedlineType;
       const currentBrushSize = useToolStore.getState().brushSize;

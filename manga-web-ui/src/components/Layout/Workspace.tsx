@@ -1432,11 +1432,6 @@ export default function Workspace() {
                         projectId={projectStore.projectId || undefined}
                         processedUrl={processedUrls[idx]}
                         onPointerDown={() => projectStore.setCurrentIndex(idx)}
-                        onPointerEnter={(e) => {
-                          if (e.buttons === 0 && projectStore.currentIndex !== idx) {
-                            projectStore.setCurrentIndex(idx);
-                          }
-                        }}
                         width={imgSize.w}
                       />
                     );
@@ -1897,7 +1892,6 @@ const WebtoonImage = ({
   projectId, 
   processedUrl, 
   onPointerDown, 
-  onPointerEnter,
   width 
 }: { 
   file: File; 
@@ -1905,7 +1899,6 @@ const WebtoonImage = ({
   projectId?: string; 
   processedUrl?: string; 
   onPointerDown: () => void; 
-  onPointerEnter?: (e: React.PointerEvent) => void;
   width: number; 
 }) => {
   const [url, setUrl] = useState<string>('');
@@ -1944,7 +1937,6 @@ const WebtoonImage = ({
   return (
     <div 
       onPointerDown={onPointerDown} 
-      onPointerEnter={onPointerEnter}
       className="relative pointer-events-auto m-0 p-0 block outline-none" 
       style={{ 
         width: width > 0 ? `${width}px` : '100%', 
