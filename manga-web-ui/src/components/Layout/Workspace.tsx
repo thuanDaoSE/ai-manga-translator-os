@@ -844,17 +844,21 @@ export default function Workspace() {
       if (container) {
         setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
 
-        // Trở về thuật toán tỷ lệ chuẩn 95% vì "container" giờ đây sẽ là một cái khung có giới hạn!
-        const scaleFit = Math.min(container.clientWidth / img.naturalWidth, container.clientHeight / img.naturalHeight) * 0.95;
-        const finalScale = Math.max(0.1, Math.min(scaleFit, 3.0));
+        const isWebtoon = viewLayout === 'webtoon';
+        const isUninitialized = panRef.current.x === 0 && panRef.current.y === 0;
 
-        panRef.current.x = (container.clientWidth - img.naturalWidth * finalScale) / 2;
-        panRef.current.y = (container.clientHeight - img.naturalHeight * finalScale) / 2;
+        if (!isWebtoon || isUninitialized) {
+          const scaleFit = Math.min(container.clientWidth / img.naturalWidth, container.clientHeight / img.naturalHeight) * 0.95;
+          const finalScale = Math.max(0.1, Math.min(scaleFit, 3.0));
 
-        if (workspaceContainerRef.current) {
-          workspaceContainerRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${finalScale})`;
+          panRef.current.x = (container.clientWidth - img.naturalWidth * finalScale) / 2;
+          panRef.current.y = (container.clientHeight - img.naturalHeight * finalScale) / 2;
+
+          if (workspaceContainerRef.current) {
+            workspaceContainerRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${finalScale})`;
+          }
+          setZoom(finalScale);
         }
-        setZoom(finalScale);
       }
 
       // 4. CHỐT SỔ: Khi mọi thứ đã chuẩn form, mới ném URL cho thẻ <img> hiển thị
