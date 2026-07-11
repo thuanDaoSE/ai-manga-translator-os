@@ -1427,8 +1427,6 @@ export default function Sidebar() {
                 // Get all indexes to remove
                 const indexesToRemove = uids
                   .map(uid => {
-                    const idx = state.pageIds.indexOf(uid);
-                    if (idx !== -1) return idx;
                     return state.fileQueue.findIndex((f, i) => {
                       const pageId = state.pageIds[i];
                       return (pageId || `temp-${i}-${f.name}`) === uid;
