@@ -1407,7 +1407,7 @@ export default function Workspace() {
           <div
             id="workspace-container"
             ref={workspaceContainerRef}
-            className="absolute left-0 top-0 shadow-2xl will-change-transform origin-top-left"
+            className="absolute left-0 top-0 shadow-2xl origin-top-left"
             style={{
               width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto',
               height: viewLayout === 'webtoon' ? 'auto' : (imgSize.h > 0 ? `${imgSize.h}px` : 'auto'),
