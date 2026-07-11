@@ -8,6 +8,13 @@ import time
 import base64
 import re
 import httpx
+import logging
+
+# 🔇 Tắt log spam (tránh in ra hàng loạt chuỗi base64 của ảnh/mask)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("runpod").setLevel(logging.WARNING)
 from celery import Celery
 import redis
 from sqlalchemy import create_engine

@@ -7,6 +7,13 @@ import io
 from pydantic import BaseModel, Field
 import os
 import time
+import logging
+
+# 🔇 Tắt log spam (tránh in ra hàng loạt chuỗi base64 của ảnh/mask)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("runpod").setLevel(logging.WARNING)
 from nlp_engine import TranslationEngine
 import uuid
 from slowapi import Limiter, _rate_limit_exceeded_handler
