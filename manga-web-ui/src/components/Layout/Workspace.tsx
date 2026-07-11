@@ -836,20 +836,26 @@ export default function Workspace() {
       return;
     }
 
-    // 2. Tải ngầm bức ảnh vào RAM (Javascript Image Object)
-    const img = new Image();
-    img.onload = () => {
-      if (!isMounted) return;
-
-      // 3. TÍNH TOÁN NGAY TRONG RAM: Không để DOM biết
-      const container = containerRef.current;
-      if (container) {
+    // 2. Tải bức ảnh vào bộ nhớ
+    if (viewLayout === 'webtoon') {
+      // 🚀 Chế độ Webtoon: gán rawUrl ngay lập tức để tránh khoảng trống và đồng bộ canvas tức thì
+      setRawUrl(targetUrl);
+      const img = new Image();
+      img.onload = () => {
+        if (!isMounted) return;
         setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
+      };
+      img.src = targetUrl;
+    } else {
+      // 🚀 Chế độ chuẩn (Trang đơn): Đợi tính toán kích thước rồi mới hiển thị để chống giật
+      const img = new Image();
+      img.onload = () => {
+        if (!isMounted) return;
 
-        const isWebtoon = viewLayout === 'webtoon';
-        const isUninitialized = panRef.current.x === 0 && panRef.current.y === 0;
+        const container = containerRef.current;
+        if (container) {
+          setImgSize({ w: img.naturalWidth, h: img.naturalHeight });
 
-        if (!isWebtoon || isUninitialized) {
           const scaleFit = Math.min(container.clientWidth / img.naturalWidth, container.clientHeight / img.naturalHeight) * 0.95;
           const finalScale = Math.max(0.1, Math.min(scaleFit, 3.0));
 
@@ -861,19 +867,17 @@ export default function Workspace() {
           }
           setZoom(finalScale);
         }
-      }
+        setRawUrl(targetUrl);
+      };
 
-      // 4. CHỐT SỔ: Khi mọi thứ đã chuẩn form, mới ném URL cho thẻ <img> hiển thị
-      setRawUrl(targetUrl);
-    };
+      img.onerror = () => {
+        if (!isMounted) return;
+        setRawUrl(targetUrl);
+        projectStore.verifyAndRemovePage(currentIndex);
+      };
 
-    img.onerror = () => {
-      if (!isMounted) return;
-      setRawUrl(targetUrl);
-      projectStore.verifyAndRemovePage(currentIndex);
-    };
-
-    img.src = targetUrl;
+      img.src = targetUrl;
+    }
 
     return () => {
       isMounted = false;
@@ -1416,9 +1420,9 @@ export default function Workspace() {
                 {activeGroupPages.map(({ file, idx }) => {
                   if (idx === currentIndex) {
                     return (
-                      <div key={idx} className={`relative m-0 p-0 ${viewLayout === 'webtoon' ? '' : 'animate-fade-in'}`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', height: imgSize.h > 0 ? `${imgSize.h}px` : 'auto' }}>
-                        <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block w-full h-full pointer-events-none select-none ph-no-capture" style={{ imageRendering: 'pixelated' }} />
-                        <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none w-full h-full pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} />
+                      <div key={idx} className={`relative m-0 p-0 ${viewLayout === 'webtoon' ? '' : 'animate-fade-in'}`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', height: viewLayout === 'webtoon' ? 'auto' : (imgSize.h > 0 ? `${imgSize.h}px` : 'auto') }}>
+                        <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className={`block w-full ${viewLayout === 'webtoon' ? 'h-auto' : 'h-full'} pointer-events-none select-none ph-no-capture`} style={{ imageRendering: 'pixelated' }} />
+                        <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none w-full ${viewLayout === 'webtoon' ? 'h-auto' : 'h-full'} pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} />
                         <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
                           <MangaCanvas rawUrl={rawUrl} displayUrl={displayUrl} originalCleanUrl={originalCleanUrl} />
                           <VisualGuideOverlay />
