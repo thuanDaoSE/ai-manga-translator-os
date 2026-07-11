@@ -1431,7 +1431,7 @@ export default function Workspace() {
                         pageId={projectStore.pageIds[idx]}
                         projectId={projectStore.projectId || undefined}
                         processedUrl={processedUrls[idx]}
-                        onClick={() => projectStore.setCurrentIndex(idx)}
+                        onPointerDown={() => projectStore.setCurrentIndex(idx)}
                         width={imgSize.w}
                       />
                     );
@@ -1891,17 +1891,18 @@ const WebtoonImage = ({
   pageId, 
   projectId, 
   processedUrl, 
-  onClick, 
+  onPointerDown, 
   width 
 }: { 
   file: File; 
   pageId?: string; 
   projectId?: string; 
   processedUrl?: string; 
-  onClick: () => void; 
+  onPointerDown: () => void; 
   width: number; 
 }) => {
   const [url, setUrl] = useState<string>('');
+  const activeMode = useToolStore((state) => state.activeMode);
   
   useEffect(() => {
     if (processedUrl) {
@@ -1921,11 +1922,21 @@ const WebtoonImage = ({
     return () => URL.revokeObjectURL(u);
   }, [file, pageId, projectId, processedUrl]);
 
+  const cursorStyle = activeMode === 'none' 
+    ? 'pointer' 
+    : activeMode === 'scan' 
+      ? 'crosshair' 
+      : 'default';
+
   return (
     <div 
-      onClick={onClick} 
-      className="relative cursor-pointer pointer-events-auto m-0 p-0 block outline-none" 
-      style={{ width: width > 0 ? `${width}px` : '100%', outline: 'none' }}
+      onPointerDown={onPointerDown} 
+      className="relative pointer-events-auto m-0 p-0 block outline-none" 
+      style={{ 
+        width: width > 0 ? `${width}px` : '100%', 
+        outline: 'none',
+        cursor: cursorStyle
+      }}
     >
       <img 
         src={url || undefined} 
