@@ -201,6 +201,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
   const cleanRef = useRef<HTMLCanvasElement>(null);
   const originalCleanRef = useRef<HTMLCanvasElement>(null); // 🚀 Thêm ref Két sắt
   const tempBufferCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isOriginalCleanLoadedRef = useRef<boolean>(false);
 
   const activeMode = useToolStore((state) => state.activeMode);
   const brushSize = useToolStore((state) => state.brushSize);
@@ -368,16 +369,15 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
         }
       }
 
-      if (originalCleanRef.current) {
+      if (originalCleanImg && originalCleanRef.current) {
+        isOriginalCleanLoadedRef.current = true;
         const origCtx = originalCleanRef.current.getContext('2d');
         if (origCtx) {
           origCtx.imageSmoothingEnabled = false;
-          if (originalCleanImg) {
-            origCtx.drawImage(originalCleanImg, 0, 0);
-          } else if (rawImg) {
-            origCtx.drawImage(rawImg, 0, 0);
-          }
+          origCtx.drawImage(originalCleanImg, 0, 0);
         }
+      } else {
+        isOriginalCleanLoadedRef.current = false;
       }
     });
 
@@ -575,9 +575,9 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             ctx.drawImage(tempCanvas, 0, 0);
             ctx.restore();
           } else if (mode === 'restore') {
-            // 🚀 LẤY NGUỒN CỌ CHUẨN XÁC DỰA VÀO NÚT BẤM
+            // 🚀 LẤY NGUỒN CỌ CHUẨN XÁC DỰA VÀO NÚT BẤM (Tự động fallback về raw nếu chưa có clean)
             const restoreType = useToolStore.getState().restoreType;
-            const sourceCanvas = restoreType === 'clean' ? originalCleanRef.current : rawRef.current;
+            const sourceCanvas = (restoreType === 'clean' && isOriginalCleanLoadedRef.current) ? originalCleanRef.current : rawRef.current;
 
             if (sourceCanvas && sourceCanvas.width > 0) {
               ctx.save();
@@ -637,7 +637,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             ctx.stroke();
             ctx.restore();
           } else if (type === 'eraser') {
-            const sourceCanvas = originalCleanRef.current;
+            const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
             if (sourceCanvas && sourceCanvas.width > 0) {
               ctx.save();
               drawStroke(ctx, currentPoints.current, size, "rgba(0,0,0,1)");
@@ -845,7 +845,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           
           if (mode === 'restore') {
             const restoreType = useToolStore.getState().restoreType;
-            const sourceCanvas = restoreType === 'clean' ? originalCleanRef.current : rawRef.current;
+            const sourceCanvas = (restoreType === 'clean' && isOriginalCleanLoadedRef.current) ? originalCleanRef.current : rawRef.current;
             if (sourceCanvas && sourceCanvas.width > 0) {
               drawRestoreSegment(ctx, sourceCanvas, lastPointRef.current, pos, currentBrushSize);
             }
@@ -858,7 +858,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           else if (mode === 'speedline') {
             const color = useToolStore.getState().speedlineColor || '#000000';
             if (type === 'eraser') {
-              const sourceCanvas = originalCleanRef.current;
+              const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
               if (sourceCanvas && sourceCanvas.width > 0) {
                 drawRestoreSegment(ctx, sourceCanvas, lastPointRef.current, pos, currentBrushSize);
               }
@@ -1033,7 +1033,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             targetCtx.stroke();
             targetCtx.restore();
           } else if (type === 'eraser') {
-            const sourceCanvas = originalCleanRef.current;
+            const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
             if (sourceCanvas && sourceCanvas.width > 0) {
               try {
                 const tempCanvas = document.createElement('canvas');
