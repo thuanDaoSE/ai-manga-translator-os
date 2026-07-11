@@ -814,7 +814,9 @@ export default function Workspace() {
     const file = fileQueue[currentIndex];
 
     // 🚀 BẢN VÁ 1: XÓA TRẮNG ẢNH CŨ NGAY LẬP TỨC ĐỂ CHỐNG "BÓNG MA"
-    setRawUrl(null);
+    if (viewLayout !== 'webtoon') {
+      setRawUrl(null);
+    }
 
     // 1. Xác định URL cần tải
     let targetUrl = '';
@@ -1414,7 +1416,7 @@ export default function Workspace() {
                 {activeGroupPages.map(({ file, idx }) => {
                   if (idx === currentIndex) {
                     return (
-                      <div key={idx} className="relative m-0 p-0 animate-fade-in" style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', height: imgSize.h > 0 ? `${imgSize.h}px` : 'auto' }}>
+                      <div key={idx} className={`relative m-0 p-0 ${viewLayout === 'webtoon' ? '' : 'animate-fade-in'}`} style={{ width: imgSize.w > 0 ? `${imgSize.w}px` : 'auto', height: imgSize.h > 0 ? `${imgSize.h}px` : 'auto' }}>
                         <img src={rawUrl || undefined} crossOrigin="anonymous" alt="Manga Raw" className="block w-full h-full pointer-events-none select-none ph-no-capture" style={{ imageRendering: 'pixelated' }} />
                         <img src={displayUrl || undefined} crossOrigin="anonymous" alt="Manga Clean" className={`absolute inset-0 block max-w-none w-full h-full pointer-events-none select-none transition-opacity duration-300 ${cleanImageOpacity} ph-no-capture`} />
                         <div className={`absolute inset-0 w-full h-full ${isComparing ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${isCurrentPageProcessing ? 'pointer-events-none' : ''}`}>
