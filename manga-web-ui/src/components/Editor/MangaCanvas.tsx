@@ -868,12 +868,18 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
     const handlePointerUp = async (e: PointerEvent) => {
       setIsPanningState(false);
       if (!isDrawing.current) return;
-      isDrawing.current = false;
-      useToolStore.getState().setIsDrawingState(false);
-      drawCanvas.releasePointerCapture(e.pointerId);
 
       const mode = useToolStore.getState().activeMode;
       const currentBrushSize = useToolStore.getState().brushSize;
+      const shouldDelayClear = mode === 'restore' || mode === 'clone' || mode === 'speedline';
+
+      if (!shouldDelayClear) {
+        isDrawing.current = false;
+        useToolStore.getState().setIsDrawingState(false);
+      } else {
+        useToolStore.getState().setIsDrawingState(false);
+      }
+      drawCanvas.releasePointerCapture(e.pointerId);
 
       if (mode === 'erase' || mode === 'restore' || mode === 'redraw') {
         const committedCtx = committedRef.current?.getContext('2d');
@@ -947,8 +953,11 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             useToolStore.getState().setActionPosition(null);
           }
         }
-        currentPoints.current = [];
-        renderCanvas();
+        setTimeout(() => {
+          isDrawing.current = false;
+          currentPoints.current = [];
+          renderCanvas();
+        }, 30);
       } else if (mode === 'clone') {
         const targetCanvas = cleanRef.current;
         const targetCtx = targetCanvas?.getContext('2d');
@@ -991,8 +1000,11 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
         }
         cloneCopyCanvasRef.current = null;
         isOffsetSetRef.current = false;
-        currentPoints.current = [];
-        renderCanvas();
+        setTimeout(() => {
+          isDrawing.current = false;
+          currentPoints.current = [];
+          renderCanvas();
+        }, 30);
       } else if (mode === 'speedline') {
         const targetCanvas = cleanRef.current;
         const targetCtx = targetCanvas?.getContext('2d');
@@ -1048,8 +1060,11 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             saveCleanImageToServerDebounced(newUrl);
           }, 50);
         }
-        currentPoints.current = [];
-        renderCanvas();
+        setTimeout(() => {
+          isDrawing.current = false;
+          currentPoints.current = [];
+          renderCanvas();
+        }, 30);
       } else if (mode === 'scan') {
         const pos = getPointerPos(e);
         useToolStore.getState().setScanModal({
