@@ -1342,11 +1342,8 @@ export default function Workspace() {
 
   // 🚀 TÌM KIẾM ĐƯỜNG LINK ẢNH SẠCH NGUYÊN THỦY TỪ LỊCH SỬ
   const originalCleanUrl = (() => {
-    const past = projectStore.pastUrls[currentIndex] || [];
-    const httpUrl = past.find(u => u && u.startsWith('http'));
-    if (httpUrl) return httpUrl; // Ưu tiên ảnh thật tải từ Server
-    if (past.length > 0 && past[0]) return past[0]; // Kế đến là ảnh cũ nhất trong lịch sử
-    return processedUrls[currentIndex] || rawUrl; // Bần cùng lắm mới lấy ảnh đang hiển thị
+    if (!rawUrl || rawUrl.startsWith('blob:')) return '';
+    return rawUrl.replace("/raw/", "/clean/");
   })();
 
   if (isMobileOrTouch) {
