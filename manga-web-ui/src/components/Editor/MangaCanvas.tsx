@@ -368,11 +368,15 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
         }
       }
 
-      if (originalCleanImg && originalCleanRef.current) {
+      if (originalCleanRef.current) {
         const origCtx = originalCleanRef.current.getContext('2d');
         if (origCtx) {
           origCtx.imageSmoothingEnabled = false;
-          origCtx.drawImage(originalCleanImg, 0, 0);
+          if (originalCleanImg) {
+            origCtx.drawImage(originalCleanImg, 0, 0);
+          } else if (rawImg) {
+            origCtx.drawImage(rawImg, 0, 0);
+          }
         }
       }
     });

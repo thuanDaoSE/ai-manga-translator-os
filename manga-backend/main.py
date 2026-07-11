@@ -1360,32 +1360,43 @@ async def erase_mask(
         
         # Fetch raw image directly to RAM (local disk read if local, otherwise HTTP fetch)
         img_raw = payload.image_url
-        base_url = get_base_url()
-        is_local_img = False
-        img_path_local = ""
-        
-        if not img_raw.startswith("http"):
-            is_local_img = True
-            img_path_local = img_raw
-        elif "localhost:8000" in img_raw or "127.0.0.1:8000" in img_raw:
-            is_local_img = True
-            img_path_local = img_raw.split("8000/")[-1]
-        elif base_url in img_raw:
-            is_local_img = True
-            img_path_local = img_raw.split(base_url)[-1]
-        elif "/workspace/" in img_raw:
-            is_local_img = True
-            img_path_local = "workspace/" + img_raw.split("/workspace/")[-1]
+        image = None
 
-        if is_local_img:
-            img_path_local = img_path_local.split('?')[0]
-            if img_path_local.startswith("/"):
-                img_path_local = img_path_local[1:]
-            print(f"[erase_mask] Loading image locally from: {img_path_local}")
-            image = cv2.imread(img_path_local, cv2.IMREAD_COLOR)
+        if img_raw.startswith("data:"):
+            print("[erase_mask] Loading image from base64 data URL")
+            b64_data = img_raw
+            if "," in b64_data:
+                b64_data = b64_data.split(",")[1]
+            img_bytes = base64.b64decode(b64_data)
+            nparr = np.frombuffer(img_bytes, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         else:
-            print(f"[erase_mask] Fetching image from remote URL: {img_raw}")
-            image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
+            base_url = get_base_url()
+            is_local_img = False
+            img_path_local = ""
+
+            if not img_raw.startswith("http"):
+                is_local_img = True
+                img_path_local = img_raw
+            elif "localhost:8000" in img_raw or "127.0.0.1:8000" in img_raw:
+                is_local_img = True
+                img_path_local = img_raw.split("8000/")[-1]
+            elif base_url in img_raw:
+                is_local_img = True
+                img_path_local = img_raw.split(base_url)[-1]
+            elif "/workspace/" in img_raw:
+                is_local_img = True
+                img_path_local = "workspace/" + img_raw.split("/workspace/")[-1]
+
+            if is_local_img:
+                img_path_local = img_path_local.split('?')[0]
+                if img_path_local.startswith("/"):
+                    img_path_local = img_path_local[1:]
+                print(f"[erase_mask] Loading image locally from: {img_path_local}")
+                image = cv2.imread(img_path_local, cv2.IMREAD_COLOR)
+            else:
+                print(f"[erase_mask] Fetching image from remote URL: {img_raw}")
+                image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
 
         if image is None:
             raise HTTPException(status_code=400, detail="Không thể đọc ảnh gốc. File không tồn tại hoặc định dạng không hợp lệ.")
@@ -1605,32 +1616,43 @@ async def ai_redraw_mask(
         
         # Load raw image
         img_raw = payload.image_url
-        base_url = get_base_url()
-        is_local_img = False
-        img_path_local = ""
-        
-        if not img_raw.startswith("http"):
-            is_local_img = True
-            img_path_local = img_raw
-        elif "localhost:8000" in img_raw or "127.0.0.1:8000" in img_raw:
-            is_local_img = True
-            img_path_local = img_raw.split("8000/")[-1]
-        elif base_url in img_raw:
-            is_local_img = True
-            img_path_local = img_raw.split(base_url)[-1]
-        elif "/workspace/" in img_raw:
-            is_local_img = True
-            img_path_local = "workspace/" + img_raw.split("/workspace/")[-1]
+        image = None
 
-        if is_local_img:
-            img_path_local = img_path_local.split('?')[0]
-            if img_path_local.startswith("/"):
-                img_path_local = img_path_local[1:]
-            print(f"[ai_redraw_mask] Loading image locally from: {img_path_local}")
-            image = cv2.imread(img_path_local, cv2.IMREAD_COLOR)
+        if img_raw.startswith("data:"):
+            print("[ai_redraw_mask] Loading image from base64 data URL")
+            b64_data = img_raw
+            if "," in b64_data:
+                b64_data = b64_data.split(",")[1]
+            img_bytes = base64.b64decode(b64_data)
+            nparr = np.frombuffer(img_bytes, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         else:
-            print(f"[ai_redraw_mask] Fetching image from remote URL: {img_raw}")
-            image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
+            base_url = get_base_url()
+            is_local_img = False
+            img_path_local = ""
+
+            if not img_raw.startswith("http"):
+                is_local_img = True
+                img_path_local = img_raw
+            elif "localhost:8000" in img_raw or "127.0.0.1:8000" in img_raw:
+                is_local_img = True
+                img_path_local = img_raw.split("8000/")[-1]
+            elif base_url in img_raw:
+                is_local_img = True
+                img_path_local = img_raw.split(base_url)[-1]
+            elif "/workspace/" in img_raw:
+                is_local_img = True
+                img_path_local = "workspace/" + img_raw.split("/workspace/")[-1]
+
+            if is_local_img:
+                img_path_local = img_path_local.split('?')[0]
+                if img_path_local.startswith("/"):
+                    img_path_local = img_path_local[1:]
+                print(f"[ai_redraw_mask] Loading image locally from: {img_path_local}")
+                image = cv2.imread(img_path_local, cv2.IMREAD_COLOR)
+            else:
+                print(f"[ai_redraw_mask] Fetching image from remote URL: {img_raw}")
+                image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
 
         if image is None:
             raise HTTPException(status_code=400, detail="Không thể đọc ảnh gốc.")
