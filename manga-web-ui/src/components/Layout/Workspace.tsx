@@ -826,7 +826,7 @@ export default function Workspace() {
       if (file.size === 0) {
         const pageId = projectStore.pageIds[currentIndex];
         const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
-        targetUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}?t=${Date.now()}`;
+        targetUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}`;
       } else {
         targetUrl = URL.createObjectURL(file);
         objectUrlToRevoke = targetUrl;
