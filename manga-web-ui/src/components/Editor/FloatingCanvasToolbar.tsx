@@ -77,8 +77,7 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
   
   const isBrushMode = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw' || activeMode === 'clone' || activeMode === 'speedline';
   
-  const user = useAuthStore((state) => state.user);
-  const lensFreeRemaining = user?.lensFreeRemaining !== undefined ? user.lensFreeRemaining : 20;
+  const useGpu = useConfigStore((s) => s.useGpu);
 
 
   const handleUndo = () => {
@@ -167,14 +166,10 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
                   <GpuIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 shrink-0" />
                 </>
               ) : mode === 'scan' ? (
-                lensFreeRemaining > 0 ? (
-                  <span className="text-emerald-400">{lensFreeRemaining} Free</span>
-                ) : (
-                  <>
-                    <span>1</span>
-                    <GpuIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 shrink-0" />
-                  </>
-                )
+                <>
+                  <span>1</span>
+                  <GpuIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 shrink-0" />
+                </>
               ) : (
                 <>
                   <span>1</span>
@@ -393,6 +388,8 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
             icon={ScanSearch} 
             label="Dịch Lens (W)" 
             shortLabel="Dịch Lens (W)" 
+            disabled={!useGpu}
+            lockMessage={!useGpu ? "Yêu cầu bật GPU Premium để sử dụng" : undefined}
           />
 
           <div className="w-px h-6 bg-border mx-1"></div>
