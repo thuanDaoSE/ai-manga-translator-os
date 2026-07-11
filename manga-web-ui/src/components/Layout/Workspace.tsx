@@ -876,7 +876,7 @@ export default function Workspace() {
         setTimeout(() => URL.revokeObjectURL(objectUrlToRevoke), 10000);
       }
     };
-  }, [currentIndex, fileQueue, projectStore.pageIds, projectStore.projectId, setZoom]);
+  }, [currentIndex, fileQueue[currentIndex], projectStore.pageIds[currentIndex], projectStore.projectId, setZoom]);
 
   const displayUrl = processedUrls[currentIndex] || rawUrl;
 
@@ -1910,17 +1910,23 @@ const WebtoonImage = ({
       return;
     }
 
-    if (file.size === 0 && pageId && projectId) {
-      const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
-      const backendUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectId}/raw/${pageId}.${ext}`;
-      setUrl(backendUrl);
+    if (file.size === 0) {
+      if (pageId && projectId) {
+        const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
+        const backendUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectId}/raw/${pageId}.${ext}`;
+        setUrl(backendUrl);
+      }
       return;
     }
+  }, [processedUrl, file.size, file.name, pageId, projectId]);
 
-    const u = URL.createObjectURL(file);
-    setUrl(u);
-    return () => URL.revokeObjectURL(u);
-  }, [file, pageId, projectId, processedUrl]);
+  useEffect(() => {
+    if (file.size > 0 && !processedUrl) {
+      const u = URL.createObjectURL(file);
+      setUrl(u);
+      return () => URL.revokeObjectURL(u);
+    }
+  }, [file, processedUrl]);
 
   const cursorStyle = activeMode === 'none' 
     ? 'pointer' 
