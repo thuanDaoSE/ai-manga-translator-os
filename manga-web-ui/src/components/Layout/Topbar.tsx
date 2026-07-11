@@ -45,7 +45,7 @@ const GpuIcon = ({ size = 14, className = "" }: { size?: number; className?: str
 
 export default function Topbar() {
   const { t, i18n } = useTranslation();
-  const { isComparing, setIsComparing, showLeftPanel, toggleLeftPanel, viewLayout, setViewLayout } = useToolStore();
+  const { isComparing, setIsComparing, showLeftPanel, toggleLeftPanel } = useToolStore();
   const { user, signOut } = useAuthStore();
   const projectStore = useProjectStore();
   const { fileQueue, currentIndex } = projectStore;
@@ -449,17 +449,7 @@ export default function Topbar() {
 
       {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa) */}
       <div className="flex items-center justify-center flex-1 gap-4">
-        {/* Toggle Page/Webtoon View Mode */}
-        {!isSlicedWebtoon && (
-          <div className="flex items-center bg-background p-1 rounded-lg border border-border shadow-inner">
-            <button onClick={() => setViewLayout('page')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${viewLayout === 'page' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>
-              Từng trang
-            </button>
-            <button onClick={() => setViewLayout('webtoon')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${viewLayout === 'webtoon' ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>
-              Cuộn dọc (Webtoon)
-            </button>
-          </div>
-        )}
+
 
         {/* Toggle Raw/Clean View Mode */}
         <div className="flex items-center bg-[#18181b] border border-white/[0.04] p-1 rounded-lg">
