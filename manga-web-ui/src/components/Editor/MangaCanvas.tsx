@@ -200,6 +200,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
   const rawRef = useRef<HTMLCanvasElement>(null);
   const cleanRef = useRef<HTMLCanvasElement>(null);
   const originalCleanRef = useRef<HTMLCanvasElement>(null); // 🚀 Thêm ref Két sắt
+  const brushRef = useRef<HTMLCanvasElement>(null); // 🚀 Persistent brush layer
   const tempBufferCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isOriginalCleanLoadedRef = useRef<boolean>(false);
 
@@ -270,19 +271,46 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
     }, 2000);
   };
 
+  const getFlattenedDataUrl = (): string | null => {
+    const cleanCanvas = cleanRef.current;
+    const brushCanvas = brushRef.current;
+    if (!cleanCanvas) return null;
+    try {
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = cleanCanvas.width;
+      tempCanvas.height = cleanCanvas.height;
+      const tCtx = tempCanvas.getContext('2d')!;
+      tCtx.imageSmoothingEnabled = false;
+      tCtx.drawImage(cleanCanvas, 0, 0);
+      if (brushCanvas) {
+        tCtx.drawImage(brushCanvas, 0, 0);
+      }
+      return tempCanvas.toDataURL("image/png");
+    } catch (e) {
+      console.error("Failed to flatten canvas:", e);
+      return null;
+    }
+  };
+
+  const saveAndSync = () => {
+    const newUrl = getFlattenedDataUrl();
+    if (newUrl) {
+      lastSavedDataUrlRef.current = newUrl;
+      useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
+      useMangaEditorStore.getState().saveHistory();
+      useMangaEditorStore.getState().setImageUrl(newUrl);
+      saveCleanImageToServerDebounced(newUrl);
+    }
+  };
+
   // Tự động lưu ngay khi chuyển trang hoặc đóng tab nếu còn hàng chờ lưu
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
-        const targetCanvas = cleanRef.current;
-        if (targetCanvas) {
-          try {
-            const newUrl = targetCanvas.toDataURL("image/png");
-                 saveCleanImageToServerDebounced(newUrl);
-          } catch (e) {
-            console.error("Flush save failed:", e);
-          }
+        const newUrl = getFlattenedDataUrl();
+        if (newUrl) {
+          saveCleanImageToServer(newUrl);
         }
       }
     };
@@ -293,8 +321,8 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
   useEffect(() => {
     let isMounted = true;
 
-    // Clear preview and committed layers when changing page
-    [drawRef, committedRef].forEach(ref => {
+    // Clear preview, committed, and persistent brush layers when changing page
+    [drawRef, committedRef, brushRef].forEach(ref => {
       if (ref.current) {
         ref.current.getContext('2d')?.clearRect(0, 0, ref.current.width, ref.current.height);
       }
@@ -343,7 +371,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
       }
 
       if (w > 0 && h > 0) {
-        [cleanRef, drawRef, committedRef, originalCleanRef, rawRef].forEach(ref => {
+        [cleanRef, drawRef, committedRef, originalCleanRef, rawRef, brushRef].forEach(ref => {
           if (ref.current) {
             ref.current.width = w;
             ref.current.height = h;
@@ -409,21 +437,12 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           cleanCtx.imageSmoothingEnabled = false;
           cleanCtx.clearRect(0, 0, cleanCanvas.width, cleanCanvas.height);
           cleanCtx.drawImage(img, 0, 0);
-        }
-      }
 
-      const origCanvas = originalCleanRef.current;
-      if (origCanvas) {
-        if (origCanvas.width !== img.naturalWidth || origCanvas.height !== img.naturalHeight) {
-          origCanvas.width = img.naturalWidth;
-          origCanvas.height = img.naturalHeight;
-        }
-        const origCtx = origCanvas.getContext('2d');
-        if (origCtx) {
-          origCtx.imageSmoothingEnabled = false;
-          origCtx.clearRect(0, 0, origCanvas.width, origCanvas.height);
-          origCtx.drawImage(img, 0, 0);
-          isOriginalCleanLoadedRef.current = true;
+          // Clear persistent brush layer when displayUrl is sync'd from history/undo/redo
+          const brushCanvas = brushRef.current;
+          if (brushCanvas) {
+            brushCanvas.getContext('2d')?.clearRect(0, 0, brushCanvas.width, brushCanvas.height);
+          }
         }
       }
     };
@@ -652,14 +671,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             ctx.stroke();
             ctx.restore();
           } else if (type === 'eraser') {
-            const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
-            if (sourceCanvas && sourceCanvas.width > 0) {
-              ctx.save();
-              drawStroke(ctx, currentPoints.current, size, "rgba(0,0,0,1)");
-              ctx.globalCompositeOperation = 'source-in';
-              ctx.drawImage(sourceCanvas, 0, 0);
-              ctx.restore();
-            }
+            // Do nothing on preview canvas, as eraser works directly on brushRef in real-time
           } else {
             ctx.save();
             drawStroke(ctx, currentPoints.current, size, color);
@@ -873,9 +885,20 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           else if (mode === 'speedline') {
             const color = useToolStore.getState().speedlineColor || '#000000';
             if (type === 'eraser') {
-              const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
-              if (sourceCanvas && sourceCanvas.width > 0) {
-                drawRestoreSegment(ctx, sourceCanvas, lastPointRef.current, pos, currentBrushSize);
+              const brushCanvas = brushRef.current;
+              const brushCtx = brushCanvas?.getContext('2d');
+              if (brushCtx && lastPointRef.current) {
+                brushCtx.save();
+                brushCtx.globalCompositeOperation = 'destination-out';
+                brushCtx.lineCap = 'round';
+                brushCtx.lineJoin = 'round';
+                brushCtx.lineWidth = currentBrushSize;
+                brushCtx.strokeStyle = "rgba(0,0,0,1)";
+                brushCtx.beginPath();
+                brushCtx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
+                brushCtx.lineTo(pos.x, pos.y);
+                brushCtx.stroke();
+                brushCtx.restore();
               }
             } else {
               drawStrokeSegment(ctx, lastPointRef.current, pos, currentBrushSize, color);
@@ -957,12 +980,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
                 }
 
                 setTimeout(() => {
-                  const newUrl = targetCanvas.toDataURL("image/png");
-                  lastSavedDataUrlRef.current = newUrl;
-                  useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
-                  useMangaEditorStore.getState().saveHistory();
-                  useMangaEditorStore.getState().setImageUrl(newUrl);
-                  saveCleanImageToServerDebounced(newUrl);
+                  saveAndSync();
                 }, 50);
               } catch (err) {
                 console.error("Canvas Crash:", err);
@@ -980,7 +998,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           renderCanvas();
         }, 30);
       } else if (mode === 'clone') {
-        const targetCanvas = cleanRef.current;
+        const targetCanvas = brushRef.current;
         const targetCtx = targetCanvas?.getContext('2d');
         if (targetCanvas && targetCtx && cloneCopyCanvasRef.current && currentPoints.current.length > 0) {
           targetCtx.save();
@@ -1011,12 +1029,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           targetCtx.restore();
 
           setTimeout(() => {
-            const newUrl = targetCanvas.toDataURL("image/png");
-            lastSavedDataUrlRef.current = newUrl;
-            useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
-            useMangaEditorStore.getState().saveHistory();
-            useMangaEditorStore.getState().setImageUrl(newUrl);
-            saveCleanImageToServerDebounced(newUrl);
+            saveAndSync();
           }, 50);
         }
         cloneCopyCanvasRef.current = null;
@@ -1027,7 +1040,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           renderCanvas();
         }, 30);
       } else if (mode === 'speedline') {
-        const targetCanvas = cleanRef.current;
+        const targetCanvas = brushRef.current;
         const targetCtx = targetCanvas?.getContext('2d');
         if (targetCanvas && targetCtx && currentPoints.current.length > 0) {
           const color = useToolStore.getState().speedlineColor || '#000000';
@@ -1048,47 +1061,16 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             targetCtx.stroke();
             targetCtx.restore();
           } else if (type === 'eraser') {
-            const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
-            console.log("DEBUG_ERASER_UP:", {
-              isOriginalCleanLoaded: isOriginalCleanLoadedRef.current,
-              sourceCanvasWidth: sourceCanvas?.width,
-              sourceCanvasHeight: sourceCanvas?.height,
-              rawWidth: rawRef.current?.width,
-              originalCleanWidth: originalCleanRef.current?.width,
-              targetWidth: targetCanvas?.width,
-              pointsLength: currentPoints.current.length,
-              size
-            });
-            if (sourceCanvas && sourceCanvas.width > 0) {
-              try {
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = targetCanvas.width;
-                tempCanvas.height = targetCanvas.height;
-                const tCtx = tempCanvas.getContext('2d')!;
-                tCtx.imageSmoothingEnabled = false;
-
-                drawStroke(tCtx, currentPoints.current, size, "rgba(0,0,0,1)");
-                tCtx.globalCompositeOperation = 'source-in';
-                tCtx.drawImage(sourceCanvas, 0, 0);
-
-                targetCtx.save();
-                targetCtx.imageSmoothingEnabled = false;
-                targetCtx.drawImage(tempCanvas, 0, 0);
-                targetCtx.restore();
-              } catch (err) {
-                console.error("Eraser Crash:", err);
-              }
-            }
+            // Eraser uses destination-out to erase from brushRef
+            targetCtx.save();
+            targetCtx.globalCompositeOperation = 'destination-out';
+            drawStroke(targetCtx, currentPoints.current, size, "rgba(0,0,0,1)");
+            targetCtx.restore();
           } else {
             drawStroke(targetCtx, currentPoints.current, size, color);
           }
           setTimeout(() => {
-            const newUrl = targetCanvas.toDataURL("image/png");
-            lastSavedDataUrlRef.current = newUrl;
-            useProjectStore.getState().setProcessedUrl(useProjectStore.getState().currentIndex, newUrl);
-            useMangaEditorStore.getState().saveHistory();
-            useMangaEditorStore.getState().setImageUrl(newUrl);
-            saveCleanImageToServerDebounced(newUrl);
+            saveAndSync();
           }, 50);
         }
         setTimeout(() => {
@@ -1210,6 +1192,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
       <canvas ref={committedRef} className="hidden ph-no-capture" />
       {/* 🚀 Thêm Két sắt vào HTML để vẽ ẩn */}
       <canvas ref={originalCleanRef} className="hidden ph-no-capture" />
+      <canvas ref={brushRef} className="absolute top-0 left-0 z-20 w-full h-full pointer-events-none ph-no-capture" />
       <canvas
         ref={drawRef}
         id="draw-layer"
