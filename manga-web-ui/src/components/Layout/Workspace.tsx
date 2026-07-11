@@ -1957,7 +1957,7 @@ const WebtoonImage = ({
       <img 
         src={url || undefined} 
         crossOrigin="anonymous"
-        loading="lazy"
+        loading="eager"
         className="block w-full h-auto select-none pointer-events-none m-0 p-0" 
         alt={file.name} 
         draggable={false}
