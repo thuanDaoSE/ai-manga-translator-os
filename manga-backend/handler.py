@@ -378,7 +378,8 @@ def handler(job):
         img_b64 = job_input['image_base64']
         nparr = np.frombuffer(base64.b64decode(img_b64), np.uint8)
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        ocr_text = get_ocr_manager().recognize_crop(image, language='ja', is_vip=True)
+        lang = job_input.get('language') or job_input.get('source_language') or 'ja'
+        ocr_text = get_ocr_manager().recognize_crop(image, language=lang, is_vip=True)
         return {"status": "success", "text": ocr_text}
 
     # 🟢 3. LỆNH ERASE: Chỉ xóa mảng nhỏ (LaMa)
@@ -447,12 +448,13 @@ def handler(job):
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             count = 1
 
+            lang = job_input.get('language') or job_input.get('source_language') or 'ja'
             ocr_manager = get_ocr_manager()
             for cnt in contours:
                 x, y, w, h = cv2.boundingRect(cnt)
                 if w < 16 or h < 16: continue 
                 
-                japanese_text = ocr_manager.recognize_crop(image[y:y+h, x:x+w], language='ja', is_vip=True)
+                japanese_text = ocr_manager.recognize_crop(image[y:y+h, x:x+w], language=lang, is_vip=True)
                 extracted_data.append({"id": count, "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h}, "japanese": japanese_text.strip(), "vietnamese": ""})
                 count += 1
                 
