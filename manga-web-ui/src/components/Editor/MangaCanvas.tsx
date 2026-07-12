@@ -631,8 +631,6 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             ctx.lineTo(currentPos.current.x, currentPos.current.y);
             ctx.stroke();
             ctx.restore();
-          } else if (type === 'eraser') {
-            // Do nothing on preview canvas, as eraser works directly on brushRef in real-time
           } else if (type === 'brush') {
             // Do nothing on preview canvas, as brush works directly on brushRef in real-time
           }
@@ -760,15 +758,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
               brushCtx.arc(pos.x, pos.y, size / 2, 0, Math.PI * 2);
               brushCtx.fill();
               brushCtx.restore();
-            } else if (type === 'eraser') {
-              brushCtx.save();
-              brushCtx.globalCompositeOperation = 'destination-out';
-              brushCtx.fillStyle = "rgba(0,0,0,1)";
-              brushCtx.beginPath();
-              brushCtx.arc(pos.x, pos.y, size / 2, 0, Math.PI * 2);
-              brushCtx.fill();
-              brushCtx.restore();
-            }
+
           }
           if (type === 'line') {
             currentPos.current = { x: pos.x, y: pos.y };
@@ -899,23 +889,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           } 
           else if (mode === 'speedline') {
             const color = useToolStore.getState().speedlineColor || '#000000';
-            if (type === 'eraser') {
-              const brushCanvas = brushRef.current;
-              const brushCtx = brushCanvas?.getContext('2d');
-              if (brushCtx && lastPointRef.current) {
-                brushCtx.save();
-                brushCtx.globalCompositeOperation = 'destination-out';
-                brushCtx.lineCap = 'round';
-                brushCtx.lineJoin = 'round';
-                brushCtx.lineWidth = currentBrushSize;
-                brushCtx.strokeStyle = "rgba(0,0,0,1)";
-                brushCtx.beginPath();
-                brushCtx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
-                brushCtx.lineTo(pos.x, pos.y);
-                brushCtx.stroke();
-                brushCtx.restore();
-              }
-            } else if (type === 'brush') {
+            if (type === 'brush') {
               const brushCanvas = brushRef.current;
               const brushCtx = brushCanvas?.getContext('2d');
               if (brushCtx && lastPointRef.current) {

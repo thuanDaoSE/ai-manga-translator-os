@@ -219,16 +219,7 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
                   <Slash size={11} className="rotate-45" />
                   <span>Thẳng</span>
                 </button>
-                <button
-                  onClick={() => setSpeedlineType('eraser')}
-                  className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer ${
-                    speedlineType === 'eraser' ? 'bg-primary text-white shadow-md' : 'text-text-muted hover:text-text-main'
-                  }`}
-                  title="Tẩy nét vẽ tay"
-                >
-                  <Eraser size={11} />
-                  <span>Tẩy</span>
-                </button>
+
                 <button
                   onClick={() => setSpeedlineType('eyedropper')}
                   className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer ${
