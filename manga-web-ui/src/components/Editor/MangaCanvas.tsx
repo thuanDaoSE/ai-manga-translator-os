@@ -609,17 +609,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             ctx.drawImage(tempCanvas, 0, 0);
             ctx.restore();
           } else if (mode === 'restore') {
-            // 🚀 LẤY NGUỒN CỌ CHUẨN XÁC DỰA VÀO NÚT BẤM (Tự động fallback về raw nếu chưa có clean)
-            const restoreType = useToolStore.getState().restoreType;
-            const sourceCanvas = (restoreType === 'clean' && isOriginalCleanLoadedRef.current) ? originalCleanRef.current : rawRef.current;
-
-            if (sourceCanvas && sourceCanvas.width > 0) {
-              ctx.save();
-              drawStroke(ctx, currentPoints.current, currentBrushSize, "rgba(0, 0, 0, 1)");
-              ctx.globalCompositeOperation = 'source-in';
-              ctx.drawImage(sourceCanvas, 0, 0);
-              ctx.restore();
-            }
+            // Do nothing on preview canvas, as restore works directly on brushRef in real-time
           }
         }
         else if (mode === 'clone') {
@@ -784,6 +774,17 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             currentPos.current = { x: pos.x, y: pos.y };
           }
         }
+        if (mode === 'restore') {
+          const restoreType = useToolStore.getState().restoreType;
+          const sourceCanvas = (restoreType === 'clean' && isOriginalCleanLoadedRef.current) ? originalCleanRef.current : rawRef.current;
+          const brushCanvas = brushRef.current;
+          const brushCtx = brushCanvas?.getContext('2d');
+          if (sourceCanvas && brushCtx && sourceCanvas.width > 0) {
+            brushCtx.save();
+            drawRestoreSegment(brushCtx, sourceCanvas, pos, pos, currentBrushSize);
+            brushCtx.restore();
+          }
+        }
         if (mode === 'erase' || mode === 'redraw') {
           if (!tempBufferCanvasRef.current) {
             tempBufferCanvasRef.current = document.createElement('canvas');
@@ -877,8 +878,12 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           if (mode === 'restore') {
             const restoreType = useToolStore.getState().restoreType;
             const sourceCanvas = (restoreType === 'clean' && isOriginalCleanLoadedRef.current) ? originalCleanRef.current : rawRef.current;
-            if (sourceCanvas && sourceCanvas.width > 0) {
-              drawRestoreSegment(ctx, sourceCanvas, lastPointRef.current, pos, currentBrushSize);
+            const brushCanvas = brushRef.current;
+            const brushCtx = brushCanvas?.getContext('2d');
+            if (sourceCanvas && brushCtx && sourceCanvas.width > 0 && lastPointRef.current) {
+              brushCtx.save();
+              drawRestoreSegment(brushCtx, sourceCanvas, lastPointRef.current, pos, currentBrushSize);
+              brushCtx.restore();
             }
           } 
           else if (mode === 'clone') {
@@ -972,40 +977,11 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
               useToolStore.getState().setActionPosition({ x: e.clientX, y: e.clientY });
             }, 50);
           } else if (mode === 'restore') {
-            // 🚀 LƯU NÉT VẼ TỪ NGUỒN CỌ CHUẨN XÁC
-            const restoreType = useToolStore.getState().restoreType;
-            const sourceCanvas = restoreType === 'clean' ? originalCleanRef.current : rawRef.current;
-            const targetCanvas = cleanRef.current;
-
-            if (sourceCanvas && targetCanvas && sourceCanvas.width > 0) {
-              try {
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = targetCanvas.width;
-                tempCanvas.height = targetCanvas.height;
-                const tCtx = tempCanvas.getContext('2d')!;
-                tCtx.imageSmoothingEnabled = false;
-
-                drawStroke(tCtx, currentPoints.current, currentBrushSize, "rgba(0,0,0,1)");
-                tCtx.globalCompositeOperation = 'source-in';
-                tCtx.drawImage(sourceCanvas, 0, 0);
-
-                const targetCtx = targetCanvas.getContext('2d');
-                if (targetCtx) {
-                  targetCtx.save();
-                  targetCtx.imageSmoothingEnabled = false;
-                  targetCtx.drawImage(tempCanvas, 0, 0);
-                  targetCtx.restore();
-                }
-
-                setTimeout(() => {
-                  saveAndSync();
-                }, 50);
-              } catch (err) {
-                console.error("Canvas Crash:", err);
-                toast.error("Lỗi trình duyệt: Không thể lưu (Chặn CORS ảnh).");
-              }
-            } else {
-              toast.error("Vui lòng đợi ảnh tải xong trước khi cọ!");
+            const targetCanvas = brushRef.current;
+            if (targetCanvas && currentPoints.current.length > 0) {
+              setTimeout(() => {
+                saveAndSync();
+              }, 50);
             }
             useToolStore.getState().setActionPosition(null);
           }
