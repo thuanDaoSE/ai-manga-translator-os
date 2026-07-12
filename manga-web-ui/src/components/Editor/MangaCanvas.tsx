@@ -654,6 +654,8 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
       const mode = useToolStore.getState().activeMode;
       if (mode === 'none') return;
       
+      const currentBrushSize = useToolStore.getState().brushSize;
+      
       const isSpacePan = e.button === 0 && isSpacePressed.current;
       const isMiddleClick = e.button === 1;
       if (isSpacePan || isMiddleClick) {
@@ -665,7 +667,6 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
       
       e.preventDefault();
       const pos = getPointerPos(e);
-      const currentBrushSize = useToolStore.getState().brushSize;
       updateCursors(pos, e);
 
       const speedlineType = useToolStore.getState().speedlineType;
@@ -777,13 +778,6 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
               brushCtx.arc(pos.x, pos.y, size / 2, 0, Math.PI * 2);
               brushCtx.fill();
               brushCtx.restore();
-
-              const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
-              const cleanCanvas = cleanRef.current;
-              const cleanCtx = cleanCanvas?.getContext('2d');
-              if (sourceCanvas && cleanCtx && sourceCanvas.width > 0) {
-                drawRestoreSegment(cleanCtx, sourceCanvas, pos, pos, size);
-              }
             }
           }
           if (type === 'line') {
@@ -915,13 +909,6 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
                 brushCtx.lineTo(pos.x, pos.y);
                 brushCtx.stroke();
                 brushCtx.restore();
-              }
-
-              const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
-              const cleanCanvas = cleanRef.current;
-              const cleanCtx = cleanCanvas?.getContext('2d');
-              if (sourceCanvas && cleanCtx && sourceCanvas.width > 0 && lastPointRef.current) {
-                drawRestoreSegment(cleanCtx, sourceCanvas, lastPointRef.current, pos, currentBrushSize);
               }
             } else if (type === 'brush') {
               const brushCanvas = brushRef.current;
