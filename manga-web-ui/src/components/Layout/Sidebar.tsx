@@ -955,33 +955,52 @@ export default function Sidebar() {
   };
 
   useEffect(() => {
-    const newPreviews: Record<number, string> = {};
+    setPreviews(prev => {
+      const newPreviews = { ...prev };
+      let changed = false;
 
-    fileQueue.forEach((file, index) => {
-      if (projectStore.processedUrls[index]) {
-        newPreviews[index] = projectStore.processedUrls[index];
-      }
-      else if (file.size === 0) {
-        const pageId = projectStore.pageIds[index];
-        const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
-        newPreviews[index] = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}`;
-      }
-      else {
-        newPreviews[index] = URL.createObjectURL(file);
-      }
-    });
-
-    setPreviews(newPreviews);
-
-    return () => {
-      Object.values(newPreviews).forEach(url => {
-        if (url.startsWith('blob:')) {
-          // 🚀 BẢN VÁ: Trì hoãn việc xóa Blob URL 10 giây để trình duyệt không báo lỗi đỏ lòm
-          setTimeout(() => URL.revokeObjectURL(url), 10000);
+      fileQueue.forEach((file, index) => {
+        if (projectStore.processedUrls[index]) {
+          if (newPreviews[index] !== projectStore.processedUrls[index]) {
+            if (newPreviews[index] && newPreviews[index].startsWith('blob:')) {
+              URL.revokeObjectURL(newPreviews[index]);
+            }
+            newPreviews[index] = projectStore.processedUrls[index];
+            changed = true;
+          }
+        }
+        else if (file.size === 0) {
+          const pageId = projectStore.pageIds[index];
+          const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
+          const serverUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}`;
+          if (newPreviews[index] !== serverUrl) {
+            newPreviews[index] = serverUrl;
+            changed = true;
+          }
+        }
+        else {
+          if (!newPreviews[index] || !newPreviews[index].startsWith('blob:')) {
+            newPreviews[index] = URL.createObjectURL(file);
+            changed = true;
+          }
         }
       });
-    };
-  }, [fileQueue, projectStore.processedUrls]);
+
+      // Clean up deleted items from previews
+      Object.keys(newPreviews).forEach(key => {
+        const idx = parseInt(key, 10);
+        if (idx >= fileQueue.length) {
+          if (newPreviews[idx] && newPreviews[idx].startsWith('blob:')) {
+            URL.revokeObjectURL(newPreviews[idx]);
+          }
+          delete newPreviews[idx];
+          changed = true;
+        }
+      });
+
+      return changed ? newPreviews : prev;
+    });
+  }, [fileQueue, projectStore.processedUrls, projectStore.pageIds, projectStore.projectId]);
 
   // ── GROUPING DEFINITIONS ──
   interface GroupedItem {
