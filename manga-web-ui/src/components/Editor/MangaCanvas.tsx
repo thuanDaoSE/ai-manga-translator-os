@@ -1033,7 +1033,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           }, 50);
         }
         cloneCopyCanvasRef.current = null;
-        isOffsetSetRef.current = false;
+        // Keep isOffsetSetRef.current = true for Aligned ON mode (alignment persists across strokes)
         setTimeout(() => {
           isDrawing.current = false;
           currentPoints.current = [];
