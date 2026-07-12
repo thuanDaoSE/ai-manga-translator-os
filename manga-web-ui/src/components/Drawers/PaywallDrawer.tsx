@@ -37,9 +37,9 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const predefinedAmounts = [
-    { value: 20000, label: '20.000đ', name: 'Khởi Đầu' },
-    { value: 50000, label: '50.000đ', name: 'Cày Cuốc' },
-    { value: 200000, label: '200.000đ', name: 'Studio' },
+    { value: 20000, label: '20k' },
+    { value: 50000, label: '50k' },
+    { value: 200000, label: '200k' },
   ];
 
   const finalAmount = selectedAmount;
@@ -157,10 +157,9 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                 <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block">
                   {t('paywall.quickSelect')}
                 </label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   {predefinedAmounts.map((pkg) => {
-                  const { total, bonus, percent } = calculateSeconds(pkg.value);
-                  const isSelected = selectedAmount === pkg.value;
+                    const isSelected = selectedAmount === pkg.value;
                     return (
                       <button
                         key={pkg.value}
@@ -169,31 +168,13 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                           setSelectedAmount(pkg.value);
                           setCustomAmount('');
                         }}
-                        className={`p-4 rounded-2xl border text-left flex flex-col justify-between transition-all relative overflow-hidden cursor-pointer ${
+                        className={`py-3 px-4 rounded-xl border text-center font-bold text-sm transition-all cursor-pointer ${
                           isSelected
-                            ? 'border-indigo-500 bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.2)]'
-                            : 'border-gray-800 bg-neutral-900/50 hover:bg-neutral-800/80 hover:border-gray-700'
+                            ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.2)]'
+                            : 'border-gray-800 bg-neutral-900/50 hover:bg-neutral-800/80 hover:border-gray-700 text-gray-300'
                         }`}
                       >
-                        {percent > 0 && (
-                          <span className="absolute top-2 right-2 bg-emerald-500/10 text-emerald-400 text-[8px] font-black px-1.5 py-0.5 rounded-full border border-emerald-500/20">
-                            +{percent}% Bonus
-                          </span>
-                        )}
-                        <div className="flex flex-col gap-0.5 mt-1">
-                          <span className="text-xs font-bold text-indigo-400 block mb-1">
-                            {pkg.name}
-                          </span>
-                          <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
-                            {t('paywall.receiveCreditsShort', { count: total })}
-                          </span>
-                          {bonus > 0 && (
-                            <span className="text-[10px] text-emerald-400 font-bold block">
-                              {t('paywall.bonusShort', { count: bonus })}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-lg font-black text-white mt-3">{pkg.label}</span>
+                        {pkg.label}
                       </button>
                     );
                   })}
