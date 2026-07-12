@@ -776,6 +776,13 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
               brushCtx.arc(pos.x, pos.y, size / 2, 0, Math.PI * 2);
               brushCtx.fill();
               brushCtx.restore();
+
+              const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
+              const cleanCanvas = cleanRef.current;
+              const cleanCtx = cleanCanvas?.getContext('2d');
+              if (sourceCanvas && cleanCtx && sourceCanvas.width > 0) {
+                drawRestoreSegment(cleanCtx, sourceCanvas, pos, pos, size);
+              }
             }
           }
           if (type === 'line') {
@@ -907,6 +914,13 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
                 brushCtx.lineTo(pos.x, pos.y);
                 brushCtx.stroke();
                 brushCtx.restore();
+              }
+
+              const sourceCanvas = isOriginalCleanLoadedRef.current ? originalCleanRef.current : rawRef.current;
+              const cleanCanvas = cleanRef.current;
+              const cleanCtx = cleanCanvas?.getContext('2d');
+              if (sourceCanvas && cleanCtx && sourceCanvas.width > 0 && lastPointRef.current) {
+                drawRestoreSegment(cleanCtx, sourceCanvas, lastPointRef.current, pos, currentBrushSize);
               }
             } else if (type === 'brush') {
               const brushCanvas = brushRef.current;
