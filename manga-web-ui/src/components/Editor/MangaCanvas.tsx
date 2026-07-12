@@ -758,7 +758,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
               brushCtx.arc(pos.x, pos.y, size / 2, 0, Math.PI * 2);
               brushCtx.fill();
               brushCtx.restore();
-
+            }
           }
           if (type === 'line') {
             currentPos.current = { x: pos.x, y: pos.y };
