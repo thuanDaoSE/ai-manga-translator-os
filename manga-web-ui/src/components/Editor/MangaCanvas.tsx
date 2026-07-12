@@ -665,6 +665,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
       
       e.preventDefault();
       const pos = getPointerPos(e);
+      const currentBrushSize = useToolStore.getState().brushSize;
       updateCursors(pos, e);
 
       const speedlineType = useToolStore.getState().speedlineType;
