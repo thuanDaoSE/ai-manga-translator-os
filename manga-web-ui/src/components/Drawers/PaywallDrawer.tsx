@@ -12,7 +12,7 @@ interface PaywallDrawerProps {
 }
 
 const calculateSeconds = (vnd: number) => {
-  const baseSeconds = (vnd / 10000) * 900;
+  const baseSeconds = (vnd / 1000) * 100;
   return {
     base: baseSeconds,
     bonus: 0,
@@ -26,6 +26,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   const user = useAuthStore((state) => state.user);
   const fetchProfile = useAuthStore((state) => state.fetchProfile);
   const [selectedAmount, setSelectedAmount] = useState<number>(50000);
+  const [customAmount, setCustomAmount] = useState<string>('');
   const [isPolicyOpen, setIsPolicyOpen] = useState(false);
   
   const [isLoading, setIsLoading] = useState(false);
@@ -36,10 +37,9 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const predefinedAmounts = [
-    { value: 25000, label: '25.000đ', name: 'Trà Đá' },
+    { value: 20000, label: '20.000đ', name: 'Khởi Đầu' },
     { value: 50000, label: '50.000đ', name: 'Cày Cuốc' },
-    { value: 100000, label: '100.000đ', name: 'Dân Pro' },
-    { value: 150000, label: '150.000đ', name: 'Studio' },
+    { value: 200000, label: '200.000đ', name: 'Studio' },
   ];
 
   const finalAmount = selectedAmount;
@@ -64,11 +64,22 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
       setQrCode(null);
       setOrderCode(null);
       setSelectedAmount(50000);
+      setCustomAmount('');
     }
   }, [isOpen]);
 
+  const handleCustomAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setCustomAmount(val);
+    if (val) {
+      setSelectedAmount(parseInt(val) || 0);
+    } else {
+      setSelectedAmount(0);
+    }
+  };
+
   const handleGeneratePayment = async () => {
-    if (finalAmount < 25000) {
+    if (finalAmount < 20000) {
       return toast.error(t('paywall.minAmountError'));
     }
 
@@ -156,6 +167,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                         type="button"
                         onClick={() => {
                           setSelectedAmount(pkg.value);
+                          setCustomAmount('');
                         }}
                         className={`p-4 rounded-2xl border text-left flex flex-col justify-between transition-all relative overflow-hidden cursor-pointer ${
                           isSelected
@@ -186,6 +198,30 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Custom Amount Input */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block">
+                  {t('paywall.customAmountLabel')}
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="20000"
+                    step="1000"
+                    value={customAmount}
+                    onChange={handleCustomAmountChange}
+                    placeholder={t('paywall.customAmountInputPlaceholder')}
+                    className="w-full bg-neutral-900/50 border border-gray-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-2xl px-4 py-3.5 pr-12 text-sm text-white placeholder-gray-600 transition-all outline-none"
+                  />
+                  <span className="absolute right-4 top-3.5 text-xs font-bold text-gray-500">VNĐ</span>
+                </div>
+                {customAmount && parseInt(customAmount) < 20000 && (
+                  <span className="text-[10px] text-rose-500 font-bold block">
+                    {t('paywall.minRechargeWarning')}
+                  </span>
+                )}
               </div>
             </>
           ) : (
@@ -252,7 +288,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
           <div className="p-5 border-t border-gray-800/60 bg-black/10 flex flex-col gap-3">
             <button
               onClick={handleGeneratePayment}
-              disabled={isLoading || finalAmount < 25000}
+              disabled={isLoading || finalAmount < 20000}
               className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-bold text-xs uppercase tracking-wider py-4 rounded-xl transition-all duration-200 cursor-pointer active:scale-[0.98] shadow-[0_4px_15px_rgba(79,70,229,0.3)]"
             >
               {isLoading ? (
