@@ -623,36 +623,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           }
         }
         else if (mode === 'clone') {
-          if (cloneCopyCanvasRef.current && cloneSource) {
-            ctx.save();
-            const points = currentPoints.current;
-            if (points.length > 0) {
-              for (let i = 0; i < points.length; i++) {
-                if (i > 0) {
-                  const p1 = points[i - 1];
-                  const p2 = points[i];
-                  const dx = p2.x - p1.x;
-                  const dy = p2.y - p1.y;
-                  const dist = Math.sqrt(dx * dx + dy * dy);
-                  const step = 2;
-                  if (dist > step) {
-                    const steps = Math.ceil(dist / step);
-                    for (let j = 0; j <= steps; j++) {
-                      const t = j / steps;
-                      const ix = p1.x + dx * t;
-                      const iy = p1.y + dy * t;
-                      drawClonePoint(ctx, cloneCopyCanvasRef.current, ix, iy, offsetRef.current, currentBrushSize);
-                    }
-                  } else {
-                    drawClonePoint(ctx, cloneCopyCanvasRef.current, p2.x, p2.y, offsetRef.current, currentBrushSize);
-                  }
-                } else {
-                  drawClonePoint(ctx, cloneCopyCanvasRef.current, points[i].x, points[i].y, offsetRef.current, currentBrushSize);
-                }
-              }
-            }
-            ctx.restore();
-          }
+          // Do nothing on preview canvas, as clone stamp works directly on brushRef in real-time
         }
         else if (mode === 'speedline') {
           const color = useToolStore.getState().speedlineColor || '#000000';
@@ -672,10 +643,8 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             ctx.restore();
           } else if (type === 'eraser') {
             // Do nothing on preview canvas, as eraser works directly on brushRef in real-time
-          } else {
-            ctx.save();
-            drawStroke(ctx, currentPoints.current, size, color);
-            ctx.restore();
+          } else if (type === 'brush') {
+            // Do nothing on preview canvas, as brush works directly on brushRef in real-time
           }
         }
       }
@@ -759,6 +728,14 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           const copyCtx = copyCanvas.getContext('2d')!;
           copyCtx.drawImage(cleanCanvas, 0, 0);
           cloneCopyCanvasRef.current = copyCanvas;
+
+          const brushCanvas = brushRef.current;
+          const brushCtx = brushCanvas?.getContext('2d');
+          if (brushCtx) {
+            brushCtx.save();
+            drawClonePoint(brushCtx, copyCanvas, pos.x, pos.y, offsetRef.current, currentBrushSize);
+            brushCtx.restore();
+          }
         }
 
         renderCanvas();
@@ -777,8 +754,33 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
       } else {
         currentPoints.current = [{ x: pos.x, y: pos.y }];
         lastPointRef.current = pos;
-        if (mode === 'speedline' && useToolStore.getState().speedlineType === 'line') {
-          currentPos.current = { x: pos.x, y: pos.y };
+        if (mode === 'speedline') {
+          const type = useToolStore.getState().speedlineType;
+          const size = useToolStore.getState().brushSize || 35;
+          const color = useToolStore.getState().speedlineColor || '#000000';
+          const brushCanvas = brushRef.current;
+          const brushCtx = brushCanvas?.getContext('2d');
+          if (brushCtx) {
+            if (type === 'brush') {
+              brushCtx.save();
+              brushCtx.fillStyle = color;
+              brushCtx.beginPath();
+              brushCtx.arc(pos.x, pos.y, size / 2, 0, Math.PI * 2);
+              brushCtx.fill();
+              brushCtx.restore();
+            } else if (type === 'eraser') {
+              brushCtx.save();
+              brushCtx.globalCompositeOperation = 'destination-out';
+              brushCtx.fillStyle = "rgba(0,0,0,1)";
+              brushCtx.beginPath();
+              brushCtx.arc(pos.x, pos.y, size / 2, 0, Math.PI * 2);
+              brushCtx.fill();
+              brushCtx.restore();
+            }
+          }
+          if (type === 'line') {
+            currentPos.current = { x: pos.x, y: pos.y };
+          }
         }
         if (mode === 'erase' || mode === 'redraw') {
           if (!tempBufferCanvasRef.current) {
@@ -879,7 +881,13 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           } 
           else if (mode === 'clone') {
             if (cloneCopyCanvasRef.current && cloneSource) {
-              drawCloneSegment(ctx, cloneCopyCanvasRef.current, lastPointRef.current, pos, offsetRef.current, currentBrushSize);
+              const brushCanvas = brushRef.current;
+              const brushCtx = brushCanvas?.getContext('2d');
+              if (brushCtx && lastPointRef.current) {
+                brushCtx.save();
+                drawCloneSegment(brushCtx, cloneCopyCanvasRef.current, lastPointRef.current, pos, offsetRef.current, currentBrushSize);
+                brushCtx.restore();
+              }
             }
           } 
           else if (mode === 'speedline') {
@@ -900,7 +908,15 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
                 brushCtx.stroke();
                 brushCtx.restore();
               }
-            } else {
+            } else if (type === 'brush') {
+              const brushCanvas = brushRef.current;
+              const brushCtx = brushCanvas?.getContext('2d');
+              if (brushCtx && lastPointRef.current) {
+                brushCtx.save();
+                drawStrokeSegment(brushCtx, lastPointRef.current, pos, currentBrushSize, color);
+                brushCtx.restore();
+              }
+            } else if (type === 'line') {
               drawStrokeSegment(ctx, lastPointRef.current, pos, currentBrushSize, color);
             }
           }
@@ -999,35 +1015,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
         }, 30);
       } else if (mode === 'clone') {
         const targetCanvas = brushRef.current;
-        const targetCtx = targetCanvas?.getContext('2d');
-        if (targetCanvas && targetCtx && cloneCopyCanvasRef.current && currentPoints.current.length > 0) {
-          targetCtx.save();
-          const points = currentPoints.current;
-          for (let i = 0; i < points.length; i++) {
-            if (i > 0) {
-              const p1 = points[i - 1];
-              const p2 = points[i];
-              const dx = p2.x - p1.x;
-              const dy = p2.y - p1.y;
-              const dist = Math.sqrt(dx * dx + dy * dy);
-              const step = 2;
-              if (dist > step) {
-                const steps = Math.ceil(dist / step);
-                for (let j = 0; j <= steps; j++) {
-                  const t = j / steps;
-                  const ix = p1.x + dx * t;
-                  const iy = p1.y + dy * t;
-                  drawClonePoint(targetCtx, cloneCopyCanvasRef.current, ix, iy, offsetRef.current, currentBrushSize);
-                }
-              } else {
-                drawClonePoint(targetCtx, cloneCopyCanvasRef.current, p2.x, p2.y, offsetRef.current, currentBrushSize);
-              }
-            } else {
-              drawClonePoint(targetCtx, cloneCopyCanvasRef.current, points[i].x, points[i].y, offsetRef.current, currentBrushSize);
-            }
-          }
-          targetCtx.restore();
-
+        if (targetCanvas && cloneCopyCanvasRef.current && currentPoints.current.length > 0) {
           setTimeout(() => {
             saveAndSync();
           }, 50);
@@ -1060,15 +1048,8 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             targetCtx.lineTo(pos.x, pos.y);
             targetCtx.stroke();
             targetCtx.restore();
-          } else if (type === 'eraser') {
-            // Eraser uses destination-out to erase from brushRef
-            targetCtx.save();
-            targetCtx.globalCompositeOperation = 'destination-out';
-            drawStroke(targetCtx, currentPoints.current, size, "rgba(0,0,0,1)");
-            targetCtx.restore();
-          } else {
-            drawStroke(targetCtx, currentPoints.current, size, color);
           }
+          
           setTimeout(() => {
             saveAndSync();
           }, 50);
