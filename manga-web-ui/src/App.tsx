@@ -10,8 +10,9 @@ import { useToolStore } from './store/useToolStore';
 import { useCanvasStore } from './store/useCanvasStore';
 import { useProjectStore } from './store/useProjectStore';
 import { useAuthStore } from './store/useAuthStore';
+import { useConfigStore } from './store/useConfigStore';
 import { supabase } from './services/supabaseClient';
-import { Toaster } from 'react-hot-toast';
+import toast, { Toaster } from 'react-hot-toast';
 import RightSidebar from './components/Layout/RightSidebar';
 
 import TestFabric from './components/TestFabric';
@@ -20,9 +21,11 @@ import { mangaApi } from './services/api';
 // 🚀 BẢN VÁ: Import hàm quản lý Font cá nhân
 
 export default function App() {
-  const { isZenMode, toggleZenMode, setActiveMode, showLeftPanel, scanModal, showRightPanel, activeMode, actionPosition } = useToolStore();
+  const { isZenMode, toggleZenMode, setActiveMode, showLeftPanel, scanModal, showRightPanel, activeMode, actionPosition, setShowRightPanel } = useToolStore();
   const { setUser, session, user, loading } = useAuthStore();
   const { projectId } = useProjectStore();
+  const bubbles = useCanvasStore((state) => state.bubbles);
+  const activeBubbleId = useCanvasStore((state) => state.activeBubbleId);
   const hasRestored = useRef(false);
 
   // 🚀 KHÔI PHỤC FONT TỪ TRÌNH DUYỆT LÊN NGAY KHI MỞ WEB
@@ -50,8 +53,8 @@ export default function App() {
       id: "default-mock-user",
       email: "td2005dataeg@gmail.com",
       user_metadata: { email: "td2005dataeg@gmail.com" },
-      credits: 99999,
-      isPro: true
+      credits: 1200,
+      isPro: false
     };
     const mockSession = {
       access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZWZhdWx0LW1vY2stdXNlciIsImVtYWlsIjoidGQyMDA1ZGF0YWVnQGdtYWlsLmNvbSJ9.signature",
@@ -98,9 +101,15 @@ export default function App() {
   }, [session?.user?.id]);
 
   useHotkeys('v', () => setActiveMode('none'), { enableOnFormTags: false });
-  useHotkeys('b', () => setActiveMode('restore'), { enableOnFormTags: false });
+  useHotkeys('y', () => setActiveMode('restore'), { enableOnFormTags: false });
   useHotkeys('e', () => setActiveMode('erase'), { enableOnFormTags: false });
-  useHotkeys('s', () => setActiveMode('scan'), { enableOnFormTags: false });
+  useHotkeys('w', () => setActiveMode('scan'), { enableOnFormTags: false });
+  useHotkeys('s', () => setActiveMode('clone'), { enableOnFormTags: false });
+  useHotkeys('b', () => setActiveMode('speedline'), { enableOnFormTags: false });
+  useHotkeys('i', () => {
+    setActiveMode('speedline');
+    useToolStore.getState().setSpeedlineType('eyedropper');
+  }, { enableOnFormTags: false });
   useHotkeys('r', () => {
     if (useAuthStore.getState().user?.email === 'td2005dataeg@gmail.com') {
       setActiveMode('redraw');
@@ -120,6 +129,43 @@ export default function App() {
     useProjectStore.getState().redoUrl();
     useCanvasStore.getState().redo();
   }, { enableOnFormTags: false });
+
+  // 🚀 TỰ ĐỘNG ẨN/HIỆN RIGHT SIDEBAR THÔNG MINH
+  useEffect(() => {
+    if (bubbles.length === 0) {
+      setShowRightPanel(false);
+    } else {
+      setShowRightPanel(true);
+    }
+  }, [bubbles.length, setShowRightPanel]);
+
+  useEffect(() => {
+    if (activeBubbleId) {
+      setShowRightPanel(true);
+    }
+  }, [activeBubbleId, setShowRightPanel]);
+
+  // 🚀 ĐẾM THỜI GIAN THỰC THI CỦA TÁC VỤ AI (REQUEST TIMER)
+  const isProcessing = useToolStore((state) => state.isProcessing);
+  const setElapsedSeconds = useToolStore((state) => state.setElapsedSeconds);
+
+  useEffect(() => {
+    let timerId: any = null;
+    if (isProcessing) {
+      setElapsedSeconds(0);
+      timerId = setInterval(() => {
+        const currentSec = useToolStore.getState().elapsedSeconds;
+        useToolStore.getState().setElapsedSeconds(currentSec + 1);
+      }, 1000);
+    }
+    return () => {
+      if (timerId) {
+        clearInterval(timerId);
+      }
+    };
+  }, [isProcessing, setElapsedSeconds]);
+
+
 
   const [showAuthModal, setShowAuthModal] = useState(false);
 

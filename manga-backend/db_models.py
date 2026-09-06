@@ -158,4 +158,18 @@ class TimeLog(Base):
     amount = Column(Float, nullable=False) # Số giây thay đổi (âm hoặc dương)
     action_type = Column(String, nullable=False) # TRANSLATE_LAMA, VÀ_NỀN_RUNPOD, REGISTER_BONUS, REFUND, DEPOSIT
     description = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class GPUSession(Base):
+    __tablename__ = "gpu_sessions"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    start_time = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    end_time = Column(DateTime(timezone=True), nullable=True)
+    duration_seconds = Column(Integer, default=0)
+    credits_deducted = Column(Float, default=0.0)
+    apis_called = Column(Text, default="[]") # JSON string list of actions
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

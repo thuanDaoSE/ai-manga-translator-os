@@ -56,7 +56,8 @@ export const useGlobalShortcuts = () => {
       }
 
       const keyToToolMap: Record<string, any> = {
-        'v': 'none', 'e': 'erase', 'b': 'restore', 's': 'scan', 'r': 'redraw', ' ': 'pan',
+        'v': 'none', 'e': 'erase', 'y': 'restore', 'w': 'scan', 'r': 'redraw',
+        's': 'clone', 'b': 'speedline',
       };
 
       if (key === 'r' && useAuthStore.getState().user?.email !== 'td2005dataeg@gmail.com') {

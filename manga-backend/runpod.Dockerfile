@@ -4,6 +4,8 @@ FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
 WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib64:$LD_LIBRARY_PATH
+ENV VLM_MOCK=false
+ENV RUNPOD_ENDPOINT_TYPE=translate
 
 # Cài đặt thư viện lõi (Đã xóa redis-server vì không cần thiết trên Serverless)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -21,6 +23,8 @@ RUN pip uninstall -y onnxruntime onnxruntime-gpu && \
 
 # Copy bộ não AI vào Docker
 COPY handler.py /app/handler.py
+COPY ocr_manager.py /app/ocr_manager.py
+COPY detector.onnx /app/detector.onnx
 COPY lama-manga.onnx /app/lama-manga.onnx
 COPY comic_text_detector /app/comic_text_detector
 

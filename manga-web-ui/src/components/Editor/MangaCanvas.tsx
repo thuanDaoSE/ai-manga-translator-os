@@ -877,7 +877,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             }
           } 
           else if (mode === 'clone') {
-            if (cloneCopyCanvasRef.current && cloneSource) {
+            if (cloneCopyCanvasRef.current && useToolStore.getState().cloneSource) {
               const brushCanvas = brushRef.current;
               const brushCtx = brushCanvas?.getContext('2d');
               if (brushCtx && lastPointRef.current) {
@@ -1125,7 +1125,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
       <canvas ref={committedRef} className="hidden ph-no-capture" />
       {/* 🚀 Thêm Két sắt vào HTML để vẽ ẩn */}
       <canvas ref={originalCleanRef} className="hidden ph-no-capture" />
-      <canvas ref={brushRef} className="absolute top-0 left-0 z-20 w-full h-full pointer-events-none ph-no-capture" />
+      <canvas ref={brushRef} className="absolute top-0 left-0 z-35 w-full h-full pointer-events-none ph-no-capture" />
       <canvas
         ref={drawRef}
         id="draw-layer"

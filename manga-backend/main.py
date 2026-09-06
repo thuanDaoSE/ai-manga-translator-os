@@ -1360,43 +1360,32 @@ async def erase_mask(
         
         # Fetch raw image directly to RAM (local disk read if local, otherwise HTTP fetch)
         img_raw = payload.image_url
-        image = None
+        base_url = get_base_url()
+        is_local_img = False
+        img_path_local = ""
+        
+        if not img_raw.startswith("http"):
+            is_local_img = True
+            img_path_local = img_raw
+        elif "localhost:8000" in img_raw or "127.0.0.1:8000" in img_raw:
+            is_local_img = True
+            img_path_local = img_raw.split("8000/")[-1]
+        elif base_url in img_raw:
+            is_local_img = True
+            img_path_local = img_raw.split(base_url)[-1]
+        elif "/workspace/" in img_raw:
+            is_local_img = True
+            img_path_local = "workspace/" + img_raw.split("/workspace/")[-1]
 
-        if img_raw.startswith("data:"):
-            print("[erase_mask] Loading image from base64 data URL")
-            b64_data = img_raw
-            if "," in b64_data:
-                b64_data = b64_data.split(",")[1]
-            img_bytes = base64.b64decode(b64_data)
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if is_local_img:
+            img_path_local = img_path_local.split('?')[0]
+            if img_path_local.startswith("/"):
+                img_path_local = img_path_local[1:]
+            print(f"[erase_mask] Loading image locally from: {img_path_local}")
+            image = cv2.imread(img_path_local, cv2.IMREAD_COLOR)
         else:
-            base_url = get_base_url()
-            is_local_img = False
-            img_path_local = ""
-
-            if not img_raw.startswith("http"):
-                is_local_img = True
-                img_path_local = img_raw
-            elif "localhost:8000" in img_raw or "127.0.0.1:8000" in img_raw:
-                is_local_img = True
-                img_path_local = img_raw.split("8000/")[-1]
-            elif base_url in img_raw:
-                is_local_img = True
-                img_path_local = img_raw.split(base_url)[-1]
-            elif "/workspace/" in img_raw:
-                is_local_img = True
-                img_path_local = "workspace/" + img_raw.split("/workspace/")[-1]
-
-            if is_local_img:
-                img_path_local = img_path_local.split('?')[0]
-                if img_path_local.startswith("/"):
-                    img_path_local = img_path_local[1:]
-                print(f"[erase_mask] Loading image locally from: {img_path_local}")
-                image = cv2.imread(img_path_local, cv2.IMREAD_COLOR)
-            else:
-                print(f"[erase_mask] Fetching image from remote URL: {img_raw}")
-                image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
+            print(f"[erase_mask] Fetching image from remote URL: {img_raw}")
+            image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
 
         if image is None:
             raise HTTPException(status_code=400, detail="Không thể đọc ảnh gốc. File không tồn tại hoặc định dạng không hợp lệ.")
@@ -1616,43 +1605,32 @@ async def ai_redraw_mask(
         
         # Load raw image
         img_raw = payload.image_url
-        image = None
+        base_url = get_base_url()
+        is_local_img = False
+        img_path_local = ""
+        
+        if not img_raw.startswith("http"):
+            is_local_img = True
+            img_path_local = img_raw
+        elif "localhost:8000" in img_raw or "127.0.0.1:8000" in img_raw:
+            is_local_img = True
+            img_path_local = img_raw.split("8000/")[-1]
+        elif base_url in img_raw:
+            is_local_img = True
+            img_path_local = img_raw.split(base_url)[-1]
+        elif "/workspace/" in img_raw:
+            is_local_img = True
+            img_path_local = "workspace/" + img_raw.split("/workspace/")[-1]
 
-        if img_raw.startswith("data:"):
-            print("[ai_redraw_mask] Loading image from base64 data URL")
-            b64_data = img_raw
-            if "," in b64_data:
-                b64_data = b64_data.split(",")[1]
-            img_bytes = base64.b64decode(b64_data)
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if is_local_img:
+            img_path_local = img_path_local.split('?')[0]
+            if img_path_local.startswith("/"):
+                img_path_local = img_path_local[1:]
+            print(f"[ai_redraw_mask] Loading image locally from: {img_path_local}")
+            image = cv2.imread(img_path_local, cv2.IMREAD_COLOR)
         else:
-            base_url = get_base_url()
-            is_local_img = False
-            img_path_local = ""
-
-            if not img_raw.startswith("http"):
-                is_local_img = True
-                img_path_local = img_raw
-            elif "localhost:8000" in img_raw or "127.0.0.1:8000" in img_raw:
-                is_local_img = True
-                img_path_local = img_raw.split("8000/")[-1]
-            elif base_url in img_raw:
-                is_local_img = True
-                img_path_local = img_raw.split(base_url)[-1]
-            elif "/workspace/" in img_raw:
-                is_local_img = True
-                img_path_local = "workspace/" + img_raw.split("/workspace/")[-1]
-
-            if is_local_img:
-                img_path_local = img_path_local.split('?')[0]
-                if img_path_local.startswith("/"):
-                    img_path_local = img_path_local[1:]
-                print(f"[ai_redraw_mask] Loading image locally from: {img_path_local}")
-                image = cv2.imread(img_path_local, cv2.IMREAD_COLOR)
-            else:
-                print(f"[ai_redraw_mask] Fetching image from remote URL: {img_raw}")
-                image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
+            print(f"[ai_redraw_mask] Fetching image from remote URL: {img_raw}")
+            image = await fetch_image_from_url(img_raw, cv2.IMREAD_COLOR)
 
         if image is None:
             raise HTTPException(status_code=400, detail="Không thể đọc ảnh gốc.")
@@ -1791,56 +1769,7 @@ async def ai_redraw_mask(
                     dl_res.raise_for_status()
                     clean_crop_b64 = base64.b64encode(dl_res.content).decode("utf-8")
             elif mode == "anytext":
-                print(f"[ai_redraw_mask] Mode anytext: calling RunPod AnyText endpoint...")
-                _, img_buf = cv2.imencode('.png', crop_image)
-                img_b64 = base64.b64encode(img_buf.tobytes()).decode('utf-8')
-                
-                _, mask_buf = cv2.imencode('.png', crop_mask)
-                mask_b64 = base64.b64encode(mask_buf.tobytes()).decode('utf-8')
-                
-                anytext_endpoint_id = os.getenv("RUNPOD_ANYTEXT_ENDPOINT_ID")
-                if not anytext_endpoint_id or anytext_endpoint_id == "template_anytext_endpoint_id_please_replace_me":
-                    raise Exception("Chưa cấu hình RUNPOD_ANYTEXT_ENDPOINT_ID trong file .env")
-                
-                runpod_url = f"https://api.runpod.ai/v2/{anytext_endpoint_id}/run"
-                headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"}
-                
-                async with httpx.AsyncClient() as client:
-                    res = await client.post(runpod_url, json={
-                        "input": {
-                            "action": "text-editing",
-                            "image": img_b64,
-                            "draw_pos": mask_b64,
-                            "prompt": payload.prompt,
-                            "seed": 8943410
-                        }
-                    }, headers=headers, timeout=30.0)
-                    res.raise_for_status()
-                    res_json = res.json()
-                    runpod_job_id = res_json.get("id")
-                    
-                    if not runpod_job_id:
-                        raise Exception(f"RunPod failed to start AnyText job: {res_json}")
-                        
-                    for _ in range(60):
-                        await asyncio.sleep(2)
-                        status_res = await client.get(f"https://api.runpod.ai/v2/{anytext_endpoint_id}/status/{runpod_job_id}", headers=headers)
-                        status_res.raise_for_status()
-                        status_json = status_res.json()
-                        job_status = status_json.get("status")
-                        
-                        if job_status == "COMPLETED":
-                            output_data = status_json.get("output", {})
-                            if isinstance(output_data, dict) and output_data.get("status") == "success":
-                                clean_crop_b64 = output_data.get("image")
-                            else:
-                                raise Exception(f"AnyText job completed but failed internal execution: {output_data}")
-                            break
-                        elif job_status in ["FAILED", "CANCELLED"]:
-                            raise Exception(f"RunPod AnyText job failed with status: {job_status}")
-                    
-                    if not clean_crop_b64:
-                        raise Exception("RunPod AnyText job polling timed out")
+                raise HTTPException(status_code=400, detail="Chế độ dịch SFX AI (AnyText) đã bị loại bỏ khỏi dự án.")
             else:
                 print(f"⚠️ [AI-REDRAW] Mode {mode} not supported for mask redraw. Falling back to local LaMa!")
                 session = get_lama_session()

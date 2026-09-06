@@ -10,6 +10,9 @@ interface CreditLog {
   action_type: string;
   description: string;
   created_at: string | null;
+  is_active?: boolean;
+  duration?: number;
+  apis_called?: string;
 }
 
 export default function CreditHistoryList() {
@@ -54,6 +57,8 @@ export default function CreditHistoryList() {
 
   const getActionTypeLabel = (type: string) => {
     switch (type) {
+      case 'GPU_SESSION':
+        return { label: 'Phiên GPU ⚡', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' };
       case 'TRANSLATE_LAMA':
         return { label: 'Dịch LAMA', color: 'bg-purple-500/10 text-purple-400 border-purple-500/20' };
       case 'VÀ_NỀN_RUNPOD':
@@ -111,7 +116,7 @@ export default function CreditHistoryList() {
         <thead>
           <tr className="border-b border-border text-text-muted uppercase tracking-wider text-[10px] font-black">
             <th className="py-3 px-2">Hoạt động</th>
-            <th className="py-3 px-2">Chi tiết</th>
+            <th className="py-3 px-2">Chi tiết phiên & Tác vụ AI</th>
             <th className="py-3 px-2 text-right">Biến động</th>
             <th className="py-3 px-2 text-right">Thời gian</th>
           </tr>
@@ -121,20 +126,71 @@ export default function CreditHistoryList() {
             const isPositive = log.amount > 0;
             const badge = getActionTypeLabel(log.action_type);
             
+            let apis: Array<{ action: string; credits: number; timestamp: string }> = [];
+            if (log.action_type === 'GPU_SESSION' && log.apis_called) {
+              try {
+                apis = JSON.parse(log.apis_called);
+              } catch (e) {
+                apis = [];
+              }
+            }
+            
             return (
               <tr
                 key={log.id}
                 className="border-b border-border/50 hover:bg-panel/40 transition-colors"
               >
-                <td className="py-3 px-2">
+                <td className="py-3 px-2 vertical-top pt-4">
                   <span className={`inline-block px-2 py-0.5 rounded-[6px] font-bold text-[9px] uppercase tracking-wider border ${badge.color}`}>
                     {badge.label}
                   </span>
                 </td>
-                <td className="py-3 px-2 font-bold text-text-main max-w-[240px] truncate" title={log.description}>
-                  {log.description}
+                <td className="py-3 px-2 font-bold text-text-main max-w-[340px]">
+                  {log.action_type === 'GPU_SESSION' ? (
+                    <div className="flex flex-col gap-1.5 py-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-text-main">
+                          {log.is_active ? (
+                            <span className="text-emerald-400 flex items-center gap-1.5">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                              </span>
+                              Phiên GPU Đang hoạt động...
+                            </span>
+                          ) : (
+                            `Phiên GPU (${log.duration} giây)`
+                          )}
+                        </span>
+                      </div>
+                      
+                      {apis.length > 0 ? (
+                        <div className="flex flex-col gap-1 pl-2 border-l border-white/5 mt-1">
+                          <span className="text-[10px] text-text-muted font-semibold">Tác vụ AI đã gọi trong phiên:</span>
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {apis.map((api, idx) => (
+                              <span 
+                                key={idx} 
+                                className="inline-flex items-center gap-1 bg-white/5 border border-white/5 text-[9px] font-bold text-text-muted px-1.5 py-0.5 rounded"
+                                title={`Gọi lúc: ${formatDate(api.timestamp)}`}
+                              >
+                                <span>{api.action}</span>
+                                <span className="text-amber-500/80">({api.credits.toFixed(1)}s)</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-text-muted italic pl-2 border-l border-white/5">Chưa có tác vụ AI nào chạy</span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-xs font-bold text-text-main block truncate max-w-[240px]" title={log.description}>
+                      {log.description}
+                    </span>
+                  )}
                 </td>
-                <td className="py-3 px-2 text-right">
+                <td className="py-3 px-2 text-right vertical-top pt-4">
                   <span className={`inline-flex items-center gap-0.5 font-black text-sm ${
                     isPositive ? 'text-green-500' : 'text-red-400'
                   }`}>
@@ -146,7 +202,7 @@ export default function CreditHistoryList() {
                     {isPositive ? `+${log.amount.toFixed(1)}` : log.amount.toFixed(1)} giây
                   </span>
                 </td>
-                <td className="py-3 px-2 text-text-muted text-right">
+                <td className="py-3 px-2 text-text-muted text-right vertical-top pt-4">
                   {formatDate(log.created_at)}
                 </td>
               </tr>

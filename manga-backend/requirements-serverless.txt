@@ -4,7 +4,7 @@ Pillow==10.3.0
 openai==2.35.0
 torchsummary==1.5.1
 numpy==1.26.4
-transformers==4.38.2
+transformers>=4.39.1
 wandb==0.26.1
 shapely==2.1.2
 pyclipper
@@ -12,3 +12,5 @@ PyYAML==6.0.3
 loguru==0.7.3
 requests==2.31.0
 onnxruntime-gpu
+vllm>=0.4.0
+manga-ocr

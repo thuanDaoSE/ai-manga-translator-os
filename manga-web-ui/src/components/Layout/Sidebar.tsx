@@ -292,6 +292,19 @@ export default function Sidebar() {
   const user = useAuthStore((state) => state.user);
   const currentCredits = user?.credits || 0;
   const useGpu = useConfigStore((state) => state.useGpu);
+  const checkFirstTimeConfig = () => {
+    const hasConfigured = localStorage.getItem('has_configured_translation') === 'true';
+    if (!hasConfigured) {
+      useConfigStore.getState().setModalOpen(true);
+      toast("Vui lòng chọn ngôn ngữ nguồn và cấu hình dịch thuật trước khi bắt đầu dịch lần đầu!", {
+        icon: '🌐',
+        duration: 6000,
+        style: { background: '#1e1b4b', color: '#a78bfa', border: '1px solid #7c3aed' }
+      });
+      return false;
+    }
+    return true;
+  };
 
   const modeCost = 1; // Chi phí dịch chạy ngầm Celery mặc định là 1 Xu/trang
 
@@ -640,6 +653,7 @@ export default function Sidebar() {
   // 🚀 BẢN VÁ TỐI THƯỢNG: Phân luồng Dịch lại cực kỳ thông minh
   // 🚀 BẢN VÁ TỐI THƯỢNG: Phân luồng Dịch lại cực kỳ thông minh và Chống Race Condition
   const handleRetrySinglePage = async (pageIndex: number) => {
+    if (!checkFirstTimeConfig()) return;
     const state = useProjectStore.getState();
     const pageId = state.pageIds[pageIndex];
     if (!pageId) return;
@@ -1063,12 +1077,7 @@ export default function Sidebar() {
   const isSomeVisibleSelected = visibleGroups.some(g => g.pages.some(p => selectedPages.has(p.uniqueId))) && !isAllVisibleSelected;
 
   const handleTranslateAll = async () => {
-    if (!useGpu) {
-      useConfigStore.getState().setUseGpu(true);
-      setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
-      toast.success("Đã mở khóa GPU Premium ⚡");
-      return;
-    }
+    if (!checkFirstTimeConfig()) return;
     if (visibleFiles.length === 0) return;
 
     // Lọc ra các trang cần dịch
@@ -1113,12 +1122,7 @@ export default function Sidebar() {
   };
 
   const handleTranslateSelected = async () => {
-    if (!useGpu) {
-      useConfigStore.getState().setUseGpu(true);
-      setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
-      toast.success("Đã mở khóa GPU Premium ⚡");
-      return;
-    }
+    if (!checkFirstTimeConfig()) return;
     if (selectedPages.size === 0) return;
 
     // Lấy danh sách index của các trang đã chọn và chưa dịch / lỗi
@@ -1152,12 +1156,7 @@ export default function Sidebar() {
   };
 
   const handleTranslateGroup = async (group: GroupedItem) => {
-    if (!useGpu) {
-      useConfigStore.getState().setUseGpu(true);
-      setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
-      toast.success("Đã mở khóa GPU Premium ⚡");
-      return;
-    }
+    if (!checkFirstTimeConfig()) return;
     const pendingIndexes = group.pages
       .map(p => p.index)
       .filter(idx => pageStatuses[idx] === 'unprocessed' || pageStatuses[idx] === 'cleaned' || pageStatuses[idx] === 'translating' || pageStatuses[idx] === 'error');
@@ -1562,35 +1561,28 @@ export default function Sidebar() {
         <div className={`absolute bottom-0 left-0 w-full p-3 bg-sidebar/95 backdrop-blur-md border-t border-border z-30 transition-transform duration-300 ${isSelectionMode ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
           <button
             onClick={handleTranslateAll}
-            disabled={useGpu ? (!hasUnprocessed || isAnyProcessingOrWaiting) : false}
-              className={`w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold
-                ${!useGpu
-                  ? 'bg-neutral-800 hover:bg-neutral-700 text-text-muted border border-border/40 cursor-pointer opacity-80'
-                  : (hasUnprocessed && !isAnyProcessingOrWaiting)
-                    ? 'bg-primary hover:bg-primary-hover text-white border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] hover:scale-[1.02] cursor-pointer pl-4 pr-12'
-                    : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 font-medium'
-                }`}
-            title={!useGpu ? "Yêu cầu bật GPU Premium để sử dụng dịch hàng loạt" : undefined}
+            disabled={!hasUnprocessed || isAnyProcessingOrWaiting}
+            className={`w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold
+              ${(hasUnprocessed && !isAnyProcessingOrWaiting)
+                ? 'bg-primary hover:bg-primary-hover text-white border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] hover:scale-[1.02] cursor-pointer pl-4 pr-12'
+                : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 font-medium'
+              }`}
           >
             {isAnyProcessingOrWaiting ? (
               <Loader2 className="animate-spin" size={16} />
-            ) : !useGpu ? (
-              <Lock size={15} />
             ) : errorPages > 0 ? (
               <RefreshCw size={16} />
             ) : (
               <Sparkles size={16} />
             )}
             <span>
-              {!useGpu
-                ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
-                : isAnyProcessingOrWaiting
-                  ? t('sidebar.batchTranslating')
-                  : errorPages > 0
-                    ? t('sidebar.retryError', { count: errorPages })
-                    : hasUnprocessed
-                      ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
-                      : t('sidebar.completedAll')}
+              {isAnyProcessingOrWaiting
+                ? t('sidebar.batchTranslating')
+                : errorPages > 0
+                  ? t('sidebar.retryError', { count: errorPages })
+                  : hasUnprocessed
+                    ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
+                    : t('sidebar.completedAll')}
             </span>
           </button>
         </div>
@@ -1637,24 +1629,18 @@ export default function Sidebar() {
           return (
             <button
               onClick={handleTranslateSelected}
-              disabled={useGpu ? (nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting) : false}
-              title={!useGpu ? 'Yêu cầu bật GPU Premium để sử dụng' : nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết số dư thời gian GPU' : `Dịch ${selectedUnprocessedCount} trang`}
+              disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
+              title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết số dư thời gian GPU' : `Dịch ${selectedUnprocessedCount} trang`}
               className={`relative flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
-                ${!useGpu
-                  ? 'bg-neutral-800 hover:bg-neutral-700 text-text-muted border border-border/40 cursor-pointer opacity-80'
-                  : nothingToTranslate || isAnyProcessingOrWaiting
-                    ? 'bg-border/30 text-text-muted cursor-not-allowed border border-transparent'
-                    : !hasEnough
-                      ? 'bg-danger/10 border border-danger/30 text-danger cursor-not-allowed'
-                      : 'bg-amber-500 hover:bg-amber-400 text-black border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] cursor-pointer'
+                ${nothingToTranslate || isAnyProcessingOrWaiting
+                  ? 'bg-border/30 text-text-muted cursor-not-allowed border border-transparent'
+                  : !hasEnough
+                    ? 'bg-danger/10 border border-danger/30 text-danger cursor-not-allowed'
+                    : 'bg-amber-500 hover:bg-amber-400 text-black border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] cursor-pointer'
                 }`}
             >
-              {!useGpu ? (
-                <Lock size={14} />
-              ) : (
-                <Sparkles size={15} strokeWidth={2.5} />
-              )}
-              {useGpu && !hasEnough && !nothingToTranslate ? (
+              <Sparkles size={15} strokeWidth={2.5} />
+              {!hasEnough && !nothingToTranslate ? (
                 <span>Hết thời gian GPU</span>
               ) : (
                 <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size} trang</span>

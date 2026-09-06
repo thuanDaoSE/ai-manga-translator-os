@@ -76,7 +76,6 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
   const isCurrentPageProcessing = pageStatuses[currentIndex] === 'processing' || pageStatuses[currentIndex] === 'waiting';
   
   const isBrushMode = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw' || activeMode === 'clone' || activeMode === 'speedline';
-  
   const useGpu = useConfigStore((s) => s.useGpu);
 
 

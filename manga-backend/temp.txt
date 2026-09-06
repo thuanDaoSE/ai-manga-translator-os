@@ -12,3 +12,7 @@ docker run --name deepkoma-db \
 
 
 powershell -ExecutionPolicy Bypass -File .\run_dev_stack.ps1
+
+
+
+ 

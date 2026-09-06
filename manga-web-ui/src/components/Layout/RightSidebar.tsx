@@ -1121,10 +1121,11 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
         <div className="relative flex items-center">
           <input
             type="text"
+            maxLength={300}
             value={instruction}
-            onChange={(e) => setInstruction(e.target.value)}
+            onChange={(e) => setInstruction(e.target.value.slice(0, 300))}
             onKeyDown={(e) => { if (e.key === 'Enter') handleRealAI('custom'); }}
-            placeholder={t('rightSidebar.aiInputPlaceholder')}
+            placeholder={t('rightSidebar.aiInputPlaceholder') + " (tối đa 300 ký tự)"}
             className="w-full bg-background border border-border rounded-lg py-2 pl-3 pr-10 text-[11px] text-text-main placeholder-text-muted focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all shadow-sm"
           />
           <button

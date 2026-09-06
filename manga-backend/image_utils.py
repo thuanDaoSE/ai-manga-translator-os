@@ -18,15 +18,12 @@ def preprocess_image(file_bytes: bytes) -> Image.Image:
         # Vì verify() làm đóng con trỏ file, ta cần mở lại ảnh để thao tác tiếp
         image = Image.open(io.BytesIO(file_bytes))
         
-        # 🛡️ CHỐT CHẶN BẢO VỆ: Ngăn chặn ảnh quá dài (Webtoon) gây quá tải VRAM / RAM
+        # 🛡️ HỖ TRỢ WEBTOON: Ghi log theo dõi ảnh cuộn dọc (Webtoon)
         w, h = image.size
         if w > 0:
             aspect_ratio = h / w
             if aspect_ratio > 2.2:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Hệ thống hiện tại chưa hỗ trợ ảnh dạng cuộn dọc (Webtoon) để bảo vệ tài nguyên GPU. Vui lòng cắt nhỏ ảnh thành các trang đơn có tỷ lệ chiều cao/chiều rộng dưới 2.2 trước khi tải lên!"
-                )
+                print(f"ℹ️ [WEBTOON DETECTED] Tải lên ảnh dạng cuộn dọc (Aspect ratio: {aspect_ratio:.2f}). Đang kích hoạt Dynamic Overlap Slicing...")
     except HTTPException:
         raise
     except Exception as e:
@@ -137,3 +134,100 @@ def restore_original_dimensions(original_img_path_or_bytes, ai_result_img_bytes:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Lỗi khi khôi phục kích thước ảnh gốc: {str(e)}"
         )
+
+# ==============================================================================
+# WEBTOON DYNAMIC OVERLAP SLICING & STITCHING ALGORITHMS
+# ==============================================================================
+from typing import List, Dict, Any, Tuple
+import numpy as np
+import cv2
+
+def slice_webtoon_image(
+    image: np.ndarray, 
+    mask: np.ndarray, 
+    chunk_height: int = 1000
+) -> List[Dict[str, Any]]:
+    """
+    Cắt ảnh Webtoon siêu dài và mask tương ứng thành các đoạn nhỏ có overlap động (25% W)
+    để tránh tràn GPU VRAM/RAM khi chạy qua mô hình AI (LaMa).
+    """
+    if image.shape[:2] != mask.shape[:2]:
+        raise ValueError("Kích thước ảnh và mask không trùng khớp.")
+
+    h_img, w_img = image.shape[:2]
+    overlap_size = int(w_img * 0.25)
+    
+    chunks: List[Dict[str, Any]] = []
+    y_start = 0
+
+    while y_start < h_img:
+        y_end = min(h_img, y_start + chunk_height + overlap_size)
+        
+        img_chunk = image[y_start:y_end].copy()
+        mask_chunk = mask[y_start:y_end].copy()
+        
+        chunks.append({
+            "image_chunk": img_chunk,
+            "mask_chunk": mask_chunk,
+            "y_start": y_start,
+            "y_end": y_end
+        })
+        
+        if y_end == h_img:
+            break
+            
+        y_start += chunk_height
+
+    return chunks
+
+
+def stitch_webtoon_chunks(
+    processed_chunks: List[Dict[str, Any]], 
+    original_shape: Tuple[int, ...]
+) -> np.ndarray:
+    """
+    Ghép các đoạn ảnh Webtoon đã xử lý LaMa lại thành một bức ảnh cuộn dọc hoàn chỉnh,
+    sử dụng thuật toán Alpha Blending độ dốc tuyến tính (Linear Gradient Alpha Blending)
+    trên vùng overlap để triệt tiêu hoàn toàn viền/vệt cắt ngang.
+    """
+    canvas = np.zeros(original_shape, dtype=np.float32)
+    is_multichannel = len(original_shape) == 3
+    y_end_prev = 0
+
+    for i, chunk in enumerate(processed_chunks):
+        y_start = chunk["y_start"]
+        y_end = chunk["y_end"]
+        img_chunk = chunk["image_chunk"].astype(np.float32)
+
+        if i == 0:
+            canvas[y_start:y_end] = img_chunk
+            y_end_prev = y_end
+            continue
+
+        overlap_len = y_end_prev - y_start
+
+        if overlap_len > 0:
+            # Tạo dải mờ Alpha 0.0 -> 1.0 theo chiều dọc Y
+            alpha_1d = np.linspace(0.0, 1.0, overlap_len, dtype=np.float32)
+            
+            if is_multichannel:
+                alpha = alpha_1d[:, np.newaxis, np.newaxis]
+            else:
+                alpha = alpha_1d[:, np.newaxis]
+
+            top_canvas_slice = canvas[y_start:y_end_prev]
+            bottom_chunk_slice = img_chunk[:overlap_len]
+
+            # Trộn hòa quyện mịn màn giữa chunk trên và chunk dưới
+            blended_overlap = (top_canvas_slice * (1.0 - alpha)) + (bottom_chunk_slice * alpha)
+            canvas[y_start:y_end_prev] = blended_overlap
+
+            if y_end > y_end_prev:
+                canvas[y_end_prev:y_end] = img_chunk[overlap_len:]
+        else:
+            canvas[y_start:y_end] = img_chunk
+
+        y_end_prev = max(y_end_prev, y_end)
+
+    return np.clip(canvas, 0, 255).astype(np.uint8)
+

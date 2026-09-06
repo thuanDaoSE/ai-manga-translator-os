@@ -25,8 +25,10 @@ interface ConfigState {
   glossary: string;
   targetLanguage: string;
   sourceLanguage: string;
-  translationMode: 'fast' | 'studio' | 'grok' | 'openai';
-  setTranslationMode: (mode: 'fast' | 'studio' | 'grok' | 'openai') => void;
+  useGpu: boolean;
+  setUseGpu: (useGpu: boolean) => void;
+  translationMode: 'fast' | 'studio' | 'grok' | 'openai' | 'anytext';
+  setTranslationMode: (mode: 'fast' | 'studio' | 'grok' | 'openai' | 'anytext') => void;
   grokSubModel: 'grok-2' | 'grok-imagine';
   setGrokSubModel: (model: 'grok-2' | 'grok-imagine') => void;
   openaiSubModel: 'gpt-4o';
@@ -58,7 +60,9 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   glossary: '',
   targetLanguage: 'Tiếng Việt',
   sourceLanguage: 'ja',
-  translationMode: 'studio' as 'fast' | 'studio' | 'grok' | 'openai',
+  useGpu: true,
+  setUseGpu: (useGpu) => set({ useGpu }),
+  translationMode: 'studio' as 'fast' | 'studio' | 'grok' | 'openai' | 'anytext',
   setTranslationMode: (mode) => set({ translationMode: mode }),
   grokSubModel: 'grok-imagine' as 'grok-2' | 'grok-imagine',
   setGrokSubModel: (model) => set({ grokSubModel: model }),
@@ -91,7 +95,11 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         if (!parsed.sourceLanguage) {
           parsed.sourceLanguage = 'ja';
         }
+        if (parsed.useGpu === undefined) {
+          parsed.useGpu = true;
+        }
         set({ ...parsed });
+        localStorage.setItem('has_configured_translation', 'true');
       } catch (err) {
         console.error("Lỗi parse config từ local storage:", err);
       }
@@ -107,6 +115,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       glossary: state.glossary,
       targetLanguage: state.targetLanguage,
       sourceLanguage: state.sourceLanguage,
+      useGpu: state.useGpu,
       translationMode: state.translationMode,
       grokSubModel: state.grokSubModel,
       openaiSubModel: state.openaiSubModel,

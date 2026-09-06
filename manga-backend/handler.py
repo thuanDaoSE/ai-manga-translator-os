@@ -455,7 +455,8 @@ def handler(job):
                 if w < 16 or h < 16: continue 
                 
                 japanese_text = ocr_manager.recognize_crop(image[y:y+h, x:x+w], language=lang, is_vip=True)
-                extracted_data.append({"id": count, "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h}, "japanese": japanese_text.strip(), "vietnamese": ""})
+                clean_text = (japanese_text or "").strip()
+                extracted_data.append({"id": count, "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h}, "japanese": clean_text, "vietnamese": ""})
                 count += 1
                 
                 pad_x, pad_y = max(40, min(int(w * 0.5), 150)), max(40, min(int(h * 0.5), 150))
@@ -532,6 +533,8 @@ def handler(job):
             }
         }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": f"{type(e).__name__}: {str(e)}"}
 if __name__ == '__main__':
     runpod.serverless.start({"handler": handler})

@@ -115,8 +115,23 @@ def run_local_lama(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
     Runs local LaMa inpainting on the image using the mask.
     Assumes mask is binary (0 or 255) and of the same shape as img.
     """
-    session = get_lama_session()
     h_img, w_img = img.shape[:2]
+    
+    # 🛡️ HỖ TRỢ WEBTOON: Tự động cắt lát cuộn dọc (Dynamic Overlap Slicing) nếu tỷ lệ H/W > 2.2
+    if w_img > 0 and (h_img / w_img) > 2.2:
+        from image_utils import slice_webtoon_image, stitch_webtoon_chunks
+        print(f"🚀 [WEBTOON AUTO-SLICE] Ảnh cuộn dọc ({w_img}x{h_img}, Ratio: {h_img/w_img:.2f}). Đang chia cắt & ghép Alpha Blending...")
+        chunks = slice_webtoon_image(img, mask, chunk_height=1000)
+        processed_chunks = []
+        for chunk in chunks:
+            processed_img_chunk = run_local_lama(chunk["image_chunk"], chunk["mask_chunk"])
+            processed_chunks.append({
+                "image_chunk": processed_img_chunk,
+                "y_start": chunk["y_start"],
+                "y_end": chunk["y_end"]
+            })
+        return stitch_webtoon_chunks(processed_chunks, img.shape)
+
     clean_img = img.copy()
     
     # Find contours to run LaMa on smaller bounding regions (better quality + faster)

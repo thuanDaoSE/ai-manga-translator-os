@@ -17,7 +17,7 @@ export default function DeepKomaLogo({
   onClick,
 }: DeepKomaLogoProps) {
   return (
-    <div onClick={onClick} className={cn("flex items-center gap-2.5 select-none", className)}>
+    <div onClick={onClick} className={cn("flex items-center gap-2.5 select-none notranslate", className)} translate="no">
       <svg
         width={iconSize}
         height={iconSize}
