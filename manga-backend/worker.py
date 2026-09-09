@@ -28,6 +28,9 @@ from database import SyncSessionLocal as SessionLocal
 from task_manager import local_task_manager
 
 # Khởi tạo OpenAI/DeepSeek
+def get_deepseek_client():
+    return deepseek_client
+
 deepseek_client = OpenAI(
     api_key=os.environ.get("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com"
