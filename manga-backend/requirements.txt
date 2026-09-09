@@ -7,46 +7,30 @@ python-dotenv==1.2.2
 requests==2.31.0
 httpx==0.27.0
 
-
-# --- DATABASE & CACHE ---
+# --- DATABASE (Local SQLite) ---
 SQLAlchemy==2.0.49
-asyncpg
-psycopg2-binary
 aiosqlite==0.22.1
-redis==5.0.1
 
-# --- AUTH & SECURITY ---
-python-jose[cryptography]==3.5.0
-slowapi
-PyJWT
-
-# --- ASYNC TASKS ---
-celery==5.3.6
-
-# --- AI API & NLP ENGINE ---
+# --- AI ENGINES & OCR ---
 openai==2.35.0
-onnxruntime==1.23.2
+onnxruntime>=1.16.0
 pyahocorasick
+manga-ocr
+huggingface-hub
+shapely
+paddleocr>=2.7.3
+# PaddlePaddle backend: Dùng paddlepaddle-gpu nếu máy có CUDA (ví dụ: paddlepaddle-gpu==2.6.2.post120) hoặc paddlepaddle cho CPU
+paddlepaddle>=2.6.0
+# Lưu ý về Pororo (Korean OCR): Gặp lỗi xung đột C-extensions/PyTorch trên Python > 3.8. 
+# Hệ thống OCRRouter tự động dùng PaddleOCR (lang='korean') làm giải pháp chính & fallback tin cậy.
+# pororo (optional, nếu môi trường hỗ trợ Python 3.8 legacy)
 
-# --- IMAGE VALIDATION (Siêu nhẹ, không chứa GUI) ---
+# --- IMAGE PROCESSING ---
 Pillow==10.3.0
 opencv-python-headless==4.9.0.80
 numpy==1.26.4
 filetype
 
-
-# --- PAYMENT ---
-payos==1.1.0
-
-# --- MONITORING & ANALYTICS ---
-sentry-sdk==1.45.0
-posthog==3.5.0
-
-# --- S3/R2 STORAGE ---
+# --- PSD & STORAGE UTILS ---
 boto3==1.34.84
-
-# --- MM DETECTION & INSTANCE SEGMENTATION ---
-openmim>=0.3.9
-mmengine>=0.10.0
-mmcv>=2.0.0
-mmdet>=3.0.0
+psd-tools
