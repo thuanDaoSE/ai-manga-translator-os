@@ -17,18 +17,16 @@ import VisualGuideOverlay from '../Editor/VisualGuideOverlay';
 import FloatingTextToolbar from '../Editor/FloatingTextToolbar';
 import { useConfigStore } from '../../store/useConfigStore';
 import { useServerStatusStore } from '../../store/useServerStatusStore';
-import { PaywallDrawer } from '../Modals/PaywallDrawer';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useMangaEditorStore } from '../../store/useMangaEditorStore';
 import { useAuthStore } from '../../store/useAuthStore';
-import { useDeviceDetect } from '../../hooks/useDeviceDetect';
-import { Smartphone, ArrowLeft, Loader2, Languages, Hourglass, Play, Bot } from 'lucide-react';
+import { Smartphone, ArrowLeft, ArrowRight, Loader2, Languages, Hourglass, Play, Bot } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Helper to convert base64/dataURL to Blob
 const dataURLtoBlob = (dataurl: string) => {
   const arr = dataurl.split(',');
-  const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/png';
+  const mime = arr[0].match(/:(.*?);/)![1];
   const bstr = atob(arr[1]);
   let n = bstr.length;
   const u8arr = new Uint8Array(n);
@@ -67,8 +65,23 @@ const OpenaiIcon = ({ className = "w-5.5 h-5.5 text-slate-200" }: { className?: 
 export default function Workspace() {
   const { t } = useTranslation();
   const isMobileOrTouch = useDeviceDetect();
+  const [isMobileAdvisoryDismissed, setIsMobileAdvisoryDismissed] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return sessionStorage.getItem('manga_dismiss_mobile_advisory') === 'true';
+      } catch (e) {}
+    }
+    return false;
+  });
+
+  const handleDismissMobileAdvisory = () => {
+    setIsMobileAdvisoryDismissed(true);
+    try {
+      sessionStorage.setItem('manga_dismiss_mobile_advisory', 'true');
+    } catch (e) {}
+  };
+
   const { signOut, user } = useAuthStore();
-  const [showPaywall, setShowPaywall] = useState(false);
   const { currentIndex, processedUrls, fileQueue } = useProjectStore();
   const projectStore = useProjectStore();
   const activeFile = fileQueue[currentIndex];
@@ -92,7 +105,6 @@ export default function Workspace() {
   const [showAiPromptInput, setShowAiPromptInput] = useState(false);
   const [aiErasePrompt, setAiErasePrompt] = useState("");
 
-  const [showTosModal, setShowTosModal] = useState(false);
   const [isBetaTranslating, setIsBetaTranslating] = useState(false);
   const isBetaTranslatingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -103,7 +115,6 @@ export default function Workspace() {
   const serverStatus = useServerStatusStore((s) => s.serverStatus);
   const [maskPreviewUrl, setMaskPreviewUrl] = useState<string | null>(null);
   const [isWaitingConfirm, setIsWaitingConfirm] = useState(false);
-  const [deductionAnim, setDeductionAnim] = useState<{ cost: number; id: number } | null>(null);
 
   const grokSubModel = useConfigStore((s) => s.grokSubModel);
   const setGrokSubModel = useConfigStore((s) => s.setGrokSubModel);
@@ -130,59 +141,15 @@ export default function Workspace() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const getKieCost = (model: string, resolution: string) => {
-    let base = 8;
-    if (model === 'gpt-image-2-image-to-image') base = 10;
-    else if (model === 'nano-banana-2') base = 10;
-    else if (model === 'nano-banana-pro') base = 15;
-    
-    let resAddon = 0;
-    if (resolution === '2K') resAddon = 3;
-    
-    return base + resAddon;
-  };
-
-  const currentModeCost = translationMode === 'grok' 
-    ? 8 
-    : getKieCost(studioSubModel, kieResolution);
-
-  const triggerDeductionAnim = (cost: number) => {
-    const id = Date.now();
-    setDeductionAnim({ cost, id });
-    setTimeout(() => setDeductionAnim(null), 1100);
-  };
-
   const startBetaTranslation = async (detectOnly = false) => {
     if (isBetaTranslatingRef.current || isBetaTranslating || isProcessing) return;
     isBetaTranslatingRef.current = true;
-
-    // Xác định chi phí theo mode
-    const modeCost = currentModeCost;
-
-    // Đọc số xu
-    const { user } = useAuthStore.getState();
-    const currentCredits = user?.credits || 0;
-    if (currentCredits < modeCost) {
-      setShowPaywall(true);
-      toast.error(`Tài khoản không đủ Xu. Cần ⚡${modeCost} nhưng chỉ có ⚡${currentCredits}. Vui lòng nạp thêm!`);
-      isBetaTranslatingRef.current = false;
-      return;
-    }
 
     setIsBetaTranslating(true);
     setIsProcessing(true);
     setActionPosition(null);
     setAiStatus("Đang kết nối...");
     projectStore.setPageStatus(currentIndex, "processing");
-
-    // Trừ xu cục bộ trước
-    useAuthStore.getState().deductLocalCredits(modeCost);
-    // Gọi API trừ xu thật trên Database (BE sẽ trừ lại thật, đây là optimistic UI)
-    if (translationMode !== 'studio') {
-      mangaApi.deductCredits(modeCost).catch(e => console.error("Lỗi khấu trừ xu:", e));
-    }
-    // 🎮 Trigger RPG-style deduction animation
-    triggerDeductionAnim(modeCost);
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
@@ -224,7 +191,7 @@ export default function Workspace() {
         formData.append('existing_bubbles', JSON.stringify(currentBubbles));
       }
 
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const baseUrl = import.meta.env.VITE_API_URL || '';
       const authHeaders = await getAuthHeaders(true);
       const response = await fetch(`${baseUrl}/api/v1/ai-process`, {
         method: 'POST',
@@ -523,22 +490,10 @@ export default function Workspace() {
   };
 
   const handleExecuteBetaTranslate = () => {
-    const hasAgreed = localStorage.getItem('agreed_nsfw_terms');
-    if (hasAgreed === 'true') {
-      startBetaTranslation(false);
-    } else {
-      setShowTosModal(true);
-    }
-  };
-
-  const handleAgreeTerms = () => {
-    localStorage.setItem('agreed_nsfw_terms', 'true');
-    setShowTosModal(false);
     startBetaTranslation(false);
   };
 
-
-  // 1. Lifecycle Garbage Collection (CRITICAL)
+  // 1. Lifecycle Garbage Collection
   useEffect(() => {
     const handleBeforeUnload = () => {
       useMangaEditorStore.getState().clearHistory();
@@ -591,21 +546,6 @@ export default function Workspace() {
       }
     }
   }, { preventDefault: true, enableOnFormTags: false });
-
-  // Dán đoạn này vào đầu hàm Workspace()
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const paymentStatus = urlParams.get('payment');
-
-    if (paymentStatus === 'success') {
-      toast.success('🎉 Thanh toán thành công! Credits đã được cộng vào tài khoản.', { duration: 5000, icon: '💎' });
-      // Xóa URL param cho sạch đẹp
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (paymentStatus === 'failed') {
-      toast.error('Giao dịch đã bị hủy hoặc thất bại.');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, []);
 
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
 
@@ -826,7 +766,7 @@ export default function Workspace() {
       if (file.size === 0) {
         const pageId = projectStore.pageIds[currentIndex];
         const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
-        targetUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}`;
+        targetUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}`;
       } else {
         targetUrl = URL.createObjectURL(file);
         objectUrlToRevoke = targetUrl;
@@ -958,16 +898,98 @@ export default function Workspace() {
       }
     };
 
+    // 🚀 BỔ SUNG: TOUCH GESTURES (TOUCH PAN & PINCH-TO-ZOOM) TRÊN MOBILE
+    let initialPinchDist = 0;
+    let initialPinchZoom = 1;
+    let pinchCenter = { x: 0, y: 0 };
+    let isTouchPanning = false;
+    let startTouchPan = { x: 0, y: 0 };
+    let startTouchMouse = { x: 0, y: 0 };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.toolbar-container') || target.closest('.react-draggable') || target.closest('.react-resizable-handle') || target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') return;
+
+      const isHoveringText = useCanvasStore.getState().hoveredBubbleId !== null;
+      if (isHoveringText) return;
+
+      if (e.touches.length === 2) {
+        // 2 ngón tay -> Pinch to zoom
+        e.preventDefault();
+        isTouchPanning = false;
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        initialPinchDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        initialPinchZoom = zoomRef.current;
+        pinchCenter = {
+          x: (t1.clientX + t2.clientX) / 2,
+          y: (t1.clientY + t2.clientY) / 2,
+        };
+      } else if (e.touches.length === 1 && activeModeRef.current === 'none') {
+        // 1 ngón tay ở chế độ 'none' (con trỏ) -> Pan di chuyển canvas
+        isTouchPanning = true;
+        const touch = e.touches[0];
+        startTouchMouse = { x: touch.clientX, y: touch.clientY };
+        startTouchPan = { x: panRef.current.x, y: panRef.current.y };
+        useToolStore.getState().setActionPosition(null);
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && initialPinchDist > 0) {
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const currentDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        if (currentDist > 0) {
+          const scaleFactor = currentDist / initialPinchDist;
+          const newZoom = Math.max(0.1, Math.min(initialPinchZoom * scaleFactor, 30.0));
+          const rect = container.getBoundingClientRect();
+          
+          const currentZ = zoomRef.current;
+          panRef.current.x = (pinchCenter.x - rect.left) - ((pinchCenter.x - rect.left) - panRef.current.x) * (newZoom / currentZ);
+          panRef.current.y = (pinchCenter.y - rect.top) - ((pinchCenter.y - rect.top) - panRef.current.y) * (newZoom / currentZ);
+          
+          if (workspaceContainerRef.current) workspaceContainerRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${newZoom})`;
+          zoomRef.current = newZoom;
+          setZoom(newZoom);
+        }
+      } else if (e.touches.length === 1 && isTouchPanning) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        panRef.current.x = startTouchPan.x + (touch.clientX - startTouchMouse.x);
+        panRef.current.y = startTouchPan.y + (touch.clientY - startTouchMouse.y);
+        if (workspaceContainerRef.current) workspaceContainerRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${zoomRef.current})`;
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        initialPinchDist = 0;
+      }
+      if (e.touches.length === 0) {
+        isTouchPanning = false;
+      }
+    };
+
     container.addEventListener('wheel', handleWheel, { passive: false });
     container.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd);
+    container.addEventListener('touchcancel', handleTouchEnd);
 
     return () => {
       container.removeEventListener('wheel', handleWheel);
       container.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
     };
   }, [setZoom]);
 
@@ -1144,9 +1166,7 @@ export default function Workspace() {
     setActionPosition(null);
     setShowAiPromptInput(false);
 
-    const amountToDeduct = translationMode === 'grok' ? 8 : getKieCost(studioSubModel, kieResolution);
-    toast(`Đang xử lý Xóa với AI (Trừ tạm tính ${amountToDeduct} Xu)`, { icon: "💰", duration: 2500 });
-    useAuthStore.getState().deductLocalCredits(amountToDeduct);
+    toast("Đang xử lý Xóa với AI...", { icon: "✨", duration: 2500 });
 
     try {
       const maskBase64 = drawCanvas.toDataURL("image/png");
@@ -1211,10 +1231,7 @@ export default function Workspace() {
     setIsProcessing(true);
     setActionPosition(null);
     
-    // Trực tiếp trừ xu cục bộ trước
-    const amountToDeduct = 3;
-    toast(`Đã trừ ${amountToDeduct} Xu`, { icon: "💰", duration: 2000 });
-    useAuthStore.getState().deductLocalCredits(amountToDeduct);
+    toast("Đang xử lý vẽ lại bằng AI...", { icon: "🎨", duration: 2000 });
 
     try {
       const maskBase64 = drawCanvas.toDataURL("image/png");
@@ -1286,7 +1303,7 @@ export default function Workspace() {
         const data = await mangaApi.getFonts();
         data.fonts.forEach((fontName: string) => {
           const familyName = fontName.replace(/\.[^/.]+$/, "");
-          const fontUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/fonts/${fontName}`;
+          const fontUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/fonts/${fontName}`;
           const newFont = new FontFace(familyName, `url(${fontUrl})`);
           newFont.load().then((loadedFace) => {
             (document.fonts as any).add(loadedFace);
@@ -1346,48 +1363,58 @@ export default function Workspace() {
     return rawUrl.replace("/raw/", "/clean/");
   })();
 
-  if (isMobileOrTouch) {
-    return (
-      <div className="fixed inset-0 z-[9999] bg-[#0c0c0e] flex flex-col items-center justify-center p-6 text-center text-white font-sans overflow-auto select-none">
-        {/* Glowing background orbs */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
-        <div className="absolute bottom-1/4 left-1/3 w-[200px] h-[200px] bg-purple-500/5 rounded-full blur-[80px] pointer-events-none" />
-
-        <div className="relative max-w-md w-full bg-[#16161a]/85 backdrop-blur-xl border border-white/5 rounded-3xl p-8 shadow-[0_20px_50px_rgba(0,0,0,0.6)] flex flex-col items-center gap-6 animate-in fade-in zoom-in-95 duration-500">
-          {/* Animated Device Icon Container */}
-          <div className="relative flex items-center justify-center w-20 h-20 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 text-indigo-400">
-            <Smartphone size={40} strokeWidth={1.5} className="animate-pulse" />
-            <div className="absolute -top-1 -right-1 flex h-4 w-4">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 items-center justify-center text-[9px] font-black text-white">!</span>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <h2 className="text-base font-extrabold text-white tracking-tight uppercase flex items-center justify-center gap-2">
-              {t('workspace.mobileBlockTitle')}
-            </h2>
-            <p className="text-xs text-gray-300 leading-relaxed text-left bg-neutral-900/60 p-4 rounded-xl border border-white/5 font-medium">
-              {t('workspace.mobileBlockDesc')}
-            </p>
-          </div>
-
-          {/* Button: Quay lại Trang chủ */}
-          <button
-            onClick={() => signOut()}
-            className="w-full flex items-center justify-center gap-2 py-3.5 px-6 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-indigo-600/20 active:scale-[0.98] transition-all cursor-pointer border border-white/10"
-          >
-            <ArrowLeft size={14} strokeWidth={2.5} />
-            {t('workspace.backToHome')}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     // TẦNG 0: NỀN APP TỔNG THỂ (#121212)
     <div className="flex-1 bg-[#121212] relative overflow-hidden flex flex-col items-center justify-center">
+      {/* 📱 Cảnh Báo Mềm Cho Thiết Bị Di Động (Soft Dismissible Advisory) */}
+      {isMobileOrTouch && !isMobileAdvisoryDismissed && (
+        <div className="fixed inset-0 z-[9999] bg-[#0c0c0e]/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white font-sans overflow-auto select-none animate-in fade-in duration-300">
+          {/* Glowing background orbs */}
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
+          <div className="absolute bottom-1/4 left-1/3 w-[200px] h-[200px] bg-purple-500/5 rounded-full blur-[80px] pointer-events-none" />
+
+          <div className="relative max-w-md w-full bg-[#16161a]/95 backdrop-blur-xl border border-white/10 rounded-3xl p-6 md:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] flex flex-col items-center gap-5 animate-in zoom-in-95 duration-300">
+            {/* Animated Device Icon Container */}
+            <div className="relative flex items-center justify-center w-16 h-16 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 text-indigo-400">
+              <Smartphone size={32} strokeWidth={1.5} className="animate-pulse" />
+              <div className="absolute -top-1 -right-1 flex h-4 w-4">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-4 w-4 bg-amber-500 items-center justify-center text-[9px] font-black text-black">!</span>
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              <h2 className="text-base font-extrabold text-white tracking-tight uppercase flex items-center justify-center gap-2">
+                {t('workspace.mobileBlockTitle')}
+              </h2>
+              <p className="text-xs text-gray-300 leading-relaxed text-left bg-neutral-900/70 p-3.5 rounded-xl border border-white/5 font-medium">
+                {t('workspace.mobileBlockDesc')}
+              </p>
+            </div>
+
+            {/* Action Buttons: Continue vs Back */}
+            <div className="w-full space-y-2.5 pt-1">
+              <button
+                type="button"
+                onClick={handleDismissMobileAdvisory}
+                className="w-full flex items-center justify-center gap-2 py-3 px-5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 active:scale-[0.98] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-indigo-600/25 transition-all cursor-pointer border border-white/15"
+              >
+                <span>{t('workspace.continueOnMobile', 'Tôi đã hiểu, tiếp tục trên điện thoại')}</span>
+                <ArrowRight size={14} strokeWidth={2.5} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => signOut()}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-white/5 hover:bg-white/10 active:scale-[0.98] text-neutral-400 hover:text-white font-medium text-xs rounded-xl transition-all cursor-pointer border border-white/5"
+              >
+                <ArrowLeft size={13} strokeWidth={2} />
+                <span>{t('workspace.backToHome')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 🚀 KHUNG VIEWPORT (Vẫn giữ nguyên kích thước để thuật toán Zoom tính toán đúng, nhưng "tàng hình" khi chưa có ảnh) */}
       <div
@@ -1567,9 +1594,8 @@ export default function Workspace() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] font-bold text-slate-200">Grok Imagine</span>
-                                <span className="text-[9px] font-bold text-amber-500 flex items-center gap-0.5">
-                                  <BoltIcon />
-                                  8 Xu
+                                <span className="text-[9px] font-bold text-emerald-400 flex items-center gap-0.5">
+                                  Nhanh
                                 </span>
                               </div>
                               <p className="text-[8px] text-slate-400 leading-normal truncate">
@@ -1594,9 +1620,8 @@ export default function Workspace() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] font-bold text-slate-200">GPT Image 2</span>
-                                <span className="text-[9px] font-bold text-amber-500 flex items-center gap-0.5">
-                                  <BoltIcon />
-                                  {getKieCost('gpt-image-2-image-to-image', kieResolution)} Xu
+                                <span className="text-[9px] font-bold text-sky-400 flex items-center gap-0.5">
+                                  Chi tiết
                                 </span>
                               </div>
                               <p className="text-[8px] text-slate-400 leading-normal truncate">
@@ -1608,25 +1633,22 @@ export default function Workspace() {
                             <div className="flex flex-col gap-1 pl-8 mt-1 select-none">
                               <span className="text-[7.5px] font-semibold text-slate-500 uppercase tracking-wider">Độ phân giải:</span>
                               <div className="flex gap-1.5">
-                                {(['1K', '2K'] as const).map((res) => {
-                                  const addon = res === '1K' ? '+0' : '+3';
-                                  return (
-                                    <button
-                                      key={res}
-                                      type="button"
-                                      onClick={() => {
-                                        setKieResolution(res);
-                                      }}
-                                      className={`text-[8px] px-1.5 py-0.5 rounded transition-all font-black cursor-pointer ${
-                                        kieResolution === res
-                                          ? 'bg-amber-500/20 text-amber-400'
-                                          : 'bg-white/5 text-slate-400 hover:text-slate-200'
-                                      }`}
-                                    >
-                                      {res} ({addon} Xu)
-                                    </button>
-                                  );
-                                })}
+                                {(['1K', '2K'] as const).map((res) => (
+                                  <button
+                                    key={res}
+                                    type="button"
+                                    onClick={() => {
+                                      setKieResolution(res);
+                                    }}
+                                    className={`text-[8px] px-1.5 py-0.5 rounded transition-all font-black cursor-pointer ${
+                                      kieResolution === res
+                                        ? 'bg-amber-500/20 text-amber-400'
+                                        : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                                    }`}
+                                  >
+                                    {res}
+                                  </button>
+                                ))}
                               </div>
                             </div>
                           )}
@@ -1649,9 +1671,8 @@ export default function Workspace() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between">
                                 <span className="text-[10px] font-bold text-slate-200">Nano Banana</span>
-                                <span className="text-[9px] font-bold text-amber-500 flex items-center gap-0.5">
-                                  <BoltIcon />
-                                  {getKieCost(studioSubModel, kieResolution)} Xu
+                                <span className="text-[9px] font-bold text-amber-400 flex items-center gap-0.5">
+                                  Studio
                                 </span>
                               </div>
                               <p className="text-[8px] text-slate-400 leading-normal truncate">
@@ -1665,9 +1686,9 @@ export default function Workspace() {
                                 <span className="text-[7.5px] font-semibold text-slate-500 uppercase tracking-wider">Mô hình:</span>
                                 <div className="flex flex-col gap-0.5">
                                   {[
-                                    { id: 'google/nano-banana-edit', name: 'nano banana v1', cost: 8 },
-                                    { id: 'nano-banana-2', name: 'nano banana v2', cost: 10 },
-                                    { id: 'nano-banana-pro', name: 'nano banana v2 pro', cost: 15 }
+                                    { id: 'google/nano-banana-edit', name: 'nano banana v1' },
+                                    { id: 'nano-banana-2', name: 'nano banana v2' },
+                                    { id: 'nano-banana-pro', name: 'nano banana v2 pro' }
                                   ].map((m) => (
                                     <button
                                       key={m.id}
@@ -1681,7 +1702,7 @@ export default function Workspace() {
                                           : 'bg-white/5 text-slate-400 hover:text-slate-200'
                                       }`}
                                     >
-                                      {m.name} - {m.cost} Xu
+                                      {m.name}
                                     </button>
                                   ))}
                                 </div>
@@ -1689,25 +1710,22 @@ export default function Workspace() {
                               <div className="flex flex-col gap-1 pl-8 mt-1 select-none">
                                 <span className="text-[7.5px] font-semibold text-slate-500 uppercase tracking-wider">Độ phân giải:</span>
                                 <div className="flex gap-1.5">
-                                  {(['1K', '2K'] as const).map((res) => {
-                                    const addon = res === '1K' ? '+0' : '+3';
-                                    return (
-                                      <button
-                                        key={res}
-                                        type="button"
-                                        onClick={() => {
-                                          setKieResolution(res);
-                                        }}
-                                        className={`text-[8px] px-1.5 py-0.5 rounded transition-all font-black cursor-pointer ${
-                                          kieResolution === res
-                                            ? 'bg-amber-500/20 text-amber-400'
-                                            : 'bg-white/5 text-slate-400 hover:text-slate-200'
-                                        }`}
-                                      >
-                                        {res} ({addon} Xu)
-                                      </button>
-                                    );
-                                  })}
+                                  {(['1K', '2K'] as const).map((res) => (
+                                    <button
+                                      key={res}
+                                      type="button"
+                                      onClick={() => {
+                                        setKieResolution(res);
+                                      }}
+                                      className={`text-[8px] px-1.5 py-0.5 rounded transition-all font-black cursor-pointer ${
+                                        kieResolution === res
+                                          ? 'bg-amber-500/20 text-amber-400'
+                                          : 'bg-white/5 text-slate-400 hover:text-slate-200'
+                                      }`}
+                                    >
+                                      {res}
+                                    </button>
+                                  ))}
                                 </div>
                               </div>
                             </>
@@ -1802,95 +1820,9 @@ export default function Workspace() {
 
 
 
-      {/* 🚀 COMPONENT GIAO DIỆN THANH TOÁN */}
-      <PaywallDrawer
-        isOpen={showPaywall}
-        onClose={() => setShowPaywall(false)}
-      />
-
-
-      {/* 🚀 MODAL CẢNH BÁO ĐIỀU KHOẢN (TOS MODAL) ĐÃ ÁP DỤNG I18N */}
-      <BetaTosModal
-        isOpen={showTosModal}
-        onClose={() => setShowTosModal(false)}
-        onAgree={handleAgreeTerms}
-        t={t}
-        credits={currentModeCost}
-      />
     </div>
   );
 }
-
-interface BetaTosModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onAgree: () => void;
-  t: any;
-  credits: number;
-}
-
-const BetaTosModal: React.FC<BetaTosModalProps> = ({ isOpen, onClose, onAgree, t, credits }) => {
-  const [tosChecked, setTosChecked] = useState(false);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-[#0c0c0e]/95" onClick={onClose} />
-      <div className="relative max-w-md w-full bg-[#16161a] border border-white/10 rounded-3xl p-7 shadow-[0_25px_60px_rgba(0,0,0,0.8)] flex flex-col gap-6 animate-in fade-in zoom-in-95 duration-200">
-        <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-          <div className="flex items-center justify-center w-10 h-10 bg-amber-500/10 rounded-xl text-amber-500 border border-amber-500/20">
-            <span className="text-xl">⚠️</span>
-          </div>
-          <h3 className="text-base font-extrabold text-white tracking-tight uppercase">
-            {t('workspace.betaTosTitle')}
-          </h3>
-        </div>
-
-        <div className="space-y-3 text-left">
-          <div className="bg-neutral-900/60 p-5 rounded-2xl border border-white/5 space-y-2.5 font-medium text-xs text-gray-300 leading-relaxed">
-            <p>{t('workspace.betaTosCost', { credits })}</p>
-            <p>{t('workspace.betaTosQuality')}</p>
-            <p className="text-rose-400 font-bold">{t('workspace.betaTosNsfw')}</p>
-          </div>
-        </div>
-
-        <label className="flex items-center gap-3 cursor-pointer select-none text-xs text-gray-300 hover:text-white transition-colors group">
-          <input
-            type="checkbox"
-            checked={tosChecked}
-            onChange={(e) => setTosChecked(e.target.checked)}
-            className="w-4 h-4 bg-neutral-900 border border-white/10 rounded text-primary focus:ring-primary focus:ring-offset-neutral-900 cursor-pointer transition-all"
-          />
-          <span className="font-semibold group-hover:translate-x-0.5 transition-transform duration-200">
-            {t('workspace.betaTosAgree')}
-          </span>
-        </label>
-
-        <div className="flex gap-3 border-t border-white/5 pt-4">
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer border border-white/5 text-center active:scale-[0.98]"
-          >
-            {t('workspace.betaTosCancel')}
-          </button>
-          <button
-            onClick={onAgree}
-            disabled={!tosChecked}
-            className={`flex-1 py-3 px-4 font-bold text-xs uppercase tracking-wider rounded-xl transition-all text-center select-none border active:scale-[0.98]
-              ${tosChecked
-                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white border-indigo-400/20 shadow-md cursor-pointer'
-                : 'bg-neutral-800 text-neutral-500 border-transparent cursor-not-allowed opacity-50'
-              }
-            `}
-          >
-            {t('workspace.betaTosConfirm')}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // 🚀 LIGHTWEIGHT WEBTOON IMAGE COMPONENT FOR INACTIVE PAGES
 const WebtoonImage = ({ 
@@ -1920,7 +1852,7 @@ const WebtoonImage = ({
     if (file.size === 0) {
       if (pageId && projectId) {
         const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
-        const backendUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectId}/raw/${pageId}.${ext}`;
+        const backendUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/${projectId}/raw/${pageId}.${ext}`;
         setUrl(backendUrl);
       }
       return;

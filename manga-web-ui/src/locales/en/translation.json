@@ -69,6 +69,7 @@
   "workspace": {
     "mobileBlockTitle": "🚫 Device not optimized",
     "mobileBlockDesc": "The image editor and canvas masking tools require high precision. To ensure the best redraw quality and output, please save this page and open it on a Desktop/Laptop.",
+    "continueOnMobile": "I understand, continue on mobile",
     "backToHome": "Back to Home",
     "redrawConfirmTitle": "Activate AI Redraw (SDXL)",
     "redrawConfirmDesc": "The Redraw tool uses premium GPU infrastructure and a custom SDXL model to reconstruct selected regions. The cost is billed based on actual GPU execution time (GPU seconds).",
@@ -224,7 +225,7 @@
     "subtitle": "Please read carefully before using the service",
     "agree": "I understand and Agree",
     "sec1Title": "1. Privacy & Data Storage",
-    "sec1Desc": "Our system (MangaAI Studio) only temporarily stores your images and translations on the server. The system has an <b>automatic garbage collector Bot</b> that permanently deletes all your project data after <b>2 hours</b> of inactivity to protect privacy and comply with the ephemeral processing model.",
+    "sec1Desc": "Your project data, images, and translations are stored safely directly on your private GPU server. The system does not automatically delete your data after 2 hours; you have full control to manage, save, export, or delete your projects whenever you wish.",
     "sec2Title": "2. Copyright & Legal Responsibility",
     "sec2Desc": "Users are fully responsible for the copyright and legality of the images and manga uploaded to the platform. We only provide tools (AI technology, OCR, Typesetting) and do not hold copyrights or distribute any user works.<br/><br/>Strictly prohibited to upload, process, or translate obscene material (18+ manga, hentai, adult doujinshi), reactionary, or violence-inducing content. Users bear 100% criminal responsibility under Vietnamese law (including <strong>Article 326 of the Penal Code</strong> on transmitting obscene materials) for any violations.",
     "sec3Title": "3. Abuse of AI System",

@@ -1,0 +1,12 @@
+<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="dk-logo-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="12" height="10" rx="2.5" fill="#6366f1" fill-opacity="0.1" stroke="url(#dk-logo-gradient)" stroke-width="1.5" />
+  <rect x="2" y="15" width="12" height="15" rx="2.5" fill="#6366f1" fill-opacity="0.1" stroke="url(#dk-logo-gradient)" stroke-width="1.5" />
+  <rect x="17" y="2" width="13" height="28" rx="3" fill="#6366f1" fill-opacity="0.1" stroke="url(#dk-logo-gradient)" stroke-width="1.5" />
+  <path d="M15.5 6.5 Q15.5 13.5 22.5 13.5 Q15.5 13.5 15.5 20.5 Q15.5 13.5 8.5 13.5 Q15.5 13.5 15.5 6.5 Z" fill="url(#dk-logo-gradient)" />
+</svg>
