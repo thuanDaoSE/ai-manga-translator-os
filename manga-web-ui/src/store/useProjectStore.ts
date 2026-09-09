@@ -12,7 +12,7 @@ export interface ProgressData {
   message: string;
 }
 
-const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api`;
+const API_URL = `${import.meta.env.VITE_API_URL || ''}/api`;
 
 interface ProjectState {
   projectId: string | null;
@@ -109,33 +109,49 @@ export const useProjectStore = create<ProjectState>((set) => ({
         set({ projectId: currentProjectId });
       }
 
-      for (let i = 0; i < files.length; i++) {
-        const actualIndex = startIndex + i;
-        set((state) => ({ progresses: { ...state.progresses, [actualIndex]: { percent: 50, message: "Đang Upload..." } } }));
+      // ⚡ TỐI ƯU HÓA: Tải lên song song (Concurrent Worker Pool 3 luồng đồng thời)
+      const CONCURRENCY = 3;
+      let nextIndex = 0;
 
-        try {
-          // 🚀 GỌI UPLOAD QUA MANGA API (Đảm bảo Token luôn tươi mới)
-          const data = await mangaApi.uploadProjectFile(currentProjectId as string, files[i]);
+      const uploadWorker = async () => {
+        while (nextIndex < files.length) {
+          const i = nextIndex++;
+          const actualIndex = startIndex + i;
+          set((state) => ({
+            progresses: { ...state.progresses, [actualIndex]: { percent: 50, message: "Đang Upload..." } }
+          }));
 
-          set((state) => {
-            const newProgresses = { ...state.progresses };
-            delete newProgresses[actualIndex];
-            return { pageIds: { ...state.pageIds, [actualIndex]: data.page_id }, pageStatuses: { ...state.pageStatuses, [actualIndex]: "unprocessed" }, progresses: newProgresses };
-          });
-        } catch (fileError: any) {
-          // Nếu lỗi là 401, mangaApi đã tự ném ra và đá văng người dùng rồi, ta dừng vòng lặp luôn
-          if (fileError.message === "Phiên đăng nhập đã hết hạn!") {
-            throw fileError;
+          try {
+            // 🚀 GỌI UPLOAD QUA MANGA API (Đảm bảo Token luôn tươi mới)
+            const data = await mangaApi.uploadProjectFile(currentProjectId as string, files[i]);
+
+            set((state) => {
+              const newProgresses = { ...state.progresses };
+              delete newProgresses[actualIndex];
+              return {
+                pageIds: { ...state.pageIds, [actualIndex]: data.page_id },
+                pageStatuses: { ...state.pageStatuses, [actualIndex]: "unprocessed" },
+                progresses: newProgresses
+              };
+            });
+          } catch (fileError: any) {
+            // Nếu lỗi là 401, mangaApi đã tự ném ra và đá văng người dùng rồi, ta dừng luôn
+            if (fileError.message === "Phiên đăng nhập đã hết hạn!") {
+              throw fileError;
+            }
+
+            toast.error(`Lỗi file ${files[i].name}: ${fileError.message}`);
+            set((state) => {
+              const newProgresses = { ...state.progresses };
+              delete newProgresses[actualIndex];
+              return { pageStatuses: { ...state.pageStatuses, [actualIndex]: "trash" as any }, progresses: newProgresses };
+            });
           }
-
-          toast.error(`Lỗi file ${files[i].name}: ${fileError.message}`);
-          set((state) => {
-            const newProgresses = { ...state.progresses };
-            delete newProgresses[actualIndex];
-            return { pageStatuses: { ...state.pageStatuses, [actualIndex]: "trash" as any }, progresses: newProgresses };
-          });
         }
-      }
+      };
+
+      const workerCount = Math.min(CONCURRENCY, files.length);
+      await Promise.all(Array.from({ length: workerCount }, () => uploadWorker()));
 
       set((state) => {
         const validFiles: File[] = [];
@@ -391,7 +407,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       newRetryCounts[index] = page.retry_count || 0; // 🚀 Trích xuất retry_count từ Server
 
       if (page.clean_url) {
-        const fullUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${page.clean_url}`;
+        const fullUrl = `${import.meta.env.VITE_API_URL || ''}${page.clean_url}`;
         newProcessedUrls[index] = `${fullUrl}?t=${Date.now()}`;
         newOriginalCleanUrls[index] = fullUrl;
       }
@@ -422,7 +438,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       checkUrl = currentState.processedUrls[index];
     } else {
       const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
-      checkUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${currentState.projectId}/raw/${pageId}.${ext}`;
+      checkUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/${currentState.projectId}/raw/${pageId}.${ext}`;
     }
 
     if (!checkUrl || checkUrl.startsWith('blob:')) return;
