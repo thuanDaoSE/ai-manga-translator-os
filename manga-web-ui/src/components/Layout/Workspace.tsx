@@ -22,6 +22,7 @@ import { useMangaEditorStore } from '../../store/useMangaEditorStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { Smartphone, ArrowLeft, ArrowRight, Loader2, Languages, Hourglass, Play, Bot } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useDeviceDetect } from '../../hooks/useDeviceDetect';
 
 // Helper to convert base64/dataURL to Blob
 const dataURLtoBlob = (dataurl: string) => {
@@ -1786,9 +1787,9 @@ export default function Workspace() {
                     <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa chữ thông minh"}</span>
                   </button>
 
+                  {/* [TẠM ẨN] Button 3: Xóa với AI (Prompt GenAI: Grok / OpenAI / Nano Banana)
+                      Sau này muốn bật lại chỉ cần uncomment khối code dưới đây:
                   <div className="w-px h-6 bg-border mx-0.5"></div>
-
-                  {/* Button 3: Xóa với AI */}
                   <button 
                     onClick={() => setShowAiPromptInput(true)} 
                     disabled={isCurrentPageProcessing || isProcessing} 
@@ -1797,6 +1798,7 @@ export default function Workspace() {
                     {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Bot size={14} className="group-hover:text-slate-950 transition-colors" />}
                     <span>✨ Xóa với AI</span>
                   </button>
+                  */}
                 </div>
               )}
             </>
