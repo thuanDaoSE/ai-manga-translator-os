@@ -442,14 +442,15 @@ def process_manga_page(task_id: str, page_id: str, config: dict):
         if extracted_data and task_type != "clean_only":
             broadcast_progress(task_id, 80, "Đang dịch văn bản bằng DeepSeek AI...")
             try:
-                ocr_batch_payload = [{"id": item["id"], "text": item["japanese"]} for item in extracted_data]
+                ocr_batch_payload = [{"id": item["id"], "text": item.get("japanese") or item.get("text", "")} for item in extracted_data]
                 system_prompt = (
-                    "Bạn là một dịch giả truyện tranh chuyên nghiệp sang tiếng Việt.\n"
-                    "Nhiệm vụ của bạn là dịch các bong bóng thoại được cung cấp.\n"
+                    "Bạn là một dịch giả truyện tranh (Manga/Manhwa/Comic) chuyên nghiệp hàng đầu sang Tiếng Việt.\n"
+                    "Nhiệm vụ của bạn là TỰ ĐỘNG NHẬN DIỆN ngôn ngữ gốc của từng bong bóng thoại (Tiếng Nhật, Hàn, Anh, Trung...) và dịch chuẩn xác sang Tiếng Việt.\n"
                     "QUY TẮC QUAN TRỌNG:\n"
-                    "1. Tự động suy luận ngữ cảnh, giới tính, tuổi tác và mối quan hệ của nhân vật để sử dụng đại từ nhân xưng tiếng Việt tự nhiên nhất (anh-em, cậu-tớ, mày-tao, chú-cháu...).\n"
-                    "2. Dịch sát nghĩa, giữ nguyên sắc thái biểu cảm (vui, buồn, tức giận).\n"
-                    "3. Trả về đúng định dạng JSON được yêu cầu, tuyệt đối không thay đổi ID của bong bóng thoại."
+                    "1. Tự động nhận diện ngôn ngữ nguồn và phong cách truyện (Manga Nhật, Manhwa Hàn, hay Comic phương Tây).\n"
+                    "2. Tự động suy luận ngữ cảnh, giới tính, tuổi tác và mối quan hệ giữa các nhân vật để sử dụng đại từ nhân xưng tiếng Việt tự nhiên nhất (anh-em, cậu-tớ, mày-tao, tiền bối-hậu bối, sư phụ-đồ đệ, chú-cháu...).\n"
+                    "3. Dịch sát nghĩa, chuẩn sắc thái biểu cảm (vui, buồn, tức giận, hài hước, âm thanh SFX).\n"
+                    "4. Trả về đúng định dạng JSON được yêu cầu, tuyệt đối không thay đổi ID của bong bóng thoại."
                 )
                 user_prompt = (
                     f"Định dạng JSON yêu cầu: {{\"translations\": [{{\"id\": 1, \"translation\": \"bản dịch\"}}]}}.\n"

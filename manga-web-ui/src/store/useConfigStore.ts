@@ -1,13 +1,15 @@
 import { create } from 'zustand';
 
 export const VALID_LANGUAGES = [
-  'Tiếng Việt',
-  'English',
-  'Bahasa Indonesia',
-  'ภาษาไทย (Thai)',
-  'Français (French)',
-  'Español (Spanish)',
-  'Русский (Russian)'
+  'Tiếng Việt'
+];
+
+export const SOURCE_LANGUAGES = [
+  { code: 'auto', flag: '✨', label: 'Tự động (AI)', iso: 'AUTO' },
+  { code: 'ja', flag: '🇯🇵', label: 'Tiếng Nhật', iso: 'JA' },
+  { code: 'en', flag: '🇬🇧', label: 'Tiếng Anh', iso: 'EN' },
+  { code: 'zh', flag: '🇨🇳', label: 'Tiếng Trung', iso: 'ZH' },
+  { code: 'ko', flag: '🇰🇷', label: 'Tiếng Hàn', iso: 'KO' }
 ];
 
 interface ConfigState {
@@ -59,7 +61,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   customPronoun: '',
   glossary: '',
   targetLanguage: 'Tiếng Việt',
-  sourceLanguage: 'ja',
+  sourceLanguage: 'auto',
   useGpu: true,
   setUseGpu: (useGpu) => set({ useGpu }),
   translationMode: 'studio' as 'fast' | 'studio' | 'grok' | 'openai' | 'anytext',
@@ -93,7 +95,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
           parsed.studioSubModel = 'nano-banana-2';
         }
         if (!parsed.sourceLanguage) {
-          parsed.sourceLanguage = 'ja';
+          parsed.sourceLanguage = 'auto';
         }
         if (parsed.useGpu === undefined) {
           parsed.useGpu = true;

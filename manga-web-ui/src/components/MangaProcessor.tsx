@@ -23,7 +23,7 @@ export const MangaProcessor: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [outputFormat, setOutputFormat] = useState<'png' | 'jpeg'>('jpeg');
   const [qualityLevel, setQualityLevel] = useState<number>(2);
-  const [sourceLanguage, setSourceLanguage] = useState<string>('ja');
+  const [sourceLanguage, setSourceLanguage] = useState<string>('auto');
   const [showSrcLangDropdown, setShowSrcLangDropdown] = useState<boolean>(false);
   const [showJaWarningModal, setShowJaWarningModal] = useState<boolean>(false);
 
@@ -89,7 +89,7 @@ export const MangaProcessor: React.FC = () => {
     formData.append('source_language', sourceLanguage);
 
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const baseUrl = import.meta.env.VITE_API_URL || '';
       const authHeaders = await getAuthHeaders(true);
       const response = await fetch(`${baseUrl}/api/v1/ai-process`, {
         method: 'POST',
@@ -248,16 +248,19 @@ export const MangaProcessor: React.FC = () => {
                   disabled={isProcessing}
                   className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 text-slate-200 text-sm rounded-xl p-3 outline-none flex items-center justify-between transition-all disabled:opacity-50 text-left font-semibold"
                 >
-                  <span>{sourceLanguage === 'ja' ? '🇯🇵 Japanese (ja) 👑' : sourceLanguage === 'en' ? '🇺🇸 English (en)' : sourceLanguage === 'zh' ? '🇨🇳 Chinese (zh)' : '🇰🇷 Korean (ko)'}</span>
+                  <span>
+                    {sourceLanguage === 'auto' ? '✨ Tự động nhận diện (DeepSeek AI)' : sourceLanguage === 'ja' ? '🇯🇵 Japanese (ja)' : sourceLanguage === 'en' ? '🇺🇸 English (en)' : sourceLanguage === 'zh' ? '🇨🇳 Chinese (zh)' : '🇰🇷 Korean (ko)'}
+                  </span>
                   <ChevronDown className="w-4 h-4 text-slate-400" />
                 </button>
                 {showSrcLangDropdown && (
                   <div className="absolute top-13 left-0 w-full bg-slate-900 border border-slate-800 rounded-xl p-1.5 shadow-xl flex flex-col gap-0.5 z-50">
                     {[
-                      { code: 'en', label: 'English (en)', flag: '🇺🇸', premium: false },
-                      { code: 'zh', label: 'Chinese (zh)', flag: '🇨🇳', premium: false },
+                      { code: 'auto', label: 'Tự động nhận diện (AI)', flag: '✨', premium: false },
+                      { code: 'ja', label: 'Japanese (ja)', flag: '🇯🇵', premium: false },
                       { code: 'ko', label: 'Korean (ko)', flag: '🇰🇷', premium: false },
-                      { code: 'ja', label: 'Japanese (ja)', flag: '🇯🇵', premium: true }
+                      { code: 'en', label: 'English (en)', flag: '🇺🇸', premium: false },
+                      { code: 'zh', label: 'Chinese (zh)', flag: '🇨🇳', premium: false }
                     ].map((lang) => {
                       const isSelected = sourceLanguage === lang.code;
                       return (

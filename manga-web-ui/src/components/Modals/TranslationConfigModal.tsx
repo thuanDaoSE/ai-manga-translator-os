@@ -148,12 +148,13 @@ export default function TranslationConfigModal() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [tempSourceLang, setTempSourceLang] = useState(config.sourceLanguage || 'ja');
+  const [tempSourceLang, setTempSourceLang] = useState(config.sourceLanguage || 'auto');
   const [tempUseGpu, setTempUseGpu] = useState(config.useGpu);
   const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
   const langDropdownRef = useRef<HTMLDivElement>(null);
 
   const sourceLanguages = [
+    { code: 'auto', name: '✨ Tự động nhận diện (DeepSeek Auto)' },
     { code: 'ja', name: 'Tiếng Nhật' },
     { code: 'en', name: 'Tiếng Anh' },
     { code: 'zh', name: 'Tiếng Trung' },
@@ -163,7 +164,7 @@ export default function TranslationConfigModal() {
   // Sync temp states when isModalOpen becomes true
   useEffect(() => {
     if (config.isModalOpen) {
-      setTempSourceLang(config.sourceLanguage || 'ja');
+      setTempSourceLang(config.sourceLanguage || 'auto');
       setTempUseGpu(config.useGpu);
     }
   }, [config.isModalOpen, config.sourceLanguage, config.useGpu]);
@@ -262,7 +263,7 @@ export default function TranslationConfigModal() {
     setIsAIExtracting(true);
     const toastId = toast.loading(t('configModal.aiExtractingLoading'));
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const baseUrl = import.meta.env.VITE_API_URL || '';
       const authHeaders = await getAuthHeaders(false);
       const response = await fetch(`${baseUrl}/api/translation/ai-extract`, {
         method: 'POST',
