@@ -3,8 +3,7 @@ import { useToolStore } from '../../store/useToolStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useAuthStore } from '../../store/useAuthStore';
-import { useConfigStore } from '../../store/useConfigStore';
-import { MousePointer2, Eraser, RotateCcw, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff, Sparkles, Loader, Copy, Target, Slash, Brush, Stamp, Pipette, Wand2, Bot } from 'lucide-react';
+import { MousePointer2, Eraser, RotateCcw, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff, Sparkles, Loader, Copy, Target, Slash, Brush, Stamp, Pipette, Wand2, Bot, GripVertical, Minimize2, Maximize2 } from 'lucide-react';
 
 const GrokIcon = ({ className = "w-5 h-5 text-slate-200" }: { className?: string }) => (
   <svg className={className} fill="currentColor" fillRule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -26,20 +25,6 @@ const BoltIcon = () => (
   </svg>
 );
 
-const GpuIcon = ({ size = 14, className = "" }: { size?: number; className?: string }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width={size} 
-    height={size} 
-    fill="currentColor" 
-    className={`inline-block align-middle ${className}`} 
-    viewBox="0 0 16 16"
-  >
-    <path d="M4 8a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0m7.5-1.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3"/>
-    <path d="M0 1.5A.5.5 0 0 1 .5 1h1a.5.5 0 0 1 .5.5V4h13.5a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H2v2.5a.5.5 0 0 1-1 0V2H.5a.5.5 0 0 1-.5-.5m5.5 4a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M9 8a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0"/>
-    <path d="M3 12.5h3.5v1a.5.5 0 0 1-.5.5H3.5a.5.5 0 0 1-.5-.5zm4 1v-1h4v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5"/>
-  </svg>
-);
 
 interface Props {
   actionPosition?: { x: number; y: number } | null;
@@ -76,7 +61,69 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
   const isCurrentPageProcessing = pageStatuses[currentIndex] === 'processing' || pageStatuses[currentIndex] === 'waiting';
   
   const isBrushMode = activeMode === 'erase' || activeMode === 'restore' || activeMode === 'redraw' || activeMode === 'clone' || activeMode === 'speedline';
-  const useGpu = useConfigStore((s) => s.useGpu);
+  const useGpu = useToolStore((s) => s.activeMode !== undefined); // default available
+
+  // 🚀 TÍNH NĂNG DRAGGABLE & THU GỌN CỦA THANH CÔNG CỤ
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const saved = localStorage.getItem('manga_toolbar_position');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return null;
+  });
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef<{ mouseX: number; mouseY: number; elemX: number; elemY: number }>({ mouseX: 0, mouseY: 0, elemX: 0, elemY: 0 });
+  const toolbarContainerRef = useRef<HTMLDivElement>(null);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!toolbarContainerRef.current) return;
+
+    const rect = toolbarContainerRef.current.getBoundingClientRect();
+    isDraggingRef.current = true;
+    dragStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      elemX: rect.left,
+      elemY: rect.top,
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (!isDraggingRef.current) return;
+      const dx = moveEvent.clientX - dragStartRef.current.mouseX;
+      const dy = moveEvent.clientY - dragStartRef.current.mouseY;
+      const newX = Math.max(8, Math.min(window.innerWidth - 120, dragStartRef.current.elemX + dx));
+      const newY = Math.max(50, Math.min(window.innerHeight - 80, dragStartRef.current.elemY + dy));
+      setPosition({ x: newX, y: newY });
+    };
+
+    const handlePointerUp = () => {
+      isDraggingRef.current = false;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      setPosition((curr) => {
+        if (curr) {
+          try {
+            localStorage.setItem('manga_toolbar_position', JSON.stringify(curr));
+          } catch (e) {}
+        }
+        return curr;
+      });
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  };
+
+  const handleResetPosition = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPosition(null);
+    try {
+      localStorage.removeItem('manga_toolbar_position');
+    } catch (e) {}
+  };
 
 
   const handleUndo = () => {
@@ -156,38 +203,64 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
           `}
         >
           <CurrentIcon size={20} strokeWidth={isActive ? 2.5 : 2} className={isButtonLoading ? "animate-spin" : ""} />
-          
-          {['erase', 'redraw', 'scan'].includes(mode) && (
-            <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-              {mode === 'redraw' ? (
-                <>
-                  <span>3</span>
-                  <GpuIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 shrink-0" />
-                </>
-              ) : mode === 'scan' ? (
-                <>
-                  <span>1</span>
-                  <GpuIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 shrink-0" />
-                </>
-              ) : (
-                <>
-                  <span>1</span>
-                  <GpuIcon className="w-2.5 h-2.5 -ml-[1px] text-amber-400 shrink-0" />
-                </>
-              )}
-            </span>
-          )}
         </button>
       </div>
     );
   };
 
+  const wrapperStyle: React.CSSProperties = position 
+    ? {
+        position: 'fixed',
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        transform: 'none',
+        zIndex: 100,
+      }
+    : {
+        position: 'absolute',
+        bottom: '24px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 100,
+      };
+
+  if (isCollapsed) {
+    return (
+      <div 
+        ref={toolbarContainerRef}
+        style={wrapperStyle}
+        className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 bg-panel/95 backdrop-blur-xl border border-border rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.6)] pointer-events-auto select-none transition-all duration-200 hover:ring-1 hover:ring-primary/40
+          ${(isCurrentPageProcessing || isDrawingState) ? 'opacity-0 scale-90 pointer-events-none' : 'opacity-100 scale-100'}`}
+      >
+        <div 
+          onPointerDown={handlePointerDown} 
+          onDoubleClick={handleResetPosition}
+          className="cursor-grab active:cursor-grabbing text-text-muted hover:text-text-main p-1 rounded hover:bg-border/50 flex items-center justify-center transition-colors"
+          title="Kéo thả vị trí (Click đúp để đưa về vị trí mặc định ở đáy)"
+        >
+          <GripVertical size={14} />
+        </div>
+        <button 
+          onClick={() => setIsCollapsed(false)}
+          className="flex items-center gap-1.5 px-2 py-1 bg-primary/20 text-primary hover:bg-primary hover:text-white rounded-full text-[11px] font-bold transition-all cursor-pointer"
+          title="Mở rộng thanh công cụ vẽ"
+        >
+          <Maximize2 size={12} />
+          <span>Mở toolbar</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-3 z-[100] pointer-events-none transition-all duration-300
-      ${(isCurrentPageProcessing || isDrawingState) ? 'opacity-0 translate-y-10 scale-90 pointer-events-none' : 'opacity-100 translate-y-0 scale-100'}`}>
+    <div 
+      ref={toolbarContainerRef}
+      style={wrapperStyle}
+      className={`hidden md:flex flex-col items-center gap-3 z-[100] pointer-events-none transition-opacity duration-200 overflow-visible
+        ${(isCurrentPageProcessing || isDrawingState) ? 'opacity-0 translate-y-10 scale-90 pointer-events-none' : 'opacity-100 scale-100'}`}>
       
       {/* TẦNG 1: DÒNG THIẾT LẬP CỌ (Đã tối ưu hóa gộp chung các dòng để tiết kiệm diện tích) */}
-      <div className={`transition-all duration-300 transform pointer-events-auto flex items-center px-4 py-2 bg-panel/95 backdrop-blur-xl border border-border shadow-lg rounded-full
+      <div className={`transition-all duration-300 transform pointer-events-auto flex items-center px-4 py-2 bg-panel/95 backdrop-blur-xl border border-border shadow-lg rounded-full overflow-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden no-scrollbar
           ${isBrushMode ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 pointer-events-none scale-95 absolute'}`}>
         
         <div className="flex items-center gap-2">
@@ -321,8 +394,18 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
       </div>
 
       {/* TẦNG 2: THANH CÔNG CỤ CHÍNH */}
-      <div className="flex items-center px-2 py-2 bg-panel/95 backdrop-blur-xl border border-border rounded-full shadow-[0_10px_40px_rgba(0,0,0,0.6)] pointer-events-auto">
+      <div className="flex items-center px-2 py-2 bg-panel/95 backdrop-blur-xl border border-border rounded-full shadow-[0_10px_40px_rgba(0,0,0,0.6)] pointer-events-auto overflow-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden no-scrollbar">
         
+        {/* TAY CẦM KÉO THẢ (DRAG HANDLE) */}
+        <div
+          onPointerDown={handlePointerDown}
+          onDoubleClick={handleResetPosition}
+          className="cursor-grab active:cursor-grabbing text-text-muted hover:text-text-main p-1.5 rounded-full hover:bg-border/50 flex items-center justify-center select-none transition-colors mr-0.5"
+          title="Kéo thả để di chuyển thanh công cụ (Click đúp để đưa về vị trí mặc định ở đáy)"
+        >
+          <GripVertical size={16} />
+        </div>
+
         <div className="flex items-center gap-1 mr-2 pr-2 border-r border-border">
           <button 
             onClick={handleUndo} 
@@ -369,6 +452,14 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
           <div className="w-px h-6 bg-border mx-1"></div>
 
           <ToolButton mode="erase" icon={Eraser} label="Tẩy nền (E)" shortLabel="Tẩy nền (E)" />
+          <ToolButton 
+            mode="redraw" 
+            icon={Wand2} 
+            label="Vẽ lại AI (FLUX) (R)" 
+            shortLabel="Vẽ lại FLUX (R)" 
+            disabled={!useGpu}
+            lockMessage={!useGpu ? "Yêu cầu bật GPU Premium để sử dụng" : undefined}
+          />
 
           <ToolButton mode="clone" icon={Copy} label="Clone Stamp (S)" shortLabel="Clone Stamp" />
           <ToolButton mode="speedline" icon={Brush} label="Cọ vẽ tay (B)" shortLabel="Cọ vẽ tay" />
@@ -421,6 +512,17 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
               {showText ? <Eye size={20} strokeWidth={2} /> : <EyeOff size={20} strokeWidth={2.5} />}
             </button>
           </div>
+
+          <div className="w-px h-6 bg-border mx-0.5"></div>
+
+          {/* 🚀 NÚT THU GỌN THANH CÔNG CỤ */}
+          <button
+            onClick={() => setIsCollapsed(true)}
+            className="w-9 h-9 rounded-full text-text-muted hover:text-text-main hover:bg-border/60 flex items-center justify-center transition-colors cursor-pointer"
+            title="Thu gọn thanh công cụ để nhìn trọn trang manga"
+          >
+            <Minimize2 size={16} />
+          </button>
 
         </div>
 
