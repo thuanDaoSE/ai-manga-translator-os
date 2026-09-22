@@ -19,6 +19,10 @@ pyahocorasick
 # SOTA Multilingual Manga OCR (Hayai-OCR v2 + SigLIP 2 NaFlex)
 transformers>=4.40.0
 accelerate
+diffusers>=0.30.0
+torchvision
+sentencepiece
+protobuf
 huggingface-hub
 shapely
 paddleocr>=2.7.3

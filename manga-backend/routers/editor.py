@@ -110,13 +110,80 @@ async def ai_redraw(
     payload: RedrawPayload,
     db: AsyncSession = Depends(get_db)
 ):
-    """Vẽ lại vùng ảnh bằng Native LaMa Inpainting Engine"""
-    mask_payload = MaskPayload(
-        image_url=payload.image_url,
-        mask_base64=payload.mask_base64,
-        page_id=payload.page_id
-    )
-    return await erase_mask(mask_payload, db)
+    """Vẽ lại vùng ảnh bằng AI (FLUX.1 Schnell Inpainting hoặc LaMa Fallback)"""
+    prompt = (payload.prompt or "").strip()
+    if not prompt:
+        mask_payload = MaskPayload(
+            image_url=payload.image_url,
+            mask_base64=payload.mask_base64,
+            page_id=payload.page_id
+        )
+        return await erase_mask(mask_payload, db)
+
+    local_path = resolve_local_image_path(payload.image_url)
+    if not os.path.exists(local_path):
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy file ảnh tại {local_path}")
+
+    image = cv2.imread(local_path)
+    if image is None:
+        raise HTTPException(status_code=400, detail="Không thể đọc file ảnh")
+
+    b64_data = payload.mask_base64
+    if "," in b64_data:
+        b64_data = b64_data.split(",")[1]
+    mask_bytes = base64.b64decode(b64_data)
+    mask_rgba = cv2.imdecode(np.frombuffer(mask_bytes, np.uint8), cv2.IMREAD_UNCHANGED)
+
+    if mask_rgba is None:
+        raise HTTPException(status_code=400, detail="Mặt nạ mask không hợp lệ")
+
+    mask = mask_rgba[:, :, 3] if len(mask_rgba.shape) == 3 and mask_rgba.shape[2] == 4 else cv2.cvtColor(mask_rgba, cv2.COLOR_BGR2GRAY) if len(mask_rgba.shape) == 3 else mask_rgba
+
+    def run_redraw_task():
+        nonlocal image
+        engine_used = "flux"
+        try:
+            from flux_engine import run_flux_redraw
+            image = run_flux_redraw(
+                image_bgr=image,
+                mask_gray=mask,
+                prompt=prompt,
+                negative_prompt=payload.negative_prompt or ""
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger("editor_router").warning(f"FLUX Redraw gặp sự cố, tự động fallback sang LaMa Inpainting: {e}")
+            engine_used = "lama_fallback"
+            x, y, w, h = cv2.boundingRect(mask)
+            if w > 0 and h > 0:
+                pad = 60
+                h_img, w_img = image.shape[:2]
+                x1, y1 = max(0, x - pad), max(0, y - pad)
+                x2, y2 = min(w_img, x + w + pad), min(h_img, y + h + pad)
+                crop_img = image[y1:y2, x1:x2]
+                crop_mask = mask[y1:y2, x1:x2]
+                inpainted_crop = run_local_lama(crop_img, crop_mask)
+                image[y1:y2, x1:x2] = inpainted_crop
+
+        cv2.imwrite(local_path, image, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        return engine_used
+
+    engine_used = await asyncio.to_thread(run_redraw_task)
+
+    new_url = f"/{local_path}"
+    if payload.page_id:
+        result = await db.execute(select(models.Page).where(models.Page.id == payload.page_id))
+        page = result.scalars().first()
+        if page:
+            page.clean_url = new_url
+            await db.commit()
+
+    return {
+        "status": "success",
+        "new_url": new_url,
+        "credits": 999999,
+        "engine": engine_used
+    }
 
 @router.post("/quick-scan")
 async def quick_scan(payload: dict = Body(...)):

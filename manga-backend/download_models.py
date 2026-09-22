@@ -70,6 +70,20 @@ def prepare_models():
     except Exception as e:
         logger.warning(f"⚠️ Chưa thể tải trước Hayai-OCR v2 / SigLIP 2: {e}")
 
+    # 3. Pre-cache FLUX.1 Schnell Inpainting Model
+    flux_model_id = os.getenv("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-schnell")
+    logger.info(f"Đang nạp trước mô hình FLUX ({flux_model_id}) vào cache...")
+    try:
+        from huggingface_hub import snapshot_download
+        snapshot_download(
+            repo_id=flux_model_id,
+            resume_download=True,
+            allow_patterns=["*.json", "*.safetensors", "*.txt", "*model*"]
+        )
+        logger.info(f"✅ Mô hình FLUX ({flux_model_id}) đã nạp và lưu vào cache thành công!")
+    except Exception as e:
+        logger.warning(f"⚠️ Chưa thể tải trước FLUX: {e}")
+
 if __name__ == "__main__":
     logger.info("🚀 Bắt đầu quá trình nướng Model AI vào Docker Image...")
     prepare_models()
