@@ -12,5 +12,4 @@ PyYAML==6.0.3
 loguru==0.7.3
 requests==2.31.0
 onnxruntime-gpu
-vllm>=0.4.0
-manga-ocr
+accelerate

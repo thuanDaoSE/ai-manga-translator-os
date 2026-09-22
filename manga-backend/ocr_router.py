@@ -1,11 +1,9 @@
 """
 Multi-Model Routed OCR Pipeline (OCR Router)
 Author: AI Manga Translator
-Purpose: Route cropped speech bubbles to specialized OCR engines per language:
-         - 'ja' (Japanese): Manga-OCR (optimized for Japanese manga, vertical text & furigana)
-         - 'zh' (Chinese): PaddleOCR ('ch' model - PP-OCRv4)
-         - 'ko' (Korean): Pororo OCR (if available) with PaddleOCR ('korean') fallback
-         - 'en' / default: PaddleOCR ('en' model)
+Purpose: Route cropped speech bubbles to specialized SOTA OCR engines:
+         - 'ja', 'ko', 'en': Hayai-OCR v2 (SigLIP 2 NaFlex Vision Backbone, blazing fast)
+         - 'zh' (Chinese): PaddleOCR ('ch' model - PP-OCRv4) with Hayai-OCR fallback
 Architecture: Singleton + Lazy Loading (VRAM-efficient, loads models only upon demand)
 """
 
@@ -41,8 +39,8 @@ class OCRRouter:
         self._models: Dict[str, Any] = {}
         self._pororo_available: Optional[bool] = None
         self._paddle_available: Optional[bool] = None
-        self._manga_ocr_available: Optional[bool] = None
-        logger.info("OCRRouter initialized (Lazy-Loading enabled).")
+        self._hayai_ocr_available: Optional[bool] = None
+        logger.info("OCRRouter initialized (SOTA Hayai-OCR v2 + SigLIP 2 enabled).")
 
     @classmethod
     def get_instance(cls) -> "OCRRouter":
@@ -54,20 +52,77 @@ class OCRRouter:
     # Model Loaders (Lazy Loading with safe error handling)
     # ------------------------------------------------------------------
 
-    def _get_manga_ocr(self):
-        """Lazy load MangaOcr for Japanese"""
-        if "manga_ocr" not in self._models:
+    def _get_hayai_ocr(self):
+        """Lazy load SOTA Multilingual Manga OCR (Hayai-OCR v2 + SigLIP 2 NaFlex)"""
+        if "hayai_ocr" not in self._models:
             try:
-                from manga_ocr import MangaOcr
-                logger.info("Loading MangaOcr model for Japanese into memory...")
-                self._models["manga_ocr"] = MangaOcr()
-                self._manga_ocr_available = True
-                logger.info("MangaOcr loaded successfully.")
+                import torch
+                from transformers import AutoModel, AutoProcessor, PreTrainedTokenizerFast
+
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                model_id = "JustANormalTinkerer/hayai-ocr-v2"
+                processor_id = "google/siglip2-base-patch16-naflex"
+
+                logger.info(f"Loading Hayai-OCR v2 with SigLIP 2 Vision Backbone on {device}...")
+                tokenizer = PreTrainedTokenizerFast.from_pretrained(model_id)
+                processor = AutoProcessor.from_pretrained(processor_id)
+
+                dtype = torch.bfloat16 if (device != "cpu" and torch.cuda.is_bf16_supported()) else (
+                    torch.float16 if device != "cpu" else torch.float32
+                )
+                model = AutoModel.from_pretrained(
+                    model_id,
+                    torch_dtype=dtype if device != "cpu" else torch.float32,
+                    trust_remote_code=True
+                )
+                if device != "cpu":
+                    model = model.to(device)
+                model.eval()
+
+                class HayaiWrapper:
+                    def __init__(self, m, p, t, dev):
+                        self.model = m
+                        self.processor = p
+                        self.tokenizer = t
+                        self.device = dev
+
+                    def __call__(self, pil_image: Image.Image) -> str:
+                        res = self.recognize_batch([pil_image])
+                        return res[0] if res else ""
+
+                    def recognize_batch(self, images: list) -> list:
+                        if not images:
+                            return []
+                        crops = [
+                            img.convert("RGB") if isinstance(img, Image.Image) else Image.fromarray(img).convert("RGB")
+                            for img in images
+                        ]
+                        with torch.inference_mode():
+                            inputs = self.processor(images=crops, max_num_patches=256, return_tensors="pt")
+                            if self.device != "cpu":
+                                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                            decoded_texts = self.model.generate(
+                                pixel_values=inputs["pixel_values"],
+                                pixel_attention_mask=inputs.get("pixel_attention_mask"),
+                                spatial_shapes=inputs.get("spatial_shapes"),
+                                tokenizer=self.tokenizer,
+                                max_new_tokens=128,
+                                repetition_penalty=1.0,
+                            )
+                            return [str(t).strip() for t in decoded_texts]
+
+                self._models["hayai_ocr"] = HayaiWrapper(model, processor, tokenizer, device)
+                self._hayai_ocr_available = True
+                logger.info("✅ Hayai-OCR v2 (SigLIP 2 NaFlex) loaded successfully.")
             except Exception as e:
-                logger.error(f"Failed to load MangaOcr: {e}")
-                self._manga_ocr_available = False
+                logger.error(f"Failed to load Hayai-OCR v2: {e}")
+                self._hayai_ocr_available = False
                 return None
-        return self._models.get("manga_ocr")
+        return self._models.get("hayai_ocr")
+
+    def _get_manga_ocr(self):
+        """Backward compatibility alias for _get_hayai_ocr"""
+        return self._get_hayai_ocr()
 
     def _get_paddle_ocr(self, lang: str):
         """Lazy load PaddleOCR for specific language (ch, korean, en)"""
@@ -160,10 +215,8 @@ class OCRRouter:
     ) -> str:
         """
         Routes the cropped image to the optimal model based on source_language:
-          - 'ja' -> Manga-OCR
+          - 'ja', 'ko', 'en' -> Hayai-OCR v2 (SigLIP 2 NaFlex)
           - 'zh' / 'cn' -> PaddleOCR (ch)
-          - 'ko' -> Pororo (or PaddleOCR korean)
-          - 'en' / others -> PaddleOCR (en)
         """
         lang = (source_language or "ja").lower().strip()
         
@@ -179,19 +232,20 @@ class OCRRouter:
 
         text = ""
 
-        # 1. ROUTE: JAPANESE -> Manga-OCR
-        if lang == "ja":
-            logger.info(f"Routed OCR: Processing box ID {box_id} using [Manga-OCR] for language [ja]")
+        # 1. ROUTE: JAPANESE, KOREAN, ENGLISH -> SOTA Hayai-OCR v2 (SigLIP 2 NaFlex)
+        if lang in ["ja", "ko", "en"]:
+            logger.info(f"Routed OCR: Processing box ID {box_id} using [Hayai-OCR v2] for language [{lang}]")
             try:
                 pil_img = self._to_pil(image_input)
-                mocr = self._get_manga_ocr()
-                if mocr:
-                    text = mocr(pil_img)
+                hayai = self._get_hayai_ocr()
+                if hayai:
+                    text = hayai(pil_img)
                 else:
-                    raise RuntimeError("MangaOcr instance not available")
+                    raise RuntimeError("Hayai-OCR v2 instance not available")
             except Exception as e:
-                logger.warning(f"⚠️ [Manga-OCR Error on Box {box_id}]: {e}. Attempting fallback to PaddleOCR...")
-                text = self._fallback_paddle(image_input, lang="japan", box_id=box_id)
+                logger.warning(f"⚠️ [Hayai-OCR Error on Box {box_id}]: {e}. Attempting fallback to PaddleOCR...")
+                paddle_lang = "japan" if lang == "ja" else ("korean" if lang == "ko" else "en")
+                text = self._fallback_paddle(image_input, lang=paddle_lang, box_id=box_id)
 
         # 2. ROUTE: CHINESE -> PaddleOCR (ch)
         elif lang == "zh":
@@ -199,44 +253,77 @@ class OCRRouter:
             try:
                 text = self._run_paddle_ocr(image_input, lang="ch", box_id=box_id)
             except Exception as e:
-                logger.warning(f"⚠️ [PaddleOCR-ch Error on Box {box_id}]: {e}. Attempting fallback...")
+                logger.warning(f"⚠️ [PaddleOCR-ch Error on Box {box_id}]: {e}. Attempting fallback to Hayai-OCR...")
                 text = self._fallback_any(image_input, box_id=box_id)
 
-        # 3. ROUTE: KOREAN -> Pororo (if installed) or PaddleOCR (korean)
-        elif lang == "ko":
-            pororo_engine = self._get_pororo_ocr()
-            if pororo_engine:
-                logger.info(f"Routed OCR: Processing box ID {box_id} using [Pororo-OCR] for language [ko]")
-                try:
-                    np_img = self._to_numpy_rgb(image_input)
-                    res = pororo_engine(np_img)
-                    if isinstance(res, list):
-                        text = " ".join([str(item) for item in res if item])
-                    elif isinstance(res, dict):
-                        text = " ".join(res.get("description", []))
-                    else:
-                        text = str(res)
-                except Exception as e:
-                    logger.warning(f"⚠️ [Pororo Error on Box {box_id}]: {e}. Fallback to PaddleOCR (korean)...")
-                    text = self._run_paddle_ocr(image_input, lang="korean", box_id=box_id)
-            else:
-                logger.info(f"Routed OCR: Processing box ID {box_id} using [PaddleOCR-korean] for language [ko]")
-                try:
-                    text = self._run_paddle_ocr(image_input, lang="korean", box_id=box_id)
-                except Exception as e:
-                    logger.warning(f"⚠️ [PaddleOCR-korean Error on Box {box_id}]: {e}. Attempting fallback...")
-                    text = self._fallback_any(image_input, box_id=box_id)
-
-        # 4. ROUTE: ENGLISH / DEFAULT -> PaddleOCR (en)
+        # 3. OTHER LANGUAGES -> PaddleOCR (en) or Hayai-OCR
         else:
             logger.info(f"Routed OCR: Processing box ID {box_id} using [PaddleOCR-en] for language [{lang}]")
             try:
                 text = self._run_paddle_ocr(image_input, lang="en", box_id=box_id)
             except Exception as e:
-                logger.warning(f"⚠️ [PaddleOCR-en Error on Box {box_id}]: {e}. Attempting fallback...")
+                logger.warning(f"⚠️ [PaddleOCR-en Error on Box {box_id}]: {e}. Attempting fallback to Hayai-OCR...")
                 text = self._fallback_any(image_input, box_id=box_id)
 
         return (text or "").strip()
+
+    # ------------------------------------------------------------------
+    # Batch Processing Optimization (Tensor Batching for High Throughput)
+    # ------------------------------------------------------------------
+
+    def recognize_batch(
+        self,
+        image_inputs: list,
+        source_language: str = "ja",
+        batch_size: int = 16
+    ) -> list:
+        """
+        Processes a list of cropped images in batch to maximize GPU Tensor Core utilization.
+        For Japanese, Korean, English: batches all crops through Hayai-OCR v2 in a single forward pass.
+        """
+        if not image_inputs:
+            return []
+
+        lang = (source_language or "ja").lower().strip()
+        if lang in ["jp", "japanese"]:
+            lang = "ja"
+        elif lang in ["cn", "chinese", "zh-cn", "zh-tw"]:
+            lang = "zh"
+        elif lang in ["kr", "korean"]:
+            lang = "ko"
+        elif lang in ["english"]:
+            lang = "en"
+
+        if lang in ["ja", "ko", "en"]:
+            try:
+                return self._run_hayai_ocr_batch(image_inputs, batch_size=batch_size)
+            except Exception as e:
+                logger.warning(f"⚠️ [Batch Hayai-OCR failed]: {e}. Falling back to sequential recognize...")
+                return [self.recognize(img, source_language=lang, box_id=idx + 1) for idx, img in enumerate(image_inputs)]
+        else:
+            return [self.recognize(img, source_language=lang, box_id=idx + 1) for idx, img in enumerate(image_inputs)]
+
+    def _run_hayai_ocr_batch(self, image_inputs: list, batch_size: int = 16) -> list:
+        """Process a list of image crops using Hayai-OCR v2 in batched Tensor passes"""
+        hayai = self._get_hayai_ocr()
+        if not hayai:
+            raise RuntimeError("Hayai-OCR v2 instance not available")
+
+        results = []
+        for i in range(0, len(image_inputs), batch_size):
+            chunk = image_inputs[i:i + batch_size]
+            pil_images = [self._to_pil(img) for img in chunk]
+            try:
+                batch_res = hayai.recognize_batch(pil_images)
+                results.extend(batch_res)
+            except Exception as batch_err:
+                logger.warning(f"⚠️ [Hayai-OCR Batch Chunk Error]: {batch_err}. Fallback to sequential...")
+                for pil_img in pil_images:
+                    try:
+                        results.append(hayai(pil_img).strip())
+                    except Exception:
+                        results.append("")
+        return results
 
     def _run_paddle_ocr(self, image_input: Union[Image.Image, np.ndarray], lang: str, box_id: Any) -> str:
         """Helper to invoke PaddleOCR and extract concatenated text lines"""
@@ -263,12 +350,12 @@ class OCRRouter:
             return ""
 
     def _fallback_any(self, image_input: Union[Image.Image, np.ndarray], box_id: Any) -> str:
-        """Emergency fallback: try MangaOcr if available, else PaddleOCR en"""
+        """Emergency fallback: try Hayai-OCR v2 if available, else PaddleOCR en"""
         try:
-            mocr = self._get_manga_ocr()
-            if mocr:
+            hayai = self._get_hayai_ocr()
+            if hayai:
                 pil_img = self._to_pil(image_input)
-                return mocr(pil_img)
+                return hayai(pil_img)
         except Exception:
             pass
         return ""

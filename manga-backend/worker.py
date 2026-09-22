@@ -27,14 +27,41 @@ load_dotenv()
 from database import SyncSessionLocal as SessionLocal
 from task_manager import local_task_manager
 
-# Khởi tạo OpenAI/DeepSeek
+# Khởi tạo OpenAI/DeepSeek (Tích hợp UFO-Space Proxy & Billing)
+def create_deepseek_client():
+    ufo_proxy = os.environ.get("UFO_PROXY_URL")
+    job_id = os.environ.get("UFO_JOB_ID") or os.environ.get("UFO_INSTANCE_ID") or os.environ.get("CONTAINER_ID")
+    if not job_id:
+        for path in ["/etc/vastai_instance_id", "/root/vastai_instance_id"]:
+            if os.path.exists(path):
+                try:
+                    with open(path, "r") as f:
+                        c = f.read().strip()
+                        if c:
+                            job_id = c
+                            break
+                except Exception:
+                    pass
+
+    headers = {}
+    if job_id:
+        headers["X-Vast-Instance-Id"] = str(job_id)
+    proxy_secret = os.environ.get("UFO_PROXY_SECRET") or os.environ.get("UFO_LICENSE_TOKEN")
+    if proxy_secret:
+        headers["X-Proxy-Secret"] = str(proxy_secret)
+
+    api_key = os.environ.get("DEEPSEEK_API_KEY") or proxy_secret or "ufo-proxy-key"
+    base_url = ufo_proxy if ufo_proxy else "https://api.deepseek.com"
+    return OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        default_headers=headers if headers else None
+    )
+
+deepseek_client = create_deepseek_client()
+
 def get_deepseek_client():
     return deepseek_client
-
-deepseek_client = OpenAI(
-    api_key=os.environ.get("DEEPSEEK_API_KEY"),
-    base_url="https://api.deepseek.com"
-)
 
 _ocr_manager = None
 _ocr_router = None
@@ -78,21 +105,33 @@ def get_text_detector():
             sys.path.insert(0, ctd_dir)
         from comic_text_detector.inference import TextDetector
         model_path = os.path.join(os.path.dirname(__file__), "comic_text_detector", "data", "comictextdetector.pt")
-        if not os.path.exists(model_path):
-            model_path = os.path.join(os.path.dirname(__file__), "weights", "comictextdetector.pt")
-        _text_detector = TextDetector(model_path=model_path, input_size=1024, act='leaky')
+        import torch
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        _text_detector = TextDetector(model_path=model_path, input_size=1024, device=device, act='leaky')
+        print(f"🚀 [TEXT DETECTOR INIT] Initialized Comic Text Detector on device: {device}")
     return _text_detector
 
 def get_lama_session():
     global _lama_session
     if _lama_session is None:
         import onnxruntime as ort
+        import torch
         model_path = os.path.join(os.path.dirname(__file__), "weights", "lama-manga.onnx")
         if not os.path.exists(model_path):
             model_path = "weights/lama-manga.onnx"
             
         if os.path.exists(model_path):
-            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            available = ort.get_available_providers()
+            providers = []
+            if torch.cuda.is_available() and 'CUDAExecutionProvider' in available:
+                providers.append(('CUDAExecutionProvider', {
+                    'device_id': 0,
+                    'arena_extend_strategy': 'kNextPowerOfTwo',
+                    'gpu_mem_limit': 4 * 1024 * 1024 * 1024,
+                    'cudnn_conv_algo_search': 'DEFAULT',
+                    'do_copy_in_default_stream': True,
+                }))
+            providers.append('CPUExecutionProvider')
             try:
                 _lama_session = ort.InferenceSession(model_path, providers=providers)
                 print(f"✅ [LAMA INIT] Khởi tạo LaMa ONNX thành công! Providers: {_lama_session.get_providers()}")
@@ -102,6 +141,21 @@ def get_lama_session():
         else:
             raise FileNotFoundError(f"Missing lama-manga.onnx at {model_path}")
     return _lama_session
+
+def warmup_gpu_models():
+    """Khởi động và nạp trước các model AI lên GPU VRAM để tránh trễ và hiển thị đúng tài nguyên VRAM"""
+    import torch
+    if not torch.cuda.is_available():
+        print("ℹ️ [WARMUP] Không phát hiện GPU CUDA, chạy chế độ CPU.")
+        return
+    print(f"🚀 [WARMUP] Đang tải trước các mô hình AI lên GPU ({torch.cuda.get_device_name(0)})...")
+    try:
+        get_text_detector()
+        get_lama_session()
+        get_ocr_router()
+        print(f"✅ [WARMUP SUCCESS] Các model AI đã nạp sẵn vào VRAM: {torch.cuda.memory_allocated() / (1024**3):.2f} GB / {torch.cuda.get_device_properties(0).total_memory / (1024**3):.2f} GB")
+    except Exception as e:
+        print(f"⚠️ [WARMUP WARN] Lỗi khi warmup model: {e}")
 
 def get_image_ahash(image_path: str) -> str:
     try:
@@ -120,48 +174,99 @@ def get_image_ahash(image_path: str) -> str:
         print(f"⚠️ [HASH ERROR] Lỗi hash ảnh: {e}")
         return ""
 
-def run_local_lama(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    """Xóa chữ trên ảnh sử dụng LaMa ONNX cục bộ"""
+def inpaint_crop_lama(session, crop_img: np.ndarray, crop_mask: np.ndarray) -> np.ndarray:
+    """Inpaint một vùng crop cục bộ bằng LaMa 512x512 bảo toàn độ phân giải gốc 1:1"""
+    try:
+        h_crop, w_crop = crop_img.shape[:2]
+        original_crop_mask = crop_mask.copy()
+
+        scale = 1.0
+        if h_crop > 512 or w_crop > 512:
+            scale = 512.0 / max(h_crop, w_crop)
+            new_w, new_h = int(w_crop * scale), int(h_crop * scale)
+            crop_img_scaled = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            crop_mask_scaled = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+        else:
+            new_w, new_h = w_crop, h_crop
+            crop_img_scaled = crop_img
+            crop_mask_scaled = crop_mask
+
+        pad_bottom = 512 - new_h
+        pad_right = 512 - new_w
+        if pad_bottom > 0 or pad_right > 0:
+            crop_img_padded = cv2.copyMakeBorder(crop_img_scaled, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+            crop_mask_padded = cv2.copyMakeBorder(crop_mask_scaled, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+        else:
+            crop_img_padded = crop_img_scaled
+            crop_mask_padded = crop_mask_scaled
+
+        img_t = np.transpose(cv2.cvtColor(crop_img_padded, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
+        mask_norm = (crop_mask_padded > 0).astype(np.float32)
+        mask_t = mask_norm[np.newaxis, np.newaxis, ...]
+
+        inputs = session.get_inputs()
+        ort_outs = session.run(None, {inputs[0].name: img_t, inputs[1].name: mask_t})
+        out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255.0).clip(0, 255).astype(np.uint8)
+        clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+
+        if scale != 1.0:
+            clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+
+        mask_bool = original_crop_mask > 0
+        result = crop_img.copy()
+        result[mask_bool] = clean_crop[mask_bool]
+        return result
+    except Exception as e:
+        print(f"⚠️ [INPAINT CROP ERROR] {e}")
+        return crop_img
+
+def run_local_lama(img: np.ndarray, mask: np.ndarray, target_boxes: list = None) -> np.ndarray:
+    """Xóa chữ trên ảnh sử dụng LaMa ONNX cục bộ với độ sắc nét 1:1 và context padding"""
     try:
         session = get_lama_session()
         if session is None:
             return img
-        h_orig, w_orig = img.shape[:2]
-        
-        inputs = session.get_inputs()
-        target_h, target_w = 512, 512
-        if len(inputs[0].shape) == 4 and isinstance(inputs[0].shape[2], int) and inputs[0].shape[2] > 0:
-            target_h = inputs[0].shape[2]
-        if len(inputs[0].shape) == 4 and isinstance(inputs[0].shape[3], int) and inputs[0].shape[3] > 0:
-            target_w = inputs[0].shape[3]
+        h_img, w_img = img.shape[:2]
 
-        img_resized = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_AREA)
-        mask_resized = cv2.resize(mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+        # Nếu ảnh đầu vào là một mẩu crop nhỏ (từ brush tẩy vẽ tay trong Editor)
+        if max(h_img, w_img) <= 768:
+            return inpaint_crop_lama(session, img, mask)
 
-        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        img_tensor = np.transpose(img_rgb, (2, 0, 1))[np.newaxis, ...]
-        
-        mask_norm = (mask_resized.astype(np.float32) / 255.0)
-        mask_norm = (mask_norm > 0).astype(np.float32)
-        mask_tensor = mask_norm[np.newaxis, np.newaxis, ...]
+        clean_img = img.copy()
 
-        input_feed = {
-            inputs[0].name: img_tensor,
-            inputs[1].name: mask_tensor
-        }
-        
-        output = session.run(None, input_feed)[0]
-        
-        clean_out = output[0]
-        clean_out = np.clip(clean_out * 255.0, 0, 255).astype(np.uint8)
-        clean_out = np.transpose(clean_out, (1, 2, 0))
-        clean_bgr = cv2.cvtColor(clean_out, cv2.COLOR_RGB2BGR)
+        # Xác định danh sách vùng cần xóa (dựa vào target_boxes hoặc tìm contour từ mask)
+        regions = []
+        if target_boxes:
+            for (bx1, by1, bx2, by2) in target_boxes:
+                regions.append((bx1, by1, bx2 - bx1, by2 - by1))
+        else:
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                if w < 10 or h < 10:
+                    continue
+                regions.append((x, y, w, h))
 
-        clean_restored = cv2.resize(clean_bgr, (w_orig, h_orig), interpolation=cv2.INTER_LANCZOS4)
-        
-        mask_binary = (mask > 0)[:, :, np.newaxis]
-        result = np.where(mask_binary, clean_restored, img)
-        return result
+        if not regions:
+            return clean_img
+
+        for (x, y, w, h) in regions:
+            # Thêm context padding để LaMa hiểu bối cảnh xung quanh ô thoại (tối ưu 30-120px)
+            pad_x = max(30, min(int(w * 0.4), 120))
+            pad_y = max(30, min(int(h * 0.4), 120))
+            x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
+            x2_pad, y2_pad = min(w_img, x + w + pad_x), min(h_img, y + h + pad_y)
+
+            crop_img = clean_img[y1_pad:y2_pad, x1_pad:x2_pad]
+            crop_mask = mask[y1_pad:y2_pad, x1_pad:x2_pad]
+
+            if cv2.countNonZero(crop_mask) == 0:
+                continue
+
+            cleaned_crop = inpaint_crop_lama(session, crop_img, crop_mask)
+            clean_img[y1_pad:y2_pad, x1_pad:x2_pad] = cleaned_crop
+
+        return clean_img
     except Exception as e:
         print(f"⚠️ [LAMA RUN ERROR] {e}")
         return img
@@ -194,14 +299,14 @@ def sync_update_page_db(page_id: str, clean_url: str, bubbles: list):
 def process_manga_page(task_id: str, page_id: str, config: dict):
     """
     Hàm xử lý dịch trang truyện tranh (Single-tenant local mode)
-    100% Native Python AI (comic-text-detector + LaMa ONNX + Manga-OCR + DeepSeek)
+    100% Native Python AI (comic-text-detector + LaMa ONNX + Hayai-OCR v2 + DeepSeek)
     """
     try:
         import db_models as models
         
-        target_language = config.get("target_language", "Tiếng Việt") or "Tiếng Việt"
-        source_language = config.get("source_language", "ja") or "ja"
-        task_type = config.get("task_type", "clean_only")
+        target_language = config.get("target_language") or config.get("targetLanguage") or "Tiếng Việt"
+        source_language = config.get("source_language") or config.get("sourceLanguage") or "ja"
+        task_type = config.get("task_type") or config.get("taskType") or "translate"
         
         # 1. Kiểm tra checkpoint hủy
         if is_task_cancelled(task_id):
@@ -235,28 +340,52 @@ def process_manga_page(task_id: str, page_id: str, config: dict):
 
         broadcast_progress(task_id, 30, "Đang nhận diện vùng chữ (ComicTextDetector)...")
         
-        # 1. Chạy comic_text_detector để lấy mask chữ và bounding boxes
+        # 1. Chạy comic_text_detector để lấy textline heatmap, stroke mask và cụm khối thoại (TextBlock)
         detector = get_text_detector()
         result = detector(img)
-        ctd_mask = result[1] if isinstance(result, tuple) else result
-        if ctd_mask.max() <= 1.0:
-            ctd_mask = (ctd_mask * 255).astype(np.uint8)
+
+        mask_raw = result[0] if isinstance(result, tuple) else result
+        mask_refined = result[1] if isinstance(result, tuple) and len(result) > 1 else mask_raw
+        blk_list = result[2] if isinstance(result, tuple) and len(result) > 2 else []
+
+        # Chuẩn hóa mặt nạ raw và refined về thang đo nhị phân 0-255
+        if mask_raw.max() <= 1.0:
+            mask_raw_bin = (mask_raw * 255).astype(np.uint8)
         else:
-            ctd_mask = ctd_mask.astype(np.uint8)
-            
-        _, ctd_mask_bin = cv2.threshold(ctd_mask, 127, 255, cv2.THRESH_BINARY)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
-        lama_mask = cv2.dilate(ctd_mask_bin, kernel, iterations=1)
-        
-        contours, _ = cv2.findContours(lama_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            mask_raw_bin = mask_raw.astype(np.uint8)
+        _, mask_raw_bin = cv2.threshold(mask_raw_bin, 127, 255, cv2.THRESH_BINARY)
+
+        # 2. Thuật toán Smart Masking kinh điển (Diệt viền trắng & Tự động gộp các dòng thoại trong cùng 1 bong bóng)
+        kernel_fat = np.ones((7, 7), np.uint8)
+        fat_mask = cv2.dilate(mask_raw_bin, kernel_fat, iterations=2)
+        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, white_regions = cv2.threshold(gray_img, 200, 255, cv2.THRESH_BINARY)
+        smart_mask = cv2.bitwise_and(fat_mask, cv2.bitwise_or(mask_raw_bin, white_regions))
+        smart_mask = cv2.dilate(smart_mask, np.ones((3, 3), np.uint8), iterations=1)
+        lama_mask = cv2.dilate(smart_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
+
+        # 3. Thu thập danh sách tọa độ khung thoại (Bounding Boxes)
         detector_boxes = []
-        for cnt in contours:
-            x, y, w, h = cv2.boundingRect(cnt)
-            if w < 16 or h < 16:
-                continue
-            detector_boxes.append((x, y, x + w, y + h))
+        
+        # Ưu tiên 1: Lấy trực tiếp từ blk_list (các TextBlock đã được YOLO phân tích hướng đọc và gom nhóm)
+        if blk_list:
+            for blk in blk_list:
+                bx1, by1, bx2, by2 = blk.xyxy
+                w_blk = bx2 - bx1
+                h_blk = by2 - by1
+                if w_blk >= 16 and h_blk >= 16:
+                    detector_boxes.append((bx1, by1, bx2, by2))
+
+        # Ưu tiên 2: Nếu blk_list không bắt được (hoặc trống), dùng contours từ smart_mask đã chập dòng
+        if not detector_boxes:
+            contours, _ = cv2.findContours(lama_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                if w < 16 or h < 16:
+                    continue
+                detector_boxes.append((x, y, x + w, y + h))
             
-        # Sắp xếp theo thứ tự đọc
+        # Sắp xếp theo thứ tự đọc (tiếng Nhật đọc từ phải sang trái, trên xuống dưới)
         if source_language == 'ja':
             detector_boxes.sort(key=lambda b: (-b[2], b[1]))
         else:
@@ -264,41 +393,50 @@ def process_manga_page(task_id: str, page_id: str, config: dict):
             
         broadcast_progress(task_id, 50, "Đang xóa chữ trên ảnh (LaMa Inpainting)...")
         
-        # 2. Xóa chữ bằng LaMa Inpainting
-        clean_img = run_local_lama(img, lama_mask)
+        # 4. Xóa chữ bằng LaMa Inpainting chuẩn độ phân giải cao theo từng ô thoại
+        clean_img = run_local_lama(img, lama_mask, target_boxes=detector_boxes)
         
         broadcast_progress(task_id, 65, f"Đang nhận dạng văn bản ({source_language.upper()}) với OCR Router...")
         
-        # 3. Quét OCR từng vùng chữ theo nguyên tắc "Detect-then-Crop"
+        # 3. Quét OCR vùng chữ theo cơ chế Tensor Batching tối ưu VRAM & GPU
         extracted_data = []
-        count = 1
-        ocr_router = get_ocr_router()
+        valid_boxes = []
+        box_crops = []
         
         for (bx1, by1, bx2, by2) in detector_boxes:
             box_crop = img[by1:by2, bx1:bx2]
             if box_crop.size == 0:
                 continue
-                
+            valid_boxes.append((bx1, by1, bx2, by2))
+            box_crops.append(box_crop)
+
+        if box_crops:
+            ocr_router = get_ocr_router()
             try:
-                recognized_text = ocr_router.recognize(
-                    image_input=box_crop,
+                recognized_texts = ocr_router.recognize_batch(
+                    image_inputs=box_crops,
                     source_language=source_language,
-                    box_id=count
+                    batch_size=16
                 )
-            except Exception as ocr_err:
-                print(f"⚠️ [OCR ROUTER ERROR] Box ID {count} failed: {ocr_err}")
-                recognized_text = ""
-            
-            if not recognized_text or not recognized_text.strip():
-                continue
-                
-            extracted_data.append({
-                "id": count,
-                "box_coordinates": {"x1": bx1, "y1": by1, "x2": bx2, "y2": by2},
-                "japanese": recognized_text.strip(),
-                "vietnamese": ""
-            })
-            count += 1
+            except Exception as batch_ocr_err:
+                print(f"⚠️ [BATCH OCR ERROR] Fallback to sequential: {batch_ocr_err}")
+                recognized_texts = [
+                    ocr_router.recognize(crop, source_language=source_language, box_id=i + 1)
+                    for i, crop in enumerate(box_crops)
+                ]
+
+            count = 1
+            for (bx1, by1, bx2, by2), recognized_text in zip(valid_boxes, recognized_texts):
+                if not recognized_text or not recognized_text.strip():
+                    continue
+
+                extracted_data.append({
+                    "id": count,
+                    "box_coordinates": {"x1": bx1, "y1": by1, "x2": bx2, "y2": by2},
+                    "japanese": recognized_text.strip(),
+                    "vietnamese": ""
+                })
+                count += 1
 
         # 4. Dịch thuật bằng DeepSeek nếu có chữ và được yêu cầu
         if extracted_data and task_type != "clean_only":

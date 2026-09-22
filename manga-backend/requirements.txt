@@ -13,9 +13,12 @@ aiosqlite==0.22.1
 
 # --- AI ENGINES & OCR ---
 openai==2.35.0
-onnxruntime>=1.16.0
+# onnxruntime-gpu: Ép LaMa Inpainting chạy trực tiếp trên GPU CUDA Tensor Cores thay vì ăn 100% CPU
+onnxruntime-gpu>=1.16.0
 pyahocorasick
-manga-ocr
+# SOTA Multilingual Manga OCR (Hayai-OCR v2 + SigLIP 2 NaFlex)
+transformers>=4.40.0
+accelerate
 huggingface-hub
 shapely
 paddleocr>=2.7.3

@@ -26,10 +26,7 @@ except ImportError:
     AsyncLLMEngine = None
     AsyncEngineArgs = None
 
-try:
-    from manga_ocr import MangaOcr
-except ImportError:
-    MangaOcr = None
+MangaOcr = None
 
 
 def run_async_fn_sync(coro):
@@ -114,10 +111,18 @@ class ONNXLangRecognizer:
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         sess_options.enable_cpu_mem_arena = False
 
+        has_cuda = False
+        try:
+            import torch
+            has_cuda = torch.cuda.is_available()
+        except Exception:
+            pass
+        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if has_cuda else ['CPUExecutionProvider']
+
         self.session = ort.InferenceSession(
             model_path, 
             sess_options=sess_options,
-            providers=['CPUExecutionProvider']
+            providers=providers
         )
         self.input_name = self.session.get_inputs()[0].name
         self.char_list = self._load_dict(dict_path)
@@ -192,9 +197,17 @@ class ONNXDBDetector:
     def __init__(self, model_path: str):
         if ort is None:
             raise ImportError("onnxruntime is required for Text Detection.")
+        has_cuda = False
+        try:
+            import torch
+            has_cuda = torch.cuda.is_available()
+        except Exception:
+            pass
+        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if has_cuda else ['CPUExecutionProvider']
+
         self.session = ort.InferenceSession(
             model_path, 
-            providers=['CPUExecutionProvider']
+            providers=providers
         )
         self.input_name = self.session.get_inputs()[0].name
 
@@ -425,14 +438,9 @@ class OCRManager:
         return self.vllm_engine, self.vllm_sampling_params
 
     def get_manga_ocr(self) -> Any:
-        """Lazy-loads MangaOCR specifically fine-tuned on Japanese Manga text."""
-        if self.manga_ocr_instance is None:
-            if MangaOcr is None:
-                raise ImportError("manga_ocr is required for Japanese Manga OCR.")
-            print("🚀 Lazy-loading MangaOCR (kha-white/manga-ocr-base)...")
-            self.manga_ocr_instance = MangaOcr()
-            print("✅ MangaOCR loaded successfully.")
-        return self.manga_ocr_instance
+        """Loads SOTA Multilingual Manga OCR (Hayai-OCR v2 + SigLIP 2)."""
+        from ocr_router import get_ocr_router
+        return get_ocr_router()._get_hayai_ocr()
 
     def process_ocr(self, image: np.ndarray, language: str, is_vip: bool) -> List[Dict[str, Any]]:
         """
@@ -548,55 +556,18 @@ class OCRManager:
         return ocr_results
 
     def recognize_crop(self, crop_img: np.ndarray, language: str, is_vip: bool) -> str:
-        """Runs recognition on a single crop image."""
-        lang_key = 'ch' if language == 'zh' else language
-        
-        supported_languages = ['ja', 'en', 'ko', 'ch']
-        if lang_key not in supported_languages:
-            raise ValueError(f"Language '{language}' is not supported.")
-            
-        if lang_key == 'ja':
-            if os.getenv("VLM_MOCK", "false").lower() == "true":
-                return "こんにちは"
-            
-            # Primary: MangaOCR (Industry standard model fine-tuned specifically for Japanese Manga text)
-            if MangaOcr is not None:
-                try:
-                    mocr = self.get_manga_ocr()
-                    crop_rgb = cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB)
-                    crop_pil = Image.fromarray(crop_rgb)
-                    text = mocr(crop_pil)
-                    if text and text.strip():
-                        return text.strip()
-                except Exception as e:
-                    print(f"⚠️ [MANGA_OCR FALLBACK] MangaOCR execution failed: {e}. Trying vLLM / ONNX...")
-
-            if AsyncLLMEngine is not None:
-                try:
-                    engine, sampling_params = self.get_vllm_japanese_engine()
-                    crop_rgb = cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB)
-                    crop_pil = Image.fromarray(crop_rgb)
-                    prompt = "USER: <image>\nOCR:\nASSISTANT:"
-                    
-                    vllm_inputs = [{
-                        "prompt": prompt,
-                        "multi_modal_data": {"image": crop_pil}
-                    }]
-                    
-                    outputs = run_async_fn_sync(run_vllm_async(engine, vllm_inputs, sampling_params))
-                    if outputs and outputs[0] and outputs[0].outputs:
-                        return outputs[0].outputs[0].text.strip()
-                    return ""
-                except Exception as e:
-                    print(f"⚠️ [VLM FALLBACK] vLLM execution failed: {e}. Falling back to Japanese ONNX OCR!")
-            
-            # Fallback to Japanese PaddleOCR ONNX model if both MangaOCR and vLLM fail
-            recognizer = self.get_onnx_recognizer('ja')
-            return recognizer.recognize(crop_img)
-            
-        else:
-            recognizer = self.get_onnx_recognizer(lang_key)
-            return recognizer.recognize(crop_img)
+        """Runs recognition on a single crop image using SOTA OCRRouter (Hayai-OCR v2 + SigLIP 2)."""
+        try:
+            from ocr_router import get_ocr_router
+            return get_ocr_router().recognize(crop_img, source_language=language)
+        except Exception as e:
+            print(f"⚠️ [OCRRouter Delegation Error]: {e}. Falling back to ONNX...")
+            lang_key = 'ch' if language == 'zh' else ('ja' if language in ['ja', 'jp'] else language)
+            try:
+                recognizer = self.get_onnx_recognizer(lang_key)
+                return recognizer.recognize(crop_img)
+            except Exception:
+                return ""
 
 
 # Mock User/Request class for testing
