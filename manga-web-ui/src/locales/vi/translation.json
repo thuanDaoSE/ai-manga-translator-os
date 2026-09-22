@@ -363,7 +363,7 @@
   },
   "welcome": {
     "newProject": "Dự án mới",
-    "newProjectDesc": "Tải lên các trang scan RAW (.jpg, .png, .webp). Hỗ trợ tối đa 30 trang.",
+    "newProjectDesc": "Tải lên các trang scan RAW (.jpg, .png, .webp). Hỗ trợ tối đa 500 trang.",
     "restoreProgress": "Khôi phục tiến trình",
     "restoreDesc": "Mở tệp sao lưu định dạng .manga để khôi phục lại các layer đã dịch.",
     "policyLinkText": "Điều khoản & Chính sách",

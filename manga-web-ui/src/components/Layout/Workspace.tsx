@@ -9,6 +9,7 @@ import MangaCanvas from '../Editor/MangaCanvas';
 import WelcomeScreen from '../Editor/WelcomeScreen';
 import { Search, Eraser, Paintbrush, Sparkles, Type as TypeIcon, PanelLeft, PanelRight, ChevronRight, ChevronLeft, Check, Wand2, Settings, ChevronUp, Bolt } from 'lucide-react';
 import { FloatingCanvasToolbar } from '../Editor/FloatingCanvasToolbar';
+import { MobileBottomBar } from './MobileBottomBar';
 import { RedrawPromptInput } from '../Editor/RedrawPromptInput';
 import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import { useGlobalErrorHandler } from '../../hooks/useGlobalErrorHandler';
@@ -1005,8 +1006,11 @@ export default function Workspace() {
 
     const fileName = fileQueue[currentIndex]?.name || "";
     const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
-    const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${projectStore.pageIds[currentIndex]}.${fileExt}`;
-    const targetUrl = processedUrls[currentIndex] || serverRawUrl;
+    const serverRawUrl = `/workspace/${projectStore.projectId}/raw/${projectStore.pageIds[currentIndex]}.${fileExt}`;
+    const rawTarget = processedUrls[currentIndex] || serverRawUrl;
+    const targetUrl = rawTarget.includes('/workspace/')
+      ? `/workspace/${rawTarget.split('/workspace/')[1].split('?')[0]}`
+      : rawTarget;
 
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -1047,11 +1051,10 @@ export default function Workspace() {
       setActionPosition(null);
       toast.success(`Đã phủ ${color === 'white' ? 'Trắng' : 'Đen'} siêu tốc!`);
     };
-    if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
-      img.src = `${targetUrl.split('?')[0]}?nocache=${Date.now()}`;
-    } else {
-      img.src = targetUrl;
-    }
+    const cleanSrc = targetUrl.includes('/workspace/')
+      ? `/workspace/${targetUrl.split('/workspace/')[1].split('?')[0]}`
+      : targetUrl.split('?')[0];
+    img.src = `${cleanSrc}?nocache=${Date.now()}`;
   };
 
   // 4. AI Backend Integration (Actual Erase Mask)
@@ -1071,8 +1074,11 @@ export default function Workspace() {
 
       const fileName = fileQueue[currentIndex]?.name || "";
       const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
-      const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
-      const targetUrl = processedUrls[currentIndex] || serverRawUrl;
+      const serverRawUrl = `/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
+      const rawTarget = processedUrls[currentIndex] || serverRawUrl;
+      const targetUrl = rawTarget.includes('/workspace/')
+        ? `/workspace/${rawTarget.split('/workspace/')[1].split('?')[0]}`
+        : rawTarget;
 
       // Call API
       const newUrl = await mangaApi.eraseMask(targetUrl, maskBase64, pageId);
@@ -1086,14 +1092,6 @@ export default function Workspace() {
 
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       toast.success("Đã xóa nền thông minh thành công!");
-      
-      const posthog = (window as any).posthog;
-      if (posthog) {
-        posthog.capture('translation_successful', {
-          action_type: 'Erase_Mask',
-          status: 'success'
-        });
-      }
 
       setActiveMode("none");
     } catch (e: any) { 
@@ -1121,8 +1119,11 @@ export default function Workspace() {
 
       const fileName = fileQueue[currentIndex]?.name || "";
       const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
-      const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
-      const targetUrl = processedUrls[currentIndex] || serverRawUrl;
+      const serverRawUrl = `/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
+      const rawTarget = processedUrls[currentIndex] || serverRawUrl;
+      const targetUrl = rawTarget.includes('/workspace/')
+        ? `/workspace/${rawTarget.split('/workspace/')[1].split('?')[0]}`
+        : rawTarget;
 
       // Call API
       const newUrl = await mangaApi.ctdErase(targetUrl, maskBase64, pageId);
@@ -1136,14 +1137,6 @@ export default function Workspace() {
 
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       toast.success("Đã xóa chữ thông minh thành công!");
-      
-      const posthog = (window as any).posthog;
-      if (posthog) {
-        posthog.capture('translation_successful', {
-          action_type: 'Ctd_Erase_Mask',
-          status: 'success'
-        });
-      }
 
       setActiveMode("none");
     } catch (e: any) { 
@@ -1199,13 +1192,7 @@ export default function Workspace() {
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       toast.success("Xóa với AI thành công!");
       
-      const posthog = (window as any).posthog;
-      if (posthog) {
-        posthog.capture('translation_successful', {
-          action_type: 'Ai_Redraw_Mask_Erase',
-          status: 'success'
-        });
-      }
+
 
       setActiveMode("none");
       setAiErasePrompt("");
@@ -1272,13 +1259,7 @@ export default function Workspace() {
       ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
       toast.success("Vẽ lại vùng chọn bằng AI thành công!");
       
-      const posthog = (window as any).posthog;
-      if (posthog) {
-        posthog.capture('translation_successful', {
-          action_type: 'Redraw_Mask',
-          status: 'success'
-        });
-      }
+
 
       setActiveMode("none");
       setRedrawPrompt("");
@@ -1358,69 +1339,16 @@ export default function Workspace() {
 
   }, [currentBubbles]);
 
-  // 🚀 TÌM KIẾM ĐƯỜNG LINK ẢNH SẠCH NGUYÊN THỦY TỪ LỊCH SỬ
-  const originalCleanUrl = (() => {
-    if (!rawUrl || rawUrl.startsWith('blob:')) return '';
-    return rawUrl.replace("/raw/", "/clean/");
-  })();
+  // 🚀 Chỉ lấy đường link ảnh sạch nếu trang này đã được dịch/tẩy sạch thực sự
+  const originalCleanUrl = useProjectStore.getState().originalCleanUrls[currentIndex] || '';
 
   return (
     // TẦNG 0: NỀN APP TỔNG THỂ (#121212)
-    <div className="flex-1 bg-[#121212] relative overflow-hidden flex flex-col items-center justify-center">
-      {/* 📱 Cảnh Báo Mềm Cho Thiết Bị Di Động (Soft Dismissible Advisory) */}
-      {isMobileOrTouch && !isMobileAdvisoryDismissed && (
-        <div className="fixed inset-0 z-[9999] bg-[#0c0c0e]/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white font-sans overflow-auto select-none animate-in fade-in duration-300">
-          {/* Glowing background orbs */}
-          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
-          <div className="absolute bottom-1/4 left-1/3 w-[200px] h-[200px] bg-purple-500/5 rounded-full blur-[80px] pointer-events-none" />
-
-          <div className="relative max-w-md w-full bg-[#16161a]/95 backdrop-blur-xl border border-white/10 rounded-3xl p-6 md:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] flex flex-col items-center gap-5 animate-in zoom-in-95 duration-300">
-            {/* Animated Device Icon Container */}
-            <div className="relative flex items-center justify-center w-16 h-16 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 text-indigo-400">
-              <Smartphone size={32} strokeWidth={1.5} className="animate-pulse" />
-              <div className="absolute -top-1 -right-1 flex h-4 w-4">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-4 w-4 bg-amber-500 items-center justify-center text-[9px] font-black text-black">!</span>
-              </div>
-            </div>
-
-            <div className="space-y-2.5">
-              <h2 className="text-base font-extrabold text-white tracking-tight uppercase flex items-center justify-center gap-2">
-                {t('workspace.mobileBlockTitle')}
-              </h2>
-              <p className="text-xs text-gray-300 leading-relaxed text-left bg-neutral-900/70 p-3.5 rounded-xl border border-white/5 font-medium">
-                {t('workspace.mobileBlockDesc')}
-              </p>
-            </div>
-
-            {/* Action Buttons: Continue vs Back */}
-            <div className="w-full space-y-2.5 pt-1">
-              <button
-                type="button"
-                onClick={handleDismissMobileAdvisory}
-                className="w-full flex items-center justify-center gap-2 py-3 px-5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 active:scale-[0.98] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-indigo-600/25 transition-all cursor-pointer border border-white/15"
-              >
-                <span>{t('workspace.continueOnMobile', 'Tôi đã hiểu, tiếp tục trên điện thoại')}</span>
-                <ArrowRight size={14} strokeWidth={2.5} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => signOut()}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-white/5 hover:bg-white/10 active:scale-[0.98] text-neutral-400 hover:text-white font-medium text-xs rounded-xl transition-all cursor-pointer border border-white/5"
-              >
-                <ArrowLeft size={13} strokeWidth={2} />
-                <span>{t('workspace.backToHome')}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 🚀 KHUNG VIEWPORT (Vẫn giữ nguyên kích thước để thuật toán Zoom tính toán đúng, nhưng "tàng hình" khi chưa có ảnh) */}
+    <div className="flex-1 bg-[#121212] relative overflow-hidden flex flex-col items-center justify-center w-full">
+      {/* 🚀 KHUNG VIEWPORT (Tối ưu full screen trên mobile, rộng rãi trên desktop) */}
       <div
         ref={containerRef}
-        className={`absolute top-4 left-4 right-4 bottom-[90px] rounded-2xl transition-all duration-300 ease-in-out ${displayUrl ? 'ring-1 ring-white/10 shadow-[0_0_40px_rgba(0,0,0,0.5)_inset] overflow-hidden' : 'opacity-0 pointer-events-none'}`}
+        className={`absolute top-1 left-1 right-1 bottom-[68px] md:top-4 md:left-4 md:right-4 md:bottom-[90px] rounded-xl md:rounded-2xl transition-all duration-300 ease-in-out ${displayUrl ? 'ring-1 ring-white/10 shadow-[0_0_40px_rgba(0,0,0,0.5)_inset] overflow-hidden' : 'opacity-0 pointer-events-none'}`}
         style={{
           cursor: activeMode === 'none' ? 'grab' : 'default',
           backgroundImage: displayUrl ? 'repeating-conic-gradient(#202020 0% 25%, #181818 0% 50%)' : 'none',
@@ -1764,58 +1692,63 @@ export default function Workspace() {
                   </button>
                 </div>
               ) : (
-                <div className="absolute bottom-[82px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-1 p-1 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-xl pointer-events-auto">
+                <div className="absolute bottom-[72px] md:bottom-[82px] left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 flex items-center gap-1 p-1 bg-[#2A2A2A]/90 backdrop-blur-md ring-1 ring-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-xl pointer-events-auto max-w-[95vw] overflow-x-auto">
                   {/* Button 1: Xóa nền thông minh */}
                   <button 
                     onClick={handleErase} 
                     disabled={isCurrentPageProcessing || isProcessing} 
-                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm"
+                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white disabled:opacity-50 transition-all cursor-pointer group shadow-sm shrink-0"
                   >
                     {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className="group-hover:text-white transition-colors" />}
                     <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa nền thông minh"}</span>
                   </button>
 
-                  <div className="w-px h-6 bg-border mx-0.5"></div>
+                  <div className="w-px h-6 bg-border mx-0.5 shrink-0"></div>
 
                   {/* Button 2: Xóa chữ thông minh */}
                   <button 
                     onClick={handleCtdErase} 
                     disabled={isCurrentPageProcessing || isProcessing} 
-                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm"
+                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm shrink-0"
                   >
                     {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} className="group-hover:text-slate-950 transition-colors" />}
                     <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa chữ thông minh"}</span>
                   </button>
 
-                  {/* [TẠM ẨN] Button 3: Xóa với AI (Prompt GenAI: Grok / OpenAI / Nano Banana)
-                      Sau này muốn bật lại chỉ cần uncomment khối code dưới đây:
-                  <div className="w-px h-6 bg-border mx-0.5"></div>
+                  <div className="w-px h-6 bg-border mx-0.5 shrink-0"></div>
+
+                  {/* Button 3: ✨ Vẽ lại AI (FLUX) */}
                   <button 
                     onClick={() => setShowAiPromptInput(true)} 
                     disabled={isCurrentPageProcessing || isProcessing} 
-                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm"
+                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm shrink-0"
+                    title="Vẽ lại bằng AI FLUX (nhập prompt để AI tái tạo chi tiết)"
                   >
-                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Bot size={14} className="group-hover:text-slate-950 transition-colors" />}
-                    <span>✨ Xóa với AI</span>
+                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className="group-hover:text-slate-950 transition-colors" />}
+                    <span>✨ Vẽ lại AI (FLUX)</span>
                   </button>
-                  */}
                 </div>
               )}
             </>
           )}
 
+          {/* 📱 MOBILE STUDIO BOTTOM BAR */}
+          <MobileBottomBar 
+            onTranslate={handleExecuteBetaTranslate}
+            isProcessing={isCurrentPageProcessing || isProcessing}
+          />
         </>
       )}
 
-      {/* TAY NẮM CỬA TRÁI PHẢI */}
+      {/* TAY NẮM CỬA TRÁI PHẢI (CHỈ HIỆN TRÊN DESKTOP) */}
       {!useToolStore.getState().showLeftPanel && (
-        <button onClick={() => useToolStore.getState().toggleLeftPanel()} className="absolute left-0 top-1/2 -translate-y-1/2 z-[100] p-1.5 bg-panel border-y border-r border-border rounded-r-xl shadow-[5px_0_15px_rgba(0,0,0,0.5)] text-text-muted hover:text-text-main hover:bg-border cursor-pointer transition-all hover:pr-3">
+        <button onClick={() => useToolStore.getState().toggleLeftPanel()} className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-[100] p-1.5 bg-panel border-y border-r border-border rounded-r-xl shadow-[5px_0_15px_rgba(0,0,0,0.5)] text-text-muted hover:text-text-main hover:bg-border cursor-pointer transition-all hover:pr-3">
           <ChevronRight size={24} />
         </button>
       )}
 
       {!useToolStore.getState().showRightPanel && (
-        <button onClick={() => useToolStore.getState().toggleRightPanel()} className="absolute right-0 top-1/2 -translate-y-1/2 z-[100] p-1.5 bg-panel border-y border-l border-border rounded-l-xl shadow-[-5px_0_15px_rgba(0,0,0,0.5)] text-text-muted hover:text-text-main hover:bg-border cursor-pointer transition-all hover:pl-3">
+        <button onClick={() => useToolStore.getState().toggleRightPanel()} className="hidden md:flex absolute right-0 top-1/2 -translate-y-1/2 z-[100] p-1.5 bg-panel border-y border-l border-border rounded-l-xl shadow-[-5px_0_15px_rgba(0,0,0,0.5)] text-text-muted hover:text-text-main hover:bg-border cursor-pointer transition-all hover:pl-3">
           <ChevronLeft size={24} />
         </button>
       )}

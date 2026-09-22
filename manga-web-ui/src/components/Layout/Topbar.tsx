@@ -2,13 +2,10 @@ import { useState, useRef, useEffect } from "react";
 import { toJpeg } from "html-to-image";
 import {
   CloudCheck, Download, User, Settings, LogOut, ChevronDown,
-  Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages, Sparkles,
+  Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Sparkles,
   FileText, Globe, Image as ImageIcon, ArrowRight, Lock, Zap
 } from "lucide-react";
-import toast from 'react-hot-toast';
 import { useConfigStore } from "../../store/useConfigStore";
-import TranslationConfigModal from "../Modals/TranslationConfigModal";
-import PaymentHistoryModal from "../Modals/PaymentHistoryModal";
 import { saveAs } from 'file-saver';
 import { useTranslation } from "react-i18next";
 import { useServerStatusStore } from "../../store/useServerStatusStore";
@@ -22,11 +19,12 @@ import { exportTranslationToText } from "../Editor/ExportTextButton";
 import { mangaApi } from "../../services/api";
 import { PaywallDrawer } from "../Modals/PaywallDrawer";
 import SupportModal from "../Modals/SupportModal";
+import DeepKomaLogo from "../ui/DeepKomaLogo";
+
 function getPageGroupKey(filename: string): string {
   const match = filename.match(/^(.*)_part_\d+\.[^.]+$/i);
   return match ? match[1] : filename.split('.')[0] || filename;
 }
-import DeepKomaLogo from "../ui/DeepKomaLogo";
 
 const GpuIcon = ({ size = 14, className = "" }: { size?: number; className?: string }) => (
   <svg 
@@ -71,7 +69,7 @@ export default function Topbar() {
     setLocalProjectName(storeProjectName);
   }, [storeProjectName]);
 
-  const { isModalOpen, setModalOpen, useGpu, setUseGpu, sourceLanguage } = useConfigStore();
+  const { useGpu, setUseGpu } = useConfigStore();
   const [showGpuConfirm, setShowGpuConfirm] = useState(false);
 
   const handleToggleGpu = () => {
@@ -146,7 +144,7 @@ export default function Topbar() {
     const loadId = toast.loading("Đang đóng gói file backup .manga...");
     try {
       const token = useAuthStore.getState().session?.access_token || "";
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/export-manga?token=${token}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/pages/${pageId}/export-manga?token=${token}`);
       if (!response.ok) throw new Error("Lỗi máy chủ khi đóng gói backup");
       const blob = await response.blob();
       saveAs(blob, `backup-${pageId}.manga`);
@@ -215,7 +213,7 @@ export default function Topbar() {
           const pageId = projectStore.pageIds[idx];
           const fileExt = file.name.split('.').pop() || 'jpg';
           const serverRawUrl = pageId
-            ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+            ? `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
             : null;
           return projectStore.processedUrls?.[idx] || serverRawUrl;
         });
@@ -265,7 +263,7 @@ export default function Topbar() {
         const pageId = projectStore.pageIds[idx];
         const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
         const serverRawUrl = pageId
-          ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+          ? `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
           : null;
         const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
         if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
@@ -324,7 +322,7 @@ export default function Topbar() {
           const pageId = projectStore.pageIds[idx];
           const fileExt = file.name.split('.').pop() || 'jpg';
           const serverRawUrl = pageId
-            ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+            ? `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
             : null;
           return projectStore.processedUrls?.[idx] || serverRawUrl;
         });
@@ -364,7 +362,7 @@ export default function Topbar() {
         const pageId = projectStore.pageIds[idx];
         const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
         const serverRawUrl = pageId
-          ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+          ? `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
           : null;
         const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
         if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
@@ -402,7 +400,7 @@ export default function Topbar() {
     const loadId = toast.loading("Đang tạo file PSD...");
     try {
       const token = useAuthStore.getState().session?.access_token || "";
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/download-psd?token=${token}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/pages/${pageId}/download-psd?token=${token}`);
       if (!response.ok) throw new Error("Lỗi máy chủ khi tạo file PSD");
       const blob = await response.blob();
       saveAs(blob, `MangaAI_${pageId}.psd`);
@@ -427,28 +425,16 @@ export default function Topbar() {
 
 
   return (
-    <header className="h-14 border-b border-border bg-panel px-4 flex items-center justify-between select-none shrink-0 relative" style={{ zIndex: 99 }}>
+    <header className="h-14 border-b border-border bg-panel px-3 md:px-4 flex items-center justify-between select-none shrink-0 relative" style={{ zIndex: 99 }}>
 
       {/* 1. LEFT ZONE: LOGO & PROJECT */}
       <div className="flex items-center gap-3 flex-1">
         <DeepKomaLogo onClick={handleLogoClick} className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
 
-        {/* Đường phân cách dọc mảnh */}
-        <div className="w-px h-5 bg-border/80 mx-2 hidden sm:block" />
-
-        {/* Nút Cài đặt dự án chung (Cấu hình dịch) */}
-        <button
-          onClick={() => setModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-panel hover:bg-border/40 text-text-muted hover:text-text-main transition-colors cursor-pointer shadow-sm group whitespace-nowrap shrink-0 text-[12px] font-bold"
-          title="Cài đặt từ điển & Xưng hô AI"
-        >
-          <Languages size={14} className="text-primary group-hover:scale-110 transition-transform" />
-          <span>{t('topbar.configBtn')}</span>
-        </button>
       </div>
 
-      {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa) */}
-      <div className="flex items-center justify-center flex-1 gap-4">
+      {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa trên desktop, mobile nằm ở bottom bar) */}
+      <div className="hidden md:flex items-center justify-center flex-1 gap-4">
 
 
         {/* Toggle Raw/Clean View Mode */}
@@ -459,7 +445,7 @@ export default function Topbar() {
       </div>
 
       {/* 3. RIGHT ZONE: CONFIG, CREDITS, EXPORT, ACCOUNT */}
-      <div className="flex items-center justify-end gap-3 flex-1 relative">
+      <div className="flex items-center justify-end gap-2.5 flex-1 relative">
 
         {/* Bảng Điều Khiển Động Cơ & Số Dư GPU Tích Hợp (Premium Console) */}
         <div className={`flex items-center gap-2.5 pl-3 pr-1.5 py-1 rounded-full border transition-all duration-300 select-none shrink-0 relative group/gpuconsole z-30
@@ -607,7 +593,7 @@ export default function Topbar() {
             onClick={() => {
               if (isExporting) return;
               setIsExportMenuOpen(!isExportMenuOpen); 
-              setIsAccountMenuOpen(false); 
+              setIsAccountMenuOpen(false);
             }} 
             className={`flex items-center gap-1.5 bg-primary hover:bg-primary-hover px-4 py-1.5 rounded-lg text-[12px] font-bold text-white shadow-md transition-colors active:scale-95 shrink-0 ${isExporting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
           >
@@ -665,24 +651,6 @@ export default function Topbar() {
                 >
                   <HelpCircle size={14} /> {t('topbar.supportRequest')}
                 </button>
-                {/* Lựa chọn Ngôn ngữ (Language Switcher) */}
-                <button
-                  onClick={() => {
-                    const nextLang = i18n.language === 'vi' ? 'en' : 'vi';
-                    i18n.changeLanguage(nextLang);
-                    localStorage.setItem('lang', nextLang);
-                    localStorage.setItem('ui_language', nextLang);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer mt-0.5"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Globe size={14} className="text-text-muted" />
-                    <span>{i18n.language === 'vi' ? 'Ngôn ngữ: Tiếng Việt' : 'Language: English'}</span>
-                  </div>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-black uppercase">
-                    {i18n.language === 'vi' ? 'VN' : 'EN'}
-                  </span>
-                </button>
               </div>
               <div className="px-2 py-2 bg-background/30">
                 <button onClick={signOut} className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-bold text-danger/80 hover:bg-danger/10 hover:text-danger rounded-md transition-colors cursor-pointer"><LogOut size={14} strokeWidth={2.5} /> {t('topbar.logout')}</button>
@@ -696,9 +664,6 @@ export default function Topbar() {
       <PaywallDrawer isOpen={isPaywallOpen} onClose={() => setIsPaywallOpen(false)} />
       <PaymentHistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
       <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
-
-      {/* 🚀 Bảng cấu hình dịch thuật sẽ hiện lên khi isModalOpen = true */}
-      {isModalOpen && <TranslationConfigModal />}
 
       {/* 🚀 Hộp thoại xác nhận kích hoạt GPU Premium */}
       {showGpuConfirm && (

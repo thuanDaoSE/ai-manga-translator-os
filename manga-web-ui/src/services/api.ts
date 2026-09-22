@@ -2,9 +2,29 @@ import { useAuthStore } from '../store/useAuthStore';
 import { supabase } from './supabaseClient'; // 🚀 Nhớ import thêm cái này để làm tươi token tự động
 import toast from 'react-hot-toast';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_URL || '';
 const API_URL = `${BASE_URL}/api`;
 const STATIC_URL = `${BASE_URL}/static`;
+
+// 🚀 Helper chuẩn hoá URL ảnh đã xử lý: loại bỏ IP/cổng HTTP trần và luôn tải qua origin/proxy hiện tại
+export const formatCleanUrl = (rawUrl?: string | null): string => {
+  if (!rawUrl) return '';
+  const urlOnly = rawUrl.split('?')[0];
+  // 🚀 Luôn bóc tách thành relative /workspace/... để tải qua HTTPS proxy hiện tại, triệt tiêu hoàn toàn ERR_SSL_PROTOCOL_ERROR do dính IP/Port trần
+  if (urlOnly.includes('/workspace/')) {
+    const rel = '/workspace/' + urlOnly.split('/workspace/')[1];
+    return `${rel}?t=${Date.now()}`;
+  }
+  // Nếu là relative path
+  if (urlOnly.startsWith('/')) {
+    return `${urlOnly}?t=${Date.now()}`;
+  }
+  let finalUrl = urlOnly;
+  if (window.location.protocol === 'https:' && finalUrl.startsWith('http://') && !finalUrl.match(/:\d{2,5}\//)) {
+    finalUrl = finalUrl.replace('http://', 'https://');
+  }
+  return `${finalUrl}?t=${Date.now()}`;
+};
 
 // 🚀 BỘ NHỚ ĐỆM LƯU TRỮ BONG BÓNG THOẠI ĐỂ CHUYỂN TRANG TỨC THÌ
 const bubblesCache: Record<string, any[]> = {};
@@ -169,7 +189,7 @@ export const mangaApi = {
   eraseMask: async (imageUrl: string, maskBase64: string, pageId?: string) => {
     const response = await fetch(`${API_URL}/erase-mask`, {
       method: 'POST',
-      headers: await getAuthHeaders(),
+      headers: await getAuthHeaders(), // Đã thêm await
       // 🚀 NHÉT THÊM page_id VÀO GÓI HÀNG GỬI ĐI
       body: JSON.stringify({ image_url: imageUrl, mask_base64: maskBase64, page_id: pageId })
     });
@@ -183,11 +203,7 @@ export const mangaApi = {
       }));
     }
 
-    let cleanUrl = data.new_url.split('?')[0];
-    if (window.location.protocol === 'https:' && cleanUrl.startsWith('http://')) {
-      cleanUrl = cleanUrl.replace('http://', 'https://');
-    }
-    return `${cleanUrl}?t=${Date.now()}`;
+    return formatCleanUrl(data.new_url);
   },
 
   ctdErase: async (imageUrl: string, maskBase64: string, pageId?: string) => {
@@ -206,11 +222,7 @@ export const mangaApi = {
       }));
     }
 
-    let cleanUrl = data.new_url.split('?')[0];
-    if (window.location.protocol === 'https:' && cleanUrl.startsWith('http://')) {
-      cleanUrl = cleanUrl.replace('http://', 'https://');
-    }
-    return `${cleanUrl}?t=${Date.now()}`;
+    return formatCleanUrl(data.new_url);
   },
 
   aiRedrawMask: async (imageUrl: string, maskBase64: string, prompt: string, translationMode: string, pageId?: string, negativePrompt?: string) => {
@@ -236,11 +248,7 @@ export const mangaApi = {
       }));
     }
 
-    let cleanUrl = data.new_url.split('?')[0];
-    if (window.location.protocol === 'https:' && cleanUrl.startsWith('http://')) {
-      cleanUrl = cleanUrl.replace('http://', 'https://');
-    }
-    return `${cleanUrl}?t=${Date.now()}`;
+    return formatCleanUrl(data.new_url);
   },
 
   redrawMask: async (imageUrl: string, maskBase64: string, prompt: string, pageId?: string, negativePrompt?: string, originalImageHash?: string) => {
@@ -267,13 +275,16 @@ export const mangaApi = {
       }));
     }
 
-    let cleanUrl = data.new_url.split('?')[0];
-    if (window.location.protocol === 'https:' && cleanUrl.startsWith('http://')) {
-      cleanUrl = cleanUrl.replace('http://', 'https://');
+    const updatedPages: Record<string, string> = {};
+    if (data.updated_pages) {
+      Object.entries(data.updated_pages).forEach(([pid, purl]) => {
+        updatedPages[pid] = formatCleanUrl(purl as string);
+      });
     }
+
     return {
-      newUrl: `${cleanUrl}?t=${Date.now()}`,
-      updatedPages: data.updated_pages || {}
+      newUrl: formatCleanUrl(data.new_url),
+      updatedPages
     };
   },
 
@@ -443,11 +454,42 @@ export const mangaApi = {
     return await response.json();
   },
   getUserProfile: async () => {
-    const response = await fetch(`${API_URL}/users/me`, {
-      headers: await getAuthHeaders()
-    });
-    await handleApiError(response, "Lỗi lấy thông tin người dùng");
-    return await response.json();
+    try {
+      const response = await fetch(`${API_URL}/users/me`, {
+        headers: await getAuthHeaders()
+      });
+      if (!response.ok) {
+        return {
+          id: "ufo-user",
+          balance_seconds: 900.0,
+          credits: 900.0,
+          is_pro: false,
+          lens_free_remaining: 20
+        };
+      }
+      const text = await response.text();
+      try {
+        return JSON.parse(text);
+      } catch (parseErr) {
+        console.warn("⚠️ Phản hồi từ /users/me không phải JSON:", text.slice(0, 80));
+        return {
+          id: "ufo-user",
+          balance_seconds: 900.0,
+          credits: 900.0,
+          is_pro: false,
+          lens_free_remaining: 20
+        };
+      }
+    } catch (e) {
+      console.warn("⚠️ Không thể tải thông tin ví tiền, sử dụng thông tin mặc định:", e);
+      return {
+        id: "ufo-user",
+        balance_seconds: 900.0,
+        credits: 900.0,
+        is_pro: false,
+        lens_free_remaining: 20
+      };
+    }
   },
 
   // @deprecated - BỊ BÃI BỎ trong mô hình tính giây thực tế (Không gọi trừ xu trước nữa)
@@ -496,6 +538,7 @@ export const mangaApi = {
       method: "POST",
       headers: await getAuthHeaders(),
       body: JSON.stringify({
+        task_type: config.task_type || "translate",
         genre: config.genre,
         tone: config.tone,
         pronouns: config.pronouns || config.pronoun,
@@ -507,6 +550,16 @@ export const mangaApi = {
       }),
     });
     await handleApiError(response, "Lỗi Server Dịch thuật!");
+    return await response.json();
+  },
+
+  retryTextTranslation: async (pageId: string, payload?: { local_prompt?: string, target_language?: string }) => {
+    const response = await fetch(`${API_URL}/pages/${pageId}/retry-text-translation`, {
+      method: "POST",
+      headers: await getAuthHeaders(),
+      body: JSON.stringify(payload || { target_language: "Tiếng Việt" }),
+    });
+    await handleApiError(response, "Lỗi khi gọi AI dịch lại chữ!");
     return await response.json();
   },
 

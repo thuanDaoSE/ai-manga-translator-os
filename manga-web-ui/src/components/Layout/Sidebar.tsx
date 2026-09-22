@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Lock, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search } from 'lucide-react';
+import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Lock, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search, Settings2, Globe, Plus } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
@@ -290,19 +290,9 @@ export default function Sidebar() {
   const isProcessing = useToolStore((state) => state.isProcessing);
   const { t } = useTranslation();
   const user = useAuthStore((state) => state.user);
-  const currentCredits = user?.credits || 0;
+  const currentCredits = 999999; // Dedicated GPU instance in UFO-Space: Unlimited credits
   const useGpu = useConfigStore((state) => state.useGpu);
   const checkFirstTimeConfig = () => {
-    const hasConfigured = localStorage.getItem('has_configured_translation') === 'true';
-    if (!hasConfigured) {
-      useConfigStore.getState().setModalOpen(true);
-      toast("Vui lòng chọn ngôn ngữ nguồn và cấu hình dịch thuật trước khi bắt đầu dịch lần đầu!", {
-        icon: '🌐',
-        duration: 6000,
-        style: { background: '#1e1b4b', color: '#a78bfa', border: '1px solid #7c3aed' }
-      });
-      return false;
-    }
     return true;
   };
 
@@ -342,8 +332,8 @@ export default function Sidebar() {
       file.type.startsWith('image/') || file.name.endsWith('.manga')
     );
     if (imageFiles.length === 0) return;
-    if (imageFiles.length > 30) {
-      toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 30 trang mỗi lần!");
+    if (imageFiles.length > 500) {
+      toast.error("Hệ thống hỗ trợ tải lên tối đa 500 trang cho mỗi phiên làm việc!");
       return;
     }
     uploadProjectFiles(imageFiles.sort((a, b) => a.name.localeCompare(b.name)));
@@ -511,132 +501,224 @@ export default function Sidebar() {
 
         if (data.task_id) {
           const taskId = data.task_id;
-          
-          // No upfront local credit deduction is needed as balance is time-based and synced from the server upon task completion.
+          let isDone = false;
 
-          // 🚀 Chỉ mở 1 đường truyền SSE duy nhất
-          const eventSource = new EventSource(`${API_URL}/stream/${taskId}`);
-          activeTasksRef.current[pageIndex] = { taskId, eventSource };
-
-          eventSource.onmessage = async (event) => {
-            const sseData = JSON.parse(event.data);
-
-            // 🚀 Liên tục cập nhật tiến độ (Ví dụ: Runpod đang tải 10%... 30%...)
-            useProjectStore.setState((state: any) => ({
-              progresses: { ...state.progresses, [pageIndex]: { percent: sseData.progress, message: sseData.message } }
-            }));
-
-            if (sseData.state === "SUCCESS") {
-              eventSource.close();
-              delete activeTasksRef.current[pageIndex];
-
-              // 🚀 BẢN VÁ UX: RUNPOD XONG RỒI NHƯNG KHÔNG ĐƯỢC BÁO HOÀN TẤT VỘI!
-              // Ép thanh tiến trình đứng ở 90% và báo đang gọi DeepSeek
-              projectStore.setPageStatus(pageIndex, "processing");
-              useProjectStore.setState((state: any) => ({
-                progresses: { ...state.progresses, [pageIndex]: { percent: 90, message: "Đang dịch thuật..." } }
-              }));
-
-              let taskData = null;
-              // Vòng lặp chờ VPS và DeepSeek làm việc (Cái này tốn 2-3 giây)
-              for (let i = 0; i < 15; i++) {
-                const taskRes = await fetch(`${API_URL}/task/${taskId}`);
-                const data = await taskRes.json();
-                if (data.status === "SUCCESS" && data.result) {
-                  taskData = data;
-                  break;
-                }
-                await new Promise(res => setTimeout(res, 1000));
+          const finishSuccess = async (taskData: any) => {
+            if (isDone) return;
+            isDone = true;
+            try {
+              if (activeTasksRef.current[pageIndex]?.eventSource) {
+                activeTasksRef.current[pageIndex].eventSource.close();
               }
+            } catch (e) {}
+            delete activeTasksRef.current[pageIndex];
 
-              if (taskData && taskData.result) {
-                const result = taskData.result;
-                const cleanBaseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${result.clean_url}`;
-                const fullCleanUrl = `${cleanBaseUrl}?t=${Date.now()}`;
-                projectStore.setProcessedUrl(pageIndex, fullCleanUrl);
-                projectStore.setOriginalCleanUrl(pageIndex, cleanBaseUrl);
+            if (taskData && taskData.result) {
+              const result = taskData.result;
+              let cleanBaseUrl = (result.clean_url || '').split('?')[0];
+              if (cleanBaseUrl.includes('/workspace/')) {
+                cleanBaseUrl = '/workspace/' + cleanBaseUrl.split('/workspace/')[1];
+              }
+              const fullCleanUrl = `${cleanBaseUrl}?t=${Date.now()}`;
+              projectStore.setProcessedUrl(pageIndex, fullCleanUrl);
+              projectStore.setOriginalCleanUrl(pageIndex, cleanBaseUrl);
 
-                const toolState = useToolStore.getState();
+              const toolState = useToolStore.getState();
 
-                const newBubbles = result.data.map((item: any) => {
-                  const origW = item.box_coordinates.x2 - item.box_coordinates.x1;
-                  const origH = item.box_coordinates.y2 - item.box_coordinates.y1;
+              let bubblesData = result.data || [];
 
-                  return {
-                    id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-                    x: item.box_coordinates.x1,
-                    y: item.box_coordinates.y1,
-                    w: origW,
-                    h: origH,
-                    text: item.vietnamese,
-                    japanese: item.japanese,
-                    fontSize: toolState.fontSize,
-                    fontColor: toolState.fontColor,
-                    fontFamily: toolState.fontFamily,
-                    rotation: 0,
-                    sfxClass: "",
-                    rawBox: item.box_coordinates,
-                    boxX: item.box_coordinates.x1,
-                    boxY: item.box_coordinates.y1,
-                    boxW: origW,
-                    boxH: origH,
-                  };
-                });
+              // 🚀 BẢN VÁ QUAN TRỌNG: Nếu OCR chỉ có chữ gốc (chưa có bản dịch Tiếng Việt),
+              // tự động kích hoạt dịch thuật DeepSeek ngay lập tức!
+              const hasJapanese = bubblesData.some((item: any) => (item.japanese || item.text) && (item.japanese || item.text).trim() !== "");
+              const isMissingVietnamese = bubblesData.every((item: any) => !item.vietnamese || item.vietnamese.trim() === "");
 
-                if (pageIndex === useProjectStore.getState().currentIndex) {
-                  const canvasStore = useCanvasStore.getState();
-                  canvasStore.setBubbles(newBubbles);
-                } else {
-                  mangaApi.savePageBubbles(pageId, newBubbles).catch(console.error);
-                }
-
-                // 🚀 LƯU Ý MŨI TIÊM THÔNG MINH TRƯỚC ĐÓ CỦA SẾP (Kiểm tra chữ Lỗi)
-                const hasTranslationError = newBubbles.some((b: any) => (b.text || "").toLowerCase().includes("lỗi"));
-
-                if (hasTranslationError) {
-                  projectStore.setPageStatus(pageIndex, "error"); // Đánh thẻ Đỏ
-                  toast.error(`Trang ${pageIndex + 1} gặp lỗi xử lý dịch thuật!`);
-                } else {
-                  projectStore.setPageStatus(pageIndex, "completed"); // Xanh tuyệt đối!
-                  const posthog = (window as any).posthog;
-                  if (posthog) {
-                    posthog.capture('translation_successful', {
-                      action_type: 'Page_Translate',
-                      status: 'success'
-                    });
+              if (hasJapanese && isMissingVietnamese) {
+                useProjectStore.setState((state: any) => ({
+                  progresses: {
+                    ...state.progresses,
+                    [pageIndex]: { percent: 85, message: "Đang dịch sang Tiếng Việt bằng DeepSeek AI..." }
                   }
+                }));
+
+                try {
+                  const transRes = await mangaApi.retryTextTranslation(pageId);
+                  if (transRes && transRes.bubbles && transRes.bubbles.length > 0) {
+                    bubblesData = transRes.bubbles;
+                  }
+                } catch (transErr) {
+                  console.warn("Auto text translation error, using raw bubbles:", transErr);
+                }
+              }
+
+              const newBubbles = bubblesData.map((item: any) => {
+                let x = item.x;
+                let y = item.y;
+                let w = item.w;
+                let h = item.h;
+
+                if ((x === undefined || y === undefined || w === undefined || h === undefined) && item.box_coordinates) {
+                  x = item.box_coordinates.x1;
+                  y = item.box_coordinates.y1;
+                  w = item.box_coordinates.x2 - item.box_coordinates.x1;
+                  h = item.box_coordinates.y2 - item.box_coordinates.y1;
+                } else if ((x === undefined || y === undefined || w === undefined || h === undefined) && item.rawBox) {
+                  x = item.rawBox.x1;
+                  y = item.rawBox.y1;
+                  w = item.rawBox.x2 - item.rawBox.x1;
+                  h = item.rawBox.y2 - item.rawBox.y1;
                 }
 
-                await mangaApi.savePageResults(pageId, result.clean_url, newBubbles)
-                  .catch(err => console.error("Lỗi lưu kết quả vào DB:", err));
+                x = x !== undefined ? x : 0;
+                y = y !== undefined ? y : 0;
+                w = w !== undefined ? w : 100;
+                h = h !== undefined ? h : 50;
 
-                // 🚀 CHỈ KHI CHỮ ĐÃ ĐƯỢC VẼ LÊN HÌNH THÌ MỚI XÓA THANH TIẾN TRÌNH
-                setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
-                
-                // Đồng bộ Xu từ máy chủ
-                useAuthStore.getState().fetchProfile();
+                const viText = item.vietnamese || item.text || item.japanese || "";
+
+                return {
+                  id: item.id ? String(item.id) : (Date.now().toString() + Math.random().toString(36).substring(2, 9)),
+                  x,
+                  y,
+                  w,
+                  h,
+                  text: viText,
+                  japanese: item.japanese || "",
+                  vietnamese: item.vietnamese || item.text || "",
+                  fontSize: item.fontSize || toolState.fontSize || 20,
+                  fontColor: item.fontColor || toolState.fontColor || "#000000",
+                  fontFamily: item.fontFamily || toolState.fontFamily || "Playpen Sans",
+                  rotation: item.rotation !== undefined ? item.rotation : 0,
+                  sfxClass: item.sfxClass || "",
+                  rawBox: item.box_coordinates || item.rawBox,
+                  boxX: item.boxX !== undefined ? item.boxX : x,
+                  boxY: item.boxY !== undefined ? item.boxY : y,
+                  boxW: item.boxW !== undefined ? item.boxW : w,
+                  boxH: item.boxH !== undefined ? item.boxH : h,
+                };
+              });
+
+              if (pageIndex === useProjectStore.getState().currentIndex) {
+                const canvasStore = useCanvasStore.getState();
+                canvasStore.setBubbles(newBubbles);
+              } else {
+                mangaApi.savePageBubbles(pageId, newBubbles).catch(console.error);
               }
-              resolve();
-            } else if (sseData.state === "FAILURE") {
-              eventSource.close();
-              delete activeTasksRef.current[pageIndex];
-              projectStore.clearProgress(pageIndex);
-              projectStore.setPageStatus(pageIndex, "error");
-              // Đồng bộ Xu (trong trường hợp được hoàn Xu)
+
+              projectStore.setPageStatus(pageIndex, "completed");
+
+              await mangaApi.savePageResults(pageId, result.clean_url, newBubbles)
+                .catch(err => console.error("Lỗi lưu kết quả vào DB:", err));
+
+              setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
               useAuthStore.getState().fetchProfile();
-              resolve();
             }
+            resolve();
           };
 
-          eventSource.onerror = () => {
-            eventSource.close();
+          const finishFailure = (msg?: string) => {
+            if (isDone) return;
+            isDone = true;
+            try {
+              if (activeTasksRef.current[pageIndex]?.eventSource) {
+                activeTasksRef.current[pageIndex].eventSource.close();
+              }
+            } catch (e) {}
             delete activeTasksRef.current[pageIndex];
             projectStore.clearProgress(pageIndex);
             projectStore.setPageStatus(pageIndex, "error");
-            // Đồng bộ Xu (trong trường hợp được hoàn Xu)
+            if (msg) toast.error(msg);
             useAuthStore.getState().fetchProfile();
             resolve();
           };
+
+          // Robust polling fallback
+          let pollTimer: any = null;
+          const startPolling = () => {
+            if (pollTimer || isDone) return;
+            let attempts = 0;
+            const maxAttempts = 120;
+            pollTimer = setInterval(async () => {
+              if (isDone) {
+                clearInterval(pollTimer);
+                return;
+              }
+              attempts++;
+              try {
+                const res = await fetch(`${API_URL}/task/${taskId}`);
+                if (res.ok) {
+                  const tData = await res.json();
+                  if (tData.progress !== undefined) {
+                    useProjectStore.setState((state: any) => ({
+                      progresses: {
+                        ...state.progresses,
+                        [pageIndex]: { percent: tData.progress, message: tData.message || "Đang xử lý..." }
+                      }
+                    }));
+                  }
+                  if (tData.state === "SUCCESS" || tData.status === "SUCCESS") {
+                    clearInterval(pollTimer);
+                    await finishSuccess(tData);
+                    return;
+                  } else if (tData.state === "FAILURE" || tData.status === "FAILURE") {
+                    clearInterval(pollTimer);
+                    finishFailure(tData.message || "Lỗi xử lý dịch thuật!");
+                    return;
+                  }
+                }
+              } catch (err) {
+                console.warn("Polling error:", err);
+              }
+              if (attempts >= maxAttempts) {
+                clearInterval(pollTimer);
+                finishFailure(`Quá thời gian chờ xử lý trang ${pageIndex + 1}!`);
+              }
+            }, 1000);
+          };
+
+          // Thử kết nối SSE trước, nếu lỗi thì tự động fallback qua polling
+          try {
+            const eventSource = new EventSource(`${API_URL}/stream/${taskId}`);
+            activeTasksRef.current[pageIndex] = { taskId, eventSource };
+
+            eventSource.onmessage = async (event) => {
+              if (isDone) return;
+              try {
+                const sseData = JSON.parse(event.data);
+                useProjectStore.setState((state: any) => ({
+                  progresses: {
+                    ...state.progresses,
+                    [pageIndex]: { percent: sseData.progress, message: sseData.message }
+                  }
+                }));
+
+                if (sseData.state === "SUCCESS" || sseData.status === "SUCCESS") {
+                  eventSource.close();
+                  if (sseData.result) {
+                    await finishSuccess(sseData);
+                  } else {
+                    const taskRes = await fetch(`${API_URL}/task/${taskId}`);
+                    const taskData = await taskRes.json();
+                    await finishSuccess(taskData);
+                  }
+                } else if (sseData.state === "FAILURE" || sseData.status === "FAILURE") {
+                  eventSource.close();
+                  finishFailure(sseData.message);
+                }
+              } catch (e) {
+                console.warn("SSE parse error:", e);
+              }
+            };
+
+            eventSource.onerror = () => {
+              // Khi gặp lỗi SSE (ví dụ ERR_QUIC_PROTOCOL_ERROR qua proxy), chuyển sang polling an toàn
+              console.warn(`[SSE notice] Stream dropped for task ${taskId}, switching to polling fallback.`);
+              try { eventSource.close(); } catch (e) {}
+              startPolling();
+            };
+          } catch (sseErr) {
+            console.warn("EventSource init failed, starting polling:", sseErr);
+            startPolling();
+          }
         } else {
           resolve();
         }
@@ -718,7 +800,7 @@ export default function Sidebar() {
             vietnamese: b.vietnamese || b.text || "",
             fontSize: b.fontSize || toolState.fontSize || 20,
             fontColor: b.fontColor || toolState.fontColor || "#000000",
-            fontFamily: b.fontFamily || toolState.fontFamily || "'Comic Neue', cursive",
+            fontFamily: b.fontFamily || toolState.fontFamily || "Playpen Sans",
             rotation: b.rotation !== undefined ? b.rotation : 0,
             sfxClass: b.sfxClass || "",
             boxX: b.boxX !== undefined ? b.boxX : x,
@@ -753,13 +835,6 @@ export default function Sidebar() {
           useProjectStore.getState().setPageStatus(pageIndex, "error");
         } else {
           useProjectStore.getState().setPageStatus(pageIndex, "completed");
-          const posthog = (window as any).posthog;
-          if (posthog) {
-            posthog.capture('translation_successful', {
-              action_type: 'Page_Retry_Translate',
-              status: 'success'
-            });
-          }
         }
       } catch (err: any) {
         toast.error(err.message, { id: loadId });
@@ -776,89 +851,18 @@ export default function Sidebar() {
     }
   };
 
-  const handleDeletePage = (index: number) => {
-    const file = fileQueue[index];
-    const fileName = file.name;
-    const pageId = projectStore.pageIds[index];
-    const uniqueId = pageId || `temp-${index}-${file.name}`;
+  const handleDeletePage = async (index: number) => {
+    const state = useProjectStore.getState();
+    const file = state.fileQueue[index];
+    if (!file) return;
 
-    if (deleteTimeoutsRef.current[uniqueId]) return;
-
-    if (index === projectStore.currentIndex) {
-      const nextIndex = fileQueue.findIndex((f, i) => {
-        if (i === index) return false;
-        const uid = projectStore.pageIds[i] || `temp-${i}-${f.name}`;
-        return !pendingDeletes.has(uid);
-      });
-      projectStore.setCurrentIndex(nextIndex !== -1 ? nextIndex : -1);
+    if (state.pageStatuses[index] === 'processing' || state.pageStatuses[index] === 'waiting') {
+      handleCancelTask(index);
     }
 
-    const wasActive = index === projectStore.currentIndex;
-
-    setPendingDeletes(prev => new Set(prev).add(uniqueId));
-
-    toast((t) => (
-      <div className="flex items-center gap-3">
-        <span className="text-sm">Đang xóa <b>{fileName}</b>...</span>
-        <button
-          onClick={() => {
-            clearTimeout(deleteTimeoutsRef.current[uniqueId]);
-            delete deleteTimeoutsRef.current[uniqueId];
-
-            setPendingDeletes(prev => {
-              const next = new Set(prev);
-              next.delete(uniqueId);
-              return next;
-            });
-
-            // Định vị lại index thực tế của trang sau khi hoàn tác để tránh bị lệch do kéo thả (reorder)
-            const state = useProjectStore.getState();
-            const realIndex = state.fileQueue.findIndex((f, i) => {
-              const uid = state.pageIds[i] || `temp-${i}-${f.name}`;
-              return uid === uniqueId;
-            });
-
-            if (realIndex !== -1 && (wasActive || state.currentIndex === -1)) {
-              projectStore.setCurrentIndex(realIndex);
-            }
-
-            toast.dismiss(t.id);
-            toast.success("Đã hoàn tác! Giữ lại trang.");
-          }}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
-        >
-          <Undo2 size={13} className="text-white" />
-          <span>Hoàn tác</span>
-        </button>
-      </div>
-    ), { 
-      duration: 5000, 
-      id: `delete-${uniqueId}`, 
-      icon: <Clock size={16} className="text-amber-500 animate-pulse" /> 
-    });
-
-    deleteTimeoutsRef.current[uniqueId] = setTimeout(async () => {
-      const state = useProjectStore.getState();
-      const realIndex = state.fileQueue.findIndex((f, i) => {
-        const uid = state.pageIds[i] || `temp-${i}-${f.name}`;
-        return uid === uniqueId;
-      });
-
-      if (realIndex !== -1) {
-        if (state.pageStatuses[realIndex] === 'processing') {
-          handleCancelTask(realIndex);
-        }
-        await state.removePage(realIndex);
-      }
-      delete deleteTimeoutsRef.current[uniqueId];
-
-      setPendingDeletes(prev => {
-        const next = new Set(prev);
-        next.delete(uniqueId);
-        return next;
-      });
-    }, 5000);
-  }
+    // ⚡ Xóa trang tức thì 0ms, không chờ đếm ngược xác nhận
+    await state.removePage(index);
+  };
 
   // 🚀 FIX: TÌM ẢNH BẰNG UNIQUE ID MỚI TRÁNH CRASH KHI KÉO THẢ
   const handleDragEnd = (event: DragEndEvent) => {
@@ -986,7 +990,7 @@ export default function Sidebar() {
         else if (file.size === 0) {
           const pageId = projectStore.pageIds[index];
           const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
-          const serverUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}`;
+          const serverUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}`;
           if (newPreviews[index] !== serverUrl) {
             newPreviews[index] = serverUrl;
             changed = true;
@@ -1092,8 +1096,8 @@ export default function Sidebar() {
       projectStore.setPageStatus(index, "waiting");
     });
 
-    // Chạy với giới hạn đồng thời tối đa là 3 trang để tránh nghẽn browser connection pool (limit 6)
-    const limit = 3;
+    // Chạy với giới hạn đồng thời tối đa là 4 trang để tận dụng tối ưu GPU Tensor Cores & VRAM
+    const limit = 4;
     let nextIdx = 0;
 
     const runNext = async () => {
@@ -1144,7 +1148,7 @@ export default function Sidebar() {
     selectedIndexes.forEach(index => projectStore.setPageStatus(index, 'waiting'));
     clearSelection();
 
-    const limit = 3;
+    const limit = 4;
     let nextIdx = 0;
     const runNext = async () => {
       if (nextIdx >= selectedIndexes.length) return;
@@ -1170,7 +1174,7 @@ export default function Sidebar() {
 
     pendingIndexes.forEach(idx => projectStore.setPageStatus(idx, 'waiting'));
 
-    const limit = 3;
+    const limit = 4;
     let nextIdx = 0;
     const runNext = async () => {
       if (nextIdx >= pendingIndexes.length) return;
@@ -1321,6 +1325,20 @@ export default function Sidebar() {
                   <Search size={15} />
                 </button>
 
+                {/* NÚT TẠO DỰ ÁN MỚI */}
+                <button
+                  onClick={() => {
+                    if (window.confirm("Bạn có muốn tạo Dự án mới không? Dự án hiện tại vẫn được lưu trữ và có thể mở lại.")) {
+                      useProjectStore.getState().clearProject();
+                      toast.success("Đã mở không gian làm việc mới! Hãy tải ảnh lên để bắt đầu.");
+                    }
+                  }}
+                  className="p-1.5 text-text-muted hover:bg-border/45 hover:text-primary rounded-lg transition-colors cursor-pointer"
+                  title="Tạo dự án mới"
+                >
+                  <Plus size={15} />
+                </button>
+
                 {/* NÚT ĐÓNG THANH BÊN */}
                 <button
                   onClick={() => useToolStore.getState().toggleLeftPanel()}
@@ -1361,8 +1379,8 @@ export default function Sidebar() {
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
                 if (files.length === 0) return;
-                if (files.length > 30) {
-                  toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 30 trang mỗi lần!");
+                if (files.length > 500) {
+                  toast.error("Hệ thống hỗ trợ tải lên tối đa 500 trang cho mỗi phiên làm việc!");
                   e.target.value = '';
                   return;
                 }

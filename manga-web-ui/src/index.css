@@ -151,6 +151,18 @@ textarea[data-fabric-hiddentextarea],
   /* Đổi sang màu xanh Primary của sếp khi hover */
 }
 
+/* Ẩn hoàn toàn thanh cuộn khi dùng no-scrollbar */
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
 @layer utilities {
 
   /* Ultra-low contrast checkerboard cho Dark Mode (Chống Moiré Pattern) */
@@ -160,12 +172,4 @@ textarea[data-fabric-hiddentextarea],
     background-size: 24px 24px;
     background-position: center center;
   }
-}
-
-/* 🚀 DỊCH CHUYỂN KHẢO SÁT POSTHOG LÊN TRÊN ĐỂ CHỐNG ĐÈ UI */
-posthog-survey,
-.posthog-survey,
-.posthog-survey-widget,
-#posthog-survey-container {
-  bottom: 80px !important;
-}
+}

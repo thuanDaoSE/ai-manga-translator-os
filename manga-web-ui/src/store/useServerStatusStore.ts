@@ -13,7 +13,7 @@ export const useServerStatusStore = create<ServerStatusState>((set) => ({
   setServerStatus: (status) => set({ serverStatus: status }),
   fetchStatus: async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/server-status`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/server-status`);
       if (response.ok) {
         const data = await response.json();
         set({ serverStatus: data.status as ServerStatus });

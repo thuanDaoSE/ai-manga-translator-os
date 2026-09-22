@@ -209,7 +209,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
     const loadId = toast.loading(t('rightSidebar.translatingAdvancedLoading'));
     useToolStore.getState().setIsProcessing(true);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/retry-text-translation`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/pages/${pageId}/retry-text-translation`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -591,7 +591,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
         
         const fontName = res.filename;
         const familyName = fontName.replace(/\.[^/.]+$/, "");
-        const fontUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/fonts/${fontName}`;
+        const fontUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/fonts/${fontName}`;
         
         const newFont = new FontFace(familyName, `url(${fontUrl})`);
         try {

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../services/supabaseClient';
 import { mangaApi } from '../services/api'; // 🚀 Import API để gọi Backend
+import { useProjectStore } from './useProjectStore';
 
 interface AuthState {
   user: any | null;

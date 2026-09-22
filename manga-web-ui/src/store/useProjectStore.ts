@@ -83,7 +83,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       const newStatuses = { ...state.pageStatuses };
       const newRetryCounts = { ...state.retryCounts };
       for (let i = 0; i < files.length; i++) {
-        newStatuses[startIndex + i] = "processing";
+        newStatuses[startIndex + i] = "waiting";
         newRetryCounts[startIndex + i] = 0;
       }
       return {
@@ -112,40 +112,86 @@ export const useProjectStore = create<ProjectState>((set) => ({
       // ⚡ TỐI ƯU HÓA: Tải lên song song (Concurrent Worker Pool 3 luồng đồng thời)
       const CONCURRENCY = 3;
       let nextIndex = 0;
+      let isProjectFull = false;
 
       const uploadWorker = async () => {
         while (nextIndex < files.length) {
-          const i = nextIndex++;
-          const actualIndex = startIndex + i;
-          set((state) => ({
-            progresses: { ...state.progresses, [actualIndex]: { percent: 50, message: "Đang Upload..." } }
-          }));
-
-          try {
-            // 🚀 GỌI UPLOAD QUA MANGA API (Đảm bảo Token luôn tươi mới)
-            const data = await mangaApi.uploadProjectFile(currentProjectId as string, files[i]);
-
-            set((state) => {
-              const newProgresses = { ...state.progresses };
-              delete newProgresses[actualIndex];
-              return {
-                pageIds: { ...state.pageIds, [actualIndex]: data.page_id },
-                pageStatuses: { ...state.pageStatuses, [actualIndex]: "unprocessed" },
-                progresses: newProgresses
-              };
-            });
-          } catch (fileError: any) {
-            // Nếu lỗi là 401, mangaApi đã tự ném ra và đá văng người dùng rồi, ta dừng luôn
-            if (fileError.message === "Phiên đăng nhập đã hết hạn!") {
-              throw fileError;
-            }
-
-            toast.error(`Lỗi file ${files[i].name}: ${fileError.message}`);
+          if (isProjectFull) {
+            const i = nextIndex++;
+            const actualIndex = startIndex + i;
             set((state) => {
               const newProgresses = { ...state.progresses };
               delete newProgresses[actualIndex];
               return { pageStatuses: { ...state.pageStatuses, [actualIndex]: "trash" as any }, progresses: newProgresses };
             });
+            continue;
+          }
+
+          const i = nextIndex++;
+          const actualIndex = startIndex + i;
+          set((state) => ({
+            pageStatuses: { ...state.pageStatuses, [actualIndex]: "processing" },
+            progresses: { ...state.progresses, [actualIndex]: { percent: 50, message: "Đang Upload..." } }
+          }));
+
+          let attempts = 0;
+          let uploadSuccess = false;
+
+          while (attempts < 3 && !uploadSuccess) {
+            attempts++;
+            try {
+              // 🚀 GỌI UPLOAD QUA MANGA API (Đảm bảo Token luôn tươi mới)
+              const data = await mangaApi.uploadProjectFile(currentProjectId as string, files[i]);
+
+              set((state) => {
+                const newProgresses = { ...state.progresses };
+                delete newProgresses[actualIndex];
+                return {
+                  pageIds: { ...state.pageIds, [actualIndex]: data.page_id },
+                  pageStatuses: { ...state.pageStatuses, [actualIndex]: "unprocessed" },
+                  progresses: newProgresses
+                };
+              });
+              uploadSuccess = true;
+            } catch (fileError: any) {
+              // Nếu lỗi là 401, mangaApi đã tự ném ra và đá văng người dùng rồi, ta dừng luôn
+              if (fileError.message === "Phiên đăng nhập đã hết hạn!") {
+                throw fileError;
+              }
+
+              const errorText = String(fileError.message || fileError);
+
+              // 🚀 1. XỬ LÝ KHI DỰ ÁN ĐÃ ĐẠT GIỚI HẠN (403 HOẶC ĐÃ ĐỦ 500 TRANG)
+              if (errorText.includes("giới hạn") || errorText.includes("403")) {
+                if (!isProjectFull) {
+                  isProjectFull = true;
+                  toast.error(errorText.includes("giới hạn") ? errorText : "Dự án đã đạt giới hạn tối đa số trang! Vui lòng tạo dự án mới.");
+                }
+                set((state) => {
+                  const newProgresses = { ...state.progresses };
+                  delete newProgresses[actualIndex];
+                  return { pageStatuses: { ...state.pageStatuses, [actualIndex]: "trash" as any }, progresses: newProgresses };
+                });
+                break;
+              }
+
+              // 🚀 2. XỬ LÝ KHI BỊ RATE LIMIT 429 (Too Many Requests) -> CHỜ VÀ THỬ LẠI
+              if (errorText.includes("429") || errorText.includes("Too Many Requests")) {
+                await new Promise((res) => setTimeout(res, 2000 * attempts));
+                continue;
+              }
+
+              // Nếu là lỗi khác hoặc đã hết số lần thử
+              if (attempts >= 3) {
+                toast.error(`Lỗi file ${files[i].name}: ${errorText}`);
+                set((state) => {
+                  const newProgresses = { ...state.progresses };
+                  delete newProgresses[actualIndex];
+                  return { pageStatuses: { ...state.pageStatuses, [actualIndex]: "trash" as any }, progresses: newProgresses };
+                });
+                break;
+              }
+            }
           }
         }
       };
@@ -217,16 +263,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     const currentState = useProjectStore.getState();
     const pageId = currentState.pageIds[indexToRemove];
 
-    if (pageId) {
-      try {
-        // 🚀 Đã chuyển qua dùng API trung tâm
-        await mangaApi.deletePage(pageId);
-      } catch (err) {
-        console.error("Lỗi xóa trang:", err);
-        if (!silent) toast.error("Lỗi xóa trang. Vui lòng thử lại sau.");
-      }
-    }
-
+    // 1. Cập nhật giao diện tức thì (Optimistic 0ms)
     set((state) => {
       const tempArr = state.fileQueue.map((f, i) => ({
         file: f, url: state.processedUrls[i], status: state.pageStatuses[i],
@@ -262,7 +299,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
         newCurrentIndex--;
       }
       if (!silent) {
-        toast.success("Đã xóa trang và giải phóng bộ nhớ máy chủ!");
+        toast.success("Đã xóa trang!");
       }
       return {
         fileQueue: newQueue, processedUrls: newProcessed, pageStatuses: newStatuses,
@@ -270,6 +307,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
         currentIndex: newCurrentIndex
       };
     });
+
+    // 2. Gọi API xóa ngầm ở phía Server (Fire & Forget trong background, không chặn UI)
+    if (pageId) {
+      mangaApi.deletePage(pageId).catch((err) => {
+        console.warn("Lỗi xóa trang ngầm trên server:", err);
+      });
+    }
   },
 
   setPageStatus: (index, status) => set((state) => ({ pageStatuses: { ...state.pageStatuses, [index]: status } })),
@@ -407,7 +451,11 @@ export const useProjectStore = create<ProjectState>((set) => ({
       newRetryCounts[index] = page.retry_count || 0; // 🚀 Trích xuất retry_count từ Server
 
       if (page.clean_url) {
-        const fullUrl = `${import.meta.env.VITE_API_URL || ''}${page.clean_url}`;
+        let cleanPath = page.clean_url.split('?')[0];
+        if (cleanPath.includes('/workspace/')) {
+          cleanPath = '/workspace/' + cleanPath.split('/workspace/')[1];
+        }
+        const fullUrl = cleanPath.startsWith('http') ? cleanPath : `${import.meta.env.VITE_API_URL || ''}${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
         newProcessedUrls[index] = `${fullUrl}?t=${Date.now()}`;
         newOriginalCleanUrls[index] = fullUrl;
       }

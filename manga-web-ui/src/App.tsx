@@ -2,7 +2,6 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import Topbar from './components/Layout/Topbar';
 import Sidebar from './components/Layout/Sidebar';
 import Workspace from './components/Layout/Workspace';
-import TranslationConfigModal from './components/Modals/TranslationConfigModal';
 import { useEffect, useRef, useState } from 'react';
 import AuthModal from './components/Modals/AuthModal';
 import LandingPage from './components/LandingPage';
@@ -130,17 +129,19 @@ export default function App() {
     useCanvasStore.getState().redo();
   }, { enableOnFormTags: false });
 
-  // 🚀 TỰ ĐỘNG ẨN/HIỆN RIGHT SIDEBAR THÔNG MINH
+  // 🚀 TỰ ĐỘNG ẨN/HIỆN RIGHT SIDEBAR THÔNG MINH (Không tự ý đè kín màn hình trên Mobile)
   useEffect(() => {
+    const isSmallScreen = window.innerWidth < 768;
     if (bubbles.length === 0) {
       setShowRightPanel(false);
-    } else {
+    } else if (!isSmallScreen) {
       setShowRightPanel(true);
     }
   }, [bubbles.length, setShowRightPanel]);
 
   useEffect(() => {
-    if (activeBubbleId) {
+    const isSmallScreen = window.innerWidth < 768;
+    if (activeBubbleId && !isSmallScreen) {
       setShowRightPanel(true);
     }
   }, [activeBubbleId, setShowRightPanel]);
@@ -192,29 +193,48 @@ export default function App() {
     <div className="flex flex-col h-screen bg-background text-text-main overflow-hidden font-sans">
       <Toaster position="top-center" reverseOrder={false} />
 
-      {/* 🚀 FIX: KHÔI PHỤC LẠI MODAL CẤU HÌNH DỊCH VÀO ĐÂY */}
-      <TranslationConfigModal />
-
       <div className="grid transition-[grid-template-rows] duration-300 ease-in-out" style={{ gridTemplateRows: isZenMode ? '0fr' : '1fr' }}>
         <div className={`min-h-0 ${isZenMode ? 'overflow-hidden' : ''}`}><Topbar /></div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
 
-        {/* 1. LEFT SIDEBAR (Đã tháo thẻ div bọc ngoài để nó tự do co giãn) */}
-        {(!isZenMode && showLeftPanel) && <Sidebar />}
+        {/* 1. LEFT SIDEBAR (Desktop: row item; Mobile: Sliding Drawer with Backdrop) */}
+        {(!isZenMode && showLeftPanel) && (
+          <>
+            {/* Mobile backdrop */}
+            <div 
+              className="fixed inset-0 bg-black/70 backdrop-blur-xs z-40 md:hidden animate-in fade-in duration-200"
+              onClick={() => useToolStore.getState().setShowLeftPanel(false)}
+            />
+            {/* Drawer */}
+            <div className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] md:relative md:w-auto md:max-w-none md:z-20 md:flex animate-in slide-in-from-left duration-200 shadow-2xl md:shadow-none">
+              <Sidebar />
+            </div>
+          </>
+        )}
 
-        {/* 2. CENTER WORKSPACE (Nằm giữa) */}
-        <div className="flex-1 relative flex flex-col overflow-hidden">
+        {/* 2. CENTER WORKSPACE (Nằm giữa, 100% diện tích trên mobile) */}
+        <div className="flex-1 relative flex flex-col overflow-hidden w-full">
           <Workspace />
         </div>
 
-        {/* 🚀 4. RIGHT SIDEBAR (Nằm gọn gàng bên phải và Tích hợp LensModal) */}
-        {(!isZenMode && (showRightPanel || scanModal?.isOpen || (activeMode === 'redraw' && !!actionPosition))) && <RightSidebar />}
+        {/* 🚀 4. RIGHT SIDEBAR (Desktop: row item; Mobile: Sliding Drawer with Backdrop) */}
+        {(!isZenMode && (showRightPanel || scanModal?.isOpen || (activeMode === 'redraw' && !!actionPosition))) && (
+          <>
+            {/* Mobile backdrop */}
+            <div 
+              className="fixed inset-0 bg-black/70 backdrop-blur-xs z-40 md:hidden animate-in fade-in duration-200"
+              onClick={() => useToolStore.getState().setShowRightPanel(false)}
+            />
+            {/* Drawer */}
+            <div className="fixed inset-y-0 right-0 z-50 w-80 max-w-[90vw] md:relative md:w-auto md:max-w-none md:z-20 md:flex animate-in slide-in-from-right duration-200 shadow-2xl md:shadow-none">
+              <RightSidebar />
+            </div>
+          </>
+        )}
 
       </div>
-
-      {/* 🗑️ Lưu ý: Sếp nhớ XÓA bỏ dòng <TranslationConfigModal /> cũ ở đây nhé, vì mình bỏ nó rồi! */}
     </div>
   );
 }

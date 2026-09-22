@@ -1050,13 +1050,6 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
               coords: { x1: scanStart.current.x, y1: scanStart.current.y, x2: pos.x, y2: pos.y }
             });
 
-            const posthog = (window as any).posthog;
-            if (posthog) {
-              posthog.capture('translation_successful', {
-                action_type: 'Quick_Scan',
-                status: 'success'
-              });
-            }
 
             // Cập nhật số dư và lượt free còn lại trực tiếp trên frontend để giảm tải cho server
             const authStore = useAuthStore.getState();
