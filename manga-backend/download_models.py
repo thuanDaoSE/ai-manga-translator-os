@@ -78,7 +78,7 @@ def prepare_models():
         snapshot_download(
             repo_id=flux_model_id,
             resume_download=True,
-            allow_patterns=["*.json", "*.safetensors", "*.txt", "*model*"]
+            ignore_patterns=["flux1-schnell.safetensors", "ae.safetensors", "*.jpeg", "*.md", "*.png"]
         )
         logger.info(f"✅ Mô hình FLUX ({flux_model_id}) đã nạp và lưu vào cache thành công!")
     except Exception as e:
