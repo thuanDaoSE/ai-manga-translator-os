@@ -24,7 +24,7 @@ class FluxInpaintEngine:
 
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model_id = os.getenv("FLUX_MODEL_ID", "black-forest-labs/FLUX.1-schnell")
+        self.model_id = os.getenv("FLUX_MODEL_ID", "YuCollection/FLUX.1-schnell-Diffusers")
         logger.info(f"Khởi tạo FluxInpaintEngine (Device: {self.device}, Model ID: {self.model_id})")
 
     @classmethod
@@ -45,10 +45,18 @@ class FluxInpaintEngine:
             # Sử dụng bfloat16 nếu GPU hỗ trợ CUDA, float32 nếu fallback CPU
             dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
 
-            pipe = FluxInpaintPipeline.from_pretrained(
-                self.model_id,
-                torch_dtype=dtype
-            )
+            try:
+                pipe = FluxInpaintPipeline.from_pretrained(
+                    self.model_id,
+                    torch_dtype=dtype,
+                    local_files_only=True
+                )
+            except Exception as local_err:
+                logger.warning(f"local_files_only chưa tìm thấy ({local_err}), thử tải từ hub: {self.model_id}")
+                pipe = FluxInpaintPipeline.from_pretrained(
+                    self.model_id,
+                    torch_dtype=dtype
+                )
 
             if self.device == "cuda":
                 # Kích hoạt model_cpu_offload để nạp tuần tự từng khối vào VRAM và nhả về RAM
