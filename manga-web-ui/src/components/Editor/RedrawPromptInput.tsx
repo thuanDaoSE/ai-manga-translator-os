@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { X, Sparkles, ChevronDown, Check, Loader2 } from 'lucide-react';
+import { X, Sparkles, ChevronDown, Check, Loader2, Download, HardDrive } from 'lucide-react';
 import { mangaApi } from '../../services/api';
 import toast from 'react-hot-toast';
 import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
 import { useTranslation } from 'react-i18next';
 import { useToolStore } from '../../store/useToolStore';
+import { FluxDownloadModal } from './FluxDownloadModal';
 
 const GpuIcon = ({ size = 14, className = "" }: { size?: number; className?: string }) => (
   <svg 
@@ -109,7 +110,19 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   const [isOpenFlyout, setIsOpenFlyout] = useState(false);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [fluxReady, setFluxReady] = useState<boolean | null>(null);
+  const [isFluxModalOpen, setIsFluxModalOpen] = useState(false);
   const dynamicLoadingText = useDynamicLoadingText(isProcessing);
+
+  useEffect(() => {
+    let active = true;
+    mangaApi.getFluxStatus().then((res) => {
+      if (active) setFluxReady(!!res.is_ready);
+    }).catch(() => {
+      if (active) setFluxReady(false);
+    });
+    return () => { active = false; };
+  }, [isFluxModalOpen]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -136,6 +149,12 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     if (e) e.preventDefault();
     if (isTranslating || isProcessing) return;
+
+    if (fluxReady === false) {
+      toast("Mô hình FLUX cần được tải về trước khi vẽ lại!", { icon: "🎨" });
+      setIsFluxModalOpen(true);
+      return;
+    }
 
     setIsTranslating(true);
     let promptResult = null;
@@ -175,6 +194,22 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             <Sparkles size={16} />
             <span>{t('redrawInput.redrawAi')}</span>
             <span className="bg-blue-500/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded uppercase font-bold ml-1">BETA</span>
+            {fluxReady === true ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 ml-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                FLUX Sẵn sàng
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsFluxModalOpen(true)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 transition-all cursor-pointer ml-1"
+                title="Bấm để tải mô hình FLUX về GPU"
+              >
+                <Download size={10} />
+                <span>Tải FLUX</span>
+              </button>
+            )}
           </div>
           <button 
             type="button"
@@ -324,6 +359,11 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             </button>
           </div>
         </form>
+        <FluxDownloadModal
+          isOpen={isFluxModalOpen}
+          onClose={() => setIsFluxModalOpen(false)}
+          onReady={() => setFluxReady(true)}
+        />
       </div>
     );
   }
@@ -331,11 +371,29 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   return (
     <div className="flex flex-col gap-3.5 p-4 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.7)] rounded-2xl w-[380px] animate-in slide-in-from-bottom-5 fade-in duration-300 pointer-events-auto text-white">
       
-      {/* Header with BETA Badge */}
-      <div className="flex items-center gap-1.5 border-b border-white/5 pb-2 select-none">
-        <Sparkles size={14} className="text-indigo-400" />
-        <span className="text-xs font-bold text-neutral-200">{t('redrawInput.redrawAi')}</span>
-        <span className="bg-blue-500/20 text-blue-400 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ml-2">BETA</span>
+      {/* Header with BETA Badge and FLUX Status */}
+      <div className="flex items-center justify-between border-b border-white/5 pb-2 select-none">
+        <div className="flex items-center gap-1.5">
+          <Sparkles size={14} className="text-indigo-400" />
+          <span className="text-xs font-bold text-neutral-200">{t('redrawInput.redrawAi')}</span>
+          <span className="bg-blue-500/20 text-blue-400 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ml-1">BETA</span>
+        </div>
+        {fluxReady === true ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            FLUX Sẵn sàng
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsFluxModalOpen(true)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 transition-all cursor-pointer"
+            title="Bấm để tải mô hình FLUX về GPU"
+          >
+            <Download size={10} />
+            <span>Tải FLUX</span>
+          </button>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -479,6 +537,12 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
           </div>
         )}
       </div>
+
+      <FluxDownloadModal
+        isOpen={isFluxModalOpen}
+        onClose={() => setIsFluxModalOpen(false)}
+        onReady={() => setFluxReady(true)}
+      />
     </div>
   );
 };

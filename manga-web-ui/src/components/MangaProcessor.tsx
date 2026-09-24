@@ -86,7 +86,7 @@ export const MangaProcessor: React.FC = () => {
     formData.append('prompt', prompt);
     formData.append('output_format', outputFormat);
     formData.append('quality_level', qualityLevel.toString());
-    formData.append('source_language', sourceLanguage);
+    formData.append('source_language', 'auto');
 
     try {
       const baseUrl = import.meta.env.VITE_API_URL || '';
@@ -240,62 +240,10 @@ export const MangaProcessor: React.FC = () => {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-xs text-slate-500 font-medium">Source Language</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowSrcLangDropdown(!showSrcLangDropdown)}
-                  disabled={isProcessing}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 text-slate-200 text-sm rounded-xl p-3 outline-none flex items-center justify-between transition-all disabled:opacity-50 text-left font-semibold"
-                >
-                  <span>
-                    {sourceLanguage === 'auto' ? '✨ Tự động nhận diện (DeepSeek AI)' : sourceLanguage === 'ja' ? '🇯🇵 Japanese (ja)' : sourceLanguage === 'en' ? '🇺🇸 English (en)' : sourceLanguage === 'zh' ? '🇨🇳 Chinese (zh)' : '🇰🇷 Korean (ko)'}
-                  </span>
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
-                </button>
-                {showSrcLangDropdown && (
-                  <div className="absolute top-13 left-0 w-full bg-slate-900 border border-slate-800 rounded-xl p-1.5 shadow-xl flex flex-col gap-0.5 z-50">
-                    {[
-                      { code: 'auto', label: 'Tự động nhận diện (AI)', flag: '✨', premium: false },
-                      { code: 'ja', label: 'Japanese (ja)', flag: '🇯🇵', premium: false },
-                      { code: 'ko', label: 'Korean (ko)', flag: '🇰🇷', premium: false },
-                      { code: 'en', label: 'English (en)', flag: '🇺🇸', premium: false },
-                      { code: 'zh', label: 'Chinese (zh)', flag: '🇨🇳', premium: false }
-                    ].map((lang) => {
-                      const isSelected = sourceLanguage === lang.code;
-                      return (
-                        <button
-                          key={lang.code}
-                          type="button"
-                          onClick={() => {
-                            if (lang.premium) {
-                              const isFreeTier = !user?.isPro;
-                              const hasZeroBalance = (user?.credits || 0) <= 0;
-                              if (isFreeTier || hasZeroBalance) {
-                                setShowJaWarningModal(true);
-                                setShowSrcLangDropdown(false);
-                                return;
-                              }
-                            }
-                            setSourceLanguage(lang.code);
-                            setShowSrcLangDropdown(false);
-                          }}
-                          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-left text-xs font-bold transition-all hover:bg-slate-800 cursor-pointer ${isSelected ? 'bg-indigo-600/20 text-indigo-400' : 'text-slate-300'}`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span>{lang.flag}</span>
-                            <span>{lang.label}</span>
-                          </div>
-                          {lang.premium && (
-                            <span className="text-[9px] font-black uppercase text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded-md border border-indigo-500/20">
-                              PRO 👑
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+              <label className="text-xs text-slate-500 font-medium">Ngôn ngữ nguồn (Đa ngữ)</label>
+              <div className="w-full bg-slate-950/80 border border-slate-800 text-slate-200 text-sm rounded-xl p-3 flex items-center gap-2.5 font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>✨ Tự động nhận diện đa ngữ (Nhật, Hàn, Trung, Anh)</span>
               </div>
             </div>
 

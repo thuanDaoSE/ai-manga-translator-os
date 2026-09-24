@@ -494,7 +494,7 @@ export default function Sidebar() {
           pronouns: configStore.pronoun,
           glossary: configStore.glossary,
           targetLanguage: configStore.targetLanguage || "Tiếng Việt",
-          sourceLanguage: configStore.sourceLanguage || "ja",
+          sourceLanguage: configStore.sourceLanguage || "auto",
           useGpu: configStore.useGpu,
           client_saw_hot: serverStatus === 'HOT'
         });

@@ -1,36 +1,33 @@
 # --- CORE WEB & API ---
 fastapi==0.110.0
 uvicorn==0.29.0
+slowapi
 pydantic>=2.11.7
 python-multipart==0.0.9
 python-dotenv==1.2.2
 requests==2.31.0
 httpx==0.27.0
 
-# --- DATABASE (Local SQLite) ---
+# --- DATABASE & CACHE ---
 SQLAlchemy==2.0.49
 aiosqlite==0.22.1
+redis>=5.0.0
+celery>=5.3.0
 
 # --- AI ENGINES & OCR ---
 openai==2.35.0
 # onnxruntime-gpu: Ép LaMa Inpainting chạy trực tiếp trên GPU CUDA Tensor Cores thay vì ăn 100% CPU
 onnxruntime-gpu>=1.16.0
 pyahocorasick
-# SOTA Multilingual Manga OCR (Hayai-OCR v2 + SigLIP 2 NaFlex)
-transformers>=4.40.0
-accelerate
+# SOTA Multilingual Manga OCR (Hayai-OCR v2 + SigLIP 2 NaFlex) & JoyCaption 4-bit NF4
+transformers>=4.40.0,<5.0.0
+accelerate>=0.28.0
+bitsandbytes>=0.43.0
 diffusers>=0.30.0
-torchvision
 sentencepiece
 protobuf
 huggingface-hub
 shapely
-paddleocr>=2.7.3
-# PaddlePaddle backend: Dùng paddlepaddle-gpu nếu máy có CUDA (ví dụ: paddlepaddle-gpu==2.6.2.post120) hoặc paddlepaddle cho CPU
-paddlepaddle>=2.6.0
-# Lưu ý về Pororo (Korean OCR): Gặp lỗi xung đột C-extensions/PyTorch trên Python > 3.8. 
-# Hệ thống OCRRouter tự động dùng PaddleOCR (lang='korean') làm giải pháp chính & fallback tin cậy.
-# pororo (optional, nếu môi trường hỗ trợ Python 3.8 legacy)
 
 # --- IMAGE PROCESSING ---
 Pillow==10.3.0

@@ -76,6 +76,18 @@ def get_ocr_router():
         _ocr_router = _init_router()
     return _ocr_router
 
+_joycaption_engine = None
+
+def get_joycaption_engine():
+    global _joycaption_engine
+    if _joycaption_engine is None:
+        try:
+            from joycaption_engine import get_joycaption_engine as _init_joycaption
+            _joycaption_engine = _init_joycaption()
+        except Exception as e:
+            print(f"⚠️ [JoyCaption Init Error]: {e}")
+    return _joycaption_engine
+
 def get_ocr_manager():
     global _ocr_manager
     if _ocr_manager is None:
@@ -396,9 +408,9 @@ def process_manga_page(task_id: str, page_id: str, config: dict):
         # 4. Xóa chữ bằng LaMa Inpainting chuẩn độ phân giải cao theo từng ô thoại
         clean_img = run_local_lama(img, lama_mask, target_boxes=detector_boxes)
         
-        broadcast_progress(task_id, 65, f"Đang nhận dạng văn bản ({source_language.upper()}) với OCR Router...")
+        broadcast_progress(task_id, 65, "Đang nhận dạng văn bản đa ngữ (Hayai-OCR v2)...")
         
-        # 3. Quét OCR vùng chữ theo cơ chế Tensor Batching tối ưu VRAM & GPU
+        # 3. Quét OCR vùng chữ bằng Hayai-OCR v2 (Tự động nhận diện Nhật, Hàn, Trung, Anh)
         extracted_data = []
         valid_boxes = []
         box_crops = []
@@ -415,13 +427,13 @@ def process_manga_page(task_id: str, page_id: str, config: dict):
             try:
                 recognized_texts = ocr_router.recognize_batch(
                     image_inputs=box_crops,
-                    source_language=source_language,
+                    source_language="auto",
                     batch_size=16
                 )
             except Exception as batch_ocr_err:
                 print(f"⚠️ [BATCH OCR ERROR] Fallback to sequential: {batch_ocr_err}")
                 recognized_texts = [
-                    ocr_router.recognize(crop, source_language=source_language, box_id=i + 1)
+                    ocr_router.recognize(crop, source_language="auto", box_id=i + 1)
                     for i, crop in enumerate(box_crops)
                 ]
 
@@ -434,25 +446,36 @@ def process_manga_page(task_id: str, page_id: str, config: dict):
                     "id": count,
                     "box_coordinates": {"x1": bx1, "y1": by1, "x2": bx2, "y2": by2},
                     "japanese": recognized_text.strip(),
+                    "original_text": recognized_text.strip(),
                     "vietnamese": ""
                 })
                 count += 1
 
-        # 4. Dịch thuật bằng DeepSeek nếu có chữ và được yêu cầu
+        # 4. Sinh Caption Ngữ Cảnh Bằng JoyCaption 4-bit & Dịch thuật bằng DeepSeek
         if extracted_data and task_type != "clean_only":
-            broadcast_progress(task_id, 80, "Đang dịch văn bản bằng DeepSeek AI...")
+            broadcast_progress(task_id, 75, "Đang phân tích bối cảnh tranh (JoyCaption VLM)...")
+            scene_caption = ""
             try:
-                ocr_batch_payload = [{"id": item["id"], "text": item.get("japanese") or item.get("text", "")} for item in extracted_data]
+                joycaption = get_joycaption_engine()
+                if joycaption:
+                    scene_caption = joycaption.generate_caption(img)
+            except Exception as jc_err:
+                print(f"⚠️ [JOYCAPTION ERROR]: {jc_err}")
+
+            broadcast_progress(task_id, 82, "Đang dịch văn bản chuẩn ngữ cảnh bằng DeepSeek AI...")
+            try:
+                ocr_batch_payload = [{"id": item["id"], "text": item.get("original_text") or item.get("japanese") or item.get("text", "")} for item in extracted_data]
                 system_prompt = (
                     "Bạn là một dịch giả truyện tranh (Manga/Manhwa/Comic) chuyên nghiệp hàng đầu sang Tiếng Việt.\n"
                     "Nhiệm vụ của bạn là TỰ ĐỘNG NHẬN DIỆN ngôn ngữ gốc của từng bong bóng thoại (Tiếng Nhật, Hàn, Anh, Trung...) và dịch chuẩn xác sang Tiếng Việt.\n"
+                    "ĐẶC BIỆT: Bạn được cung cấp BỐI CẢNH HÌNH ẢNH (Image Context Caption) của trang tranh được phân tích bởi mô hình thị giác AI.\n"
                     "QUY TẮC QUAN TRỌNG:\n"
-                    "1. Tự động nhận diện ngôn ngữ nguồn và phong cách truyện (Manga Nhật, Manhwa Hàn, hay Comic phương Tây).\n"
-                    "2. Tự động suy luận ngữ cảnh, giới tính, tuổi tác và mối quan hệ giữa các nhân vật để sử dụng đại từ nhân xưng tiếng Việt tự nhiên nhất (anh-em, cậu-tớ, mày-tao, tiền bối-hậu bối, sư phụ-đồ đệ, chú-cháu...).\n"
-                    "3. Dịch sát nghĩa, chuẩn sắc thái biểu cảm (vui, buồn, tức giận, hài hước, âm thanh SFX).\n"
-                    "4. Trả về đúng định dạng JSON được yêu cầu, tuyệt đối không thay đổi ID của bong bóng thoại."
+                    "1. Kết hợp bối cảnh hình ảnh (khung cảnh, cảm xúc, cử chỉ, giới tính nhân vật) để chọn đại từ nhân xưng chuẩn xác và tự nhiên nhất (anh-em, cậu-tớ, mày-tao, tiền bối-hậu bối, sư phụ-đồ đệ...).\n"
+                    "2. Tự động nhận diện ngôn ngữ nguồn và dịch sát nghĩa, chuẩn sắc thái biểu cảm.\n"
+                    "3. Trả về đúng định dạng JSON được yêu cầu, tuyệt đối không thay đổi ID của bong bóng thoại."
                 )
                 user_prompt = (
+                    f"Bối cảnh hình ảnh trang tranh: {scene_caption if scene_caption else 'Không có mô tả bối cảnh'}\n\n"
                     f"Định dạng JSON yêu cầu: {{\"translations\": [{{\"id\": 1, \"translation\": \"bản dịch\"}}]}}.\n"
                     f"Dữ liệu cần dịch: {json.dumps(ocr_batch_payload, ensure_ascii=False)}"
                 )

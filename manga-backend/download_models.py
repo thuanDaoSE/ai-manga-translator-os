@@ -15,7 +15,13 @@ os.makedirs(WEIGHTS_DIR, exist_ok=True)
 os.makedirs(CTD_DIR, exist_ok=True)
 
 def prepare_models():
-    # 1. Tải Comic Text Detector (PyTorch weights)
+    """
+    Chỉ nướng các model Core thiết yếu (Text Detection, Hayai-OCR v2, LaMa Inpainting).
+    Các model nâng cao (JoyCaption Beta One, FLUX.1-Fill GGUF + ControlNet) sẽ được tải on-demand 
+    khi người dùng bấm nút nâng cấp trên giao diện để giữ Docker Image siêu nhẹ (~3.5GB) 
+    và khởi động máy ngay lập tức!
+    """
+    # 1. Comic Text Detector (PyTorch weights)
     ctd_target = os.path.join(CTD_DIR, "comictextdetector.pt")
     ctd_alt = os.path.join(WEIGHTS_DIR, "comictextdetector.pt")
     if not os.path.exists(ctd_target) or os.path.getsize(ctd_target) < 1000000:
@@ -26,7 +32,7 @@ def prepare_models():
     else:
         logger.info(f"✅ Comic Text Detector đã sẵn sàng: {ctd_target}")
 
-    # 2. Tải LaMa Manga Inpainting (ONNX weights)
+    # 2. LaMa Manga Inpainting (ONNX weights)
     lama_target = os.path.join(WEIGHTS_DIR, "lama-manga.onnx")
     lama_alt = os.path.join(BASE_DIR, "lama-manga.onnx")
     if not os.path.exists(lama_target) or os.path.getsize(lama_target) < 1000000:
@@ -43,28 +49,7 @@ def prepare_models():
     snapshot_download(repo_id="google/siglip2-base-patch16-naflex", resume_download=True)
     logger.info("✅ Hayai-OCR v2 và SigLIP 2 đã nạp và lưu vào cache thành công!")
 
-    # 4. Pre-cache FLUX.1 Schnell Diffusers Inpainting Model
-    flux_model_id = os.getenv("FLUX_MODEL_ID", "YuCollection/FLUX.1-schnell-Diffusers")
-    logger.info(f"Đang nạp trước mô hình FLUX ({flux_model_id}) vào cache...")
-    flux_cache_dir = snapshot_download(
-        repo_id=flux_model_id,
-        resume_download=True,
-        ignore_patterns=["*.jpeg", "*.png", "*.md"]
-    )
-    logger.info(f"✅ Mô hình FLUX ({flux_model_id}) đã nạp và lưu vào cache: {flux_cache_dir}")
-
-    # Tạo symlink alias cho black-forest-labs/FLUX.1-schnell để hỗ trợ cả 2 tên gọi
-    hf_hub_home = os.path.expanduser("~/.cache/huggingface/hub")
-    bfl_alias = os.path.join(hf_hub_home, "models--black-forest-labs--FLUX.1-schnell")
-    yu_path = os.path.join(hf_hub_home, "models--YuCollection--FLUX.1-schnell-Diffusers")
-    if os.path.exists(yu_path) and not os.path.exists(bfl_alias):
-        try:
-            os.symlink(yu_path, bfl_alias)
-            logger.info("✅ Đã tạo alias symlink cho black-forest-labs/FLUX.1-schnell -> YuCollection cache")
-        except Exception as e:
-            logger.warning(f"Không thể tạo symlink: {e}")
-
 if __name__ == "__main__":
-    logger.info("🚀 Bắt đầu quá trình nướng Model AI vào Docker Image...")
+    logger.info("🚀 Bắt đầu quá trình nướng Model AI Core vào Docker Image...")
     prepare_models()
-    logger.info("🎉 Hoàn tất chuẩn bị Model AI 100%!")
+    logger.info("🎉 Hoàn tất chuẩn bị Model AI Core 100%!")

@@ -203,3 +203,84 @@ async def quick_scan(payload: dict = Body(...)):
     text = ocr_mgr.ocr(pil_img, lang=payload.get("source_language", "ja"))
     
     return {"status": "success", "text": text}
+
+@router.get("/flux/status")
+async def get_flux_status():
+    """Lấy trạng thái sẵn sàng và tiến trình tải của mô hình FLUX.1-Fill GGUF"""
+    from flux_engine import FluxFillDownloadManager
+    mgr = FluxFillDownloadManager.get_instance()
+    return mgr.get_status_dict()
+
+@router.post("/flux/preload")
+async def preload_flux():
+    """Kích hoạt tải trước mô hình FLUX.1-Fill GGUF trên background thread"""
+    from flux_engine import FluxFillDownloadManager
+    mgr = FluxFillDownloadManager.get_instance()
+    return mgr.start_download()
+
+@router.get("/flux/progress")
+async def stream_flux_progress():
+    """Stream SSE tiến độ tải mô hình FLUX thời gian thực"""
+    import json
+    from fastapi.responses import StreamingResponse
+    from flux_engine import FluxFillDownloadManager
+    mgr = FluxFillDownloadManager.get_instance()
+
+    async def event_generator():
+        while True:
+            status_data = mgr.get_status_dict()
+            yield f"data: {json.dumps(status_data, ensure_ascii=False)}\n\n"
+            if status_data["status"] in ("ready", "error"):
+                break
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+@router.get("/joycaption/status")
+async def get_joycaption_status():
+    """Lấy trạng thái sẵn sàng và tiến trình tải của mô hình JoyCaption Beta One"""
+    from joycaption_engine import JoyCaptionDownloadManager
+    mgr = JoyCaptionDownloadManager.get_instance()
+    return mgr.get_status_dict()
+
+@router.post("/joycaption/preload")
+async def preload_joycaption():
+    """Kích hoạt tải trước mô hình JoyCaption trên background thread"""
+    from joycaption_engine import JoyCaptionDownloadManager
+    mgr = JoyCaptionDownloadManager.get_instance()
+    return mgr.start_download()
+
+@router.get("/joycaption/progress")
+async def stream_joycaption_progress():
+    """Stream SSE tiến độ tải mô hình JoyCaption thời gian thực"""
+    import json
+    from fastapi.responses import StreamingResponse
+    from joycaption_engine import JoyCaptionDownloadManager
+    mgr = JoyCaptionDownloadManager.get_instance()
+
+    async def event_generator():
+        while True:
+            status_data = mgr.get_status_dict()
+            yield f"data: {json.dumps(status_data, ensure_ascii=False)}\n\n"
+            if status_data["status"] in ("ready", "error"):
+                break
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+

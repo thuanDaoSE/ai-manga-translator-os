@@ -561,13 +561,8 @@ class OCRManager:
             from ocr_router import get_ocr_router
             return get_ocr_router().recognize(crop_img, source_language=language)
         except Exception as e:
-            print(f"⚠️ [OCRRouter Delegation Error]: {e}. Falling back to ONNX...")
-            lang_key = 'ch' if language == 'zh' else ('ja' if language in ['ja', 'jp'] else language)
-            try:
-                recognizer = self.get_onnx_recognizer(lang_key)
-                return recognizer.recognize(crop_img)
-            except Exception:
-                return ""
+            print(f"❌ [OCR Error]: {e}")
+            return ""
 
 
 # Mock User/Request class for testing

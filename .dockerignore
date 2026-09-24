@@ -22,6 +22,7 @@ runpod-cpu-worker
 # Backend Runtime Workspace & Cache
 manga-backend/workspace
 manga-backend/venv
+manga-backend/node_modules
 manga-backend/.env
 manga-backend/__pycache__
 manga-backend/**/__pycache__
@@ -34,7 +35,12 @@ manga-backend/local_manga.db
 *.pdf
 *.log
 *.md
+*.tar.gz
+*.bat
+*.sh
+!start.sh
 backend_changes.patch
 ComicApp_Architecture_Report.md
 Essential Guide to Comic Book Lettering.pdf
 output_test.png
+

@@ -544,7 +544,7 @@ export const mangaApi = {
         pronouns: config.pronouns || config.pronoun,
         glossary: config.glossary,
         target_language: config.targetLanguage || "Tiếng Việt",
-        source_language: config.sourceLanguage || config.source_language || "ja",
+        source_language: config.sourceLanguage || config.source_language || "auto",
         use_gpu: config.useGpu !== undefined ? config.useGpu : true,
         client_saw_hot: config.client_saw_hot || false
       }),
@@ -618,5 +618,30 @@ export const mangaApi = {
     });
     await handleApiError(response, "Lỗi kích hoạt Engine vẽ lại AI!");
     return await response.json();
+  },
+
+  getFluxStatus: async () => {
+    try {
+      const response = await fetch(`${API_URL}/flux/status`, {
+        headers: await getAuthHeaders(),
+      });
+      if (!response.ok) return { is_ready: false, status: "idle", progress: 0 };
+      return await response.json();
+    } catch {
+      return { is_ready: false, status: "idle", progress: 0 };
+    }
+  },
+
+  preloadFlux: async () => {
+    try {
+      const response = await fetch(`${API_URL}/flux/preload`, {
+        method: "POST",
+        headers: await getAuthHeaders(),
+      });
+      if (!response.ok) return { is_ready: false, status: "error" };
+      return await response.json();
+    } catch {
+      return { is_ready: false, status: "error" };
+    }
   },
 };

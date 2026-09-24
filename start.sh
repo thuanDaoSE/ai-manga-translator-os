@@ -32,6 +32,6 @@ else
     echo "⚠️ Đang chạy ở chế độ CPU hoặc container không gắn nvidia-smi"
 fi
 
-BIND_HOST="${HOST:-::}"
-echo "🌐 Khởi chạy máy chủ FastAPI tại ${BIND_HOST}:8080 (IPv6/IPv4 Dual-Stack)..."
+BIND_HOST="${HOST:-0.0.0.0}"
+echo "🌐 Khởi chạy máy chủ FastAPI tại ${BIND_HOST}:8080..."
 exec uvicorn main:app --host "${BIND_HOST}" --port 8080 --workers 1

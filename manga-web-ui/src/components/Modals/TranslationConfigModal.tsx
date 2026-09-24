@@ -309,7 +309,7 @@ export default function TranslationConfigModal() {
     const cleanRelations = relationList.filter(r => r.speaker.trim() !== '' && r.listener.trim() !== '');
     const exportString = JSON.stringify({ terminology: cleanGlossary, relational_matrix: cleanRelations }, null, 2);
     config.setConfig('glossary', exportString);
-    config.setConfig('sourceLanguage', tempSourceLang);
+    config.setConfig('sourceLanguage', 'auto');
     config.setUseGpu(true);
     config.saveToLocal();
     localStorage.setItem('has_configured_translation', 'true');
@@ -334,59 +334,17 @@ export default function TranslationConfigModal() {
               </div>
             </div>
 
-            {/* Bộ chọn ngôn ngữ nguồn - đích ở Header */}
+            {/* Tự động nhận diện đa ngữ sang Tiếng Việt */}
             <div className="flex items-center gap-3.5">
-              <div className="flex items-center gap-1 bg-neutral-900/60 border border-white/[0.06] rounded-xl p-1 relative select-none whitespace-nowrap">
-                {/* Nguồn */}
-                <div className="relative" ref={langDropdownRef}>
-                  <button
-                    type="button"
-                    onClick={() => setIsLangDropdownOpen(!isLangDropdownOpen)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-all cursor-pointer hover:bg-white/[0.04] active:scale-[0.97] text-text-main text-[11px] font-bold ${isLangDropdownOpen ? 'bg-white/[0.04]' : ''}`}
-                  >
-                    <span className="text-[9px] font-bold tracking-wider bg-white/[0.08] text-white/80 px-1 py-0.5 rounded font-mono uppercase leading-none select-none">
-                      {tempSourceLang.toUpperCase()}
-                    </span>
-                    <span className="text-[11px] text-white/95 font-bold tracking-wide select-none">
-                      {sourceLanguages.find(l => l.code === tempSourceLang)?.name}
-                    </span>
-                    <ChevronDown size={11} className={`text-white/40 transition-transform duration-200 ${isLangDropdownOpen ? 'rotate-180 text-primary' : ''}`} />
-                  </button>
-
-                  {isLangDropdownOpen && (
-                    <div className="absolute right-0 top-full mt-2.5 w-44 p-1 bg-[#141416] border border-white/[0.08] rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl z-[230] flex flex-col gap-0.5 animate-in fade-in slide-in-from-top-2 duration-150">
-                      <div className="text-[9px] font-bold text-white/40 px-2 py-1 select-none border-b border-white/[0.04] mb-1">
-                        Chọn ngôn ngữ:
-                      </div>
-                      {sourceLanguages.map((lang) => {
-                        const iso = lang.code.toUpperCase();
-                        const isGpu = false;
-                        return (
-                          <button
-                            key={lang.code}
-                            type="button"
-                            onClick={() => { setTempSourceLang(lang.code); setIsLangDropdownOpen(false); }}
-                            className={`flex items-center justify-between w-full px-2 py-1.5 rounded-lg text-left text-[11px] font-semibold transition-all cursor-pointer active:scale-[0.98] ${
-                              tempSourceLang === lang.code
-                                ? 'bg-primary text-white font-bold'
-                                : 'text-white/60 hover:text-white hover:bg-white/[0.04]'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className={`text-[8px] font-bold px-1 py-0.5 rounded font-mono ${
-                                tempSourceLang === lang.code ? 'bg-white/20 text-white' : 'bg-white/[0.06] text-white/60'
-                              }`}>
-                                {iso}
-                              </span>
-                              <span>{lang.name}</span>
-                            </div>
-
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-900/60 border border-white/[0.06] rounded-xl select-none whitespace-nowrap">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="text-[9px] font-bold tracking-wider bg-white/[0.08] text-white/80 px-1 py-0.5 rounded font-mono uppercase leading-none select-none">
+                  AUTO AI
+                </span>
+                <span className="text-[11px] text-white/95 font-bold tracking-wide select-none">
+                  Tự động đa ngữ (Nhật, Hàn, Trung, Anh) ➔ Tiếng Việt
+                </span>
+              </div>
 
                 {/* Icon mũi tên chuyển đổi */}
                 <div className="flex items-center justify-center text-white/20 select-none px-0.5">

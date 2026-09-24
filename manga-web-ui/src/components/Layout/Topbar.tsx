@@ -20,6 +20,7 @@ import { mangaApi } from "../../services/api";
 import { PaywallDrawer } from "../Modals/PaywallDrawer";
 import SupportModal from "../Modals/SupportModal";
 import DeepKomaLogo from "../ui/DeepKomaLogo";
+import { ModelUpgradeBadges } from "./ModelUpgradeBadges";
 
 function getPageGroupKey(filename: string): string {
   const match = filename.match(/^(.*)_part_\d+\.[^.]+$/i);
@@ -433,9 +434,13 @@ export default function Topbar() {
 
       </div>
 
-      {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa trên desktop, mobile nằm ở bottom bar) */}
-      <div className="hidden md:flex items-center justify-center flex-1 gap-4">
+      {/* 2. CENTER ZONE: VIEW MODE & MODEL UPGRADES */}
+      <div className="hidden md:flex items-center justify-center flex-1 gap-3">
+        {/* Badges nâng cấp chất lượng dịch & Redraw SOTA */}
+        <ModelUpgradeBadges />
 
+        {/* Đường phân cách */}
+        <div className="w-px h-4 bg-white/10 shrink-0" />
 
         {/* Toggle Raw/Clean View Mode */}
         <div className="flex items-center bg-[#18181b] border border-white/[0.04] p-1 rounded-lg">

@@ -174,7 +174,7 @@ export default function Workspace() {
 
       const configState = useConfigStore.getState();
       formData.append('target_language', configState.targetLanguage);
-      formData.append('source_language', configState.sourceLanguage || 'ja');
+      formData.append('source_language', configState.sourceLanguage || 'auto');
       formData.append('genre', configState.genre);
       formData.append('tone', configState.tone);
       formData.append('pronoun', configState.pronoun);
@@ -1713,19 +1713,6 @@ export default function Workspace() {
                   >
                     {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} className="group-hover:text-slate-950 transition-colors" />}
                     <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa chữ thông minh"}</span>
-                  </button>
-
-                  <div className="w-px h-6 bg-border mx-0.5 shrink-0"></div>
-
-                  {/* Button 3: ✨ Vẽ lại AI (FLUX) */}
-                  <button 
-                    onClick={() => setShowAiPromptInput(true)} 
-                    disabled={isCurrentPageProcessing || isProcessing} 
-                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm shrink-0"
-                    title="Vẽ lại bằng AI FLUX (nhập prompt để AI tái tạo chi tiết)"
-                  >
-                    {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Wand2 size={14} className="group-hover:text-slate-950 transition-colors" />}
-                    <span>✨ Vẽ lại AI (FLUX)</span>
                   </button>
                 </div>
               )}

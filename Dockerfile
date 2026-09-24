@@ -18,7 +18,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     RUN_LOCAL_AI=true
 
 # 1. Layer Consolidation: Cài đặt thư viện hệ thống cần thiết cho OpenCV, Pillow và dọn dẹp cache
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN rm -f /etc/apt/apt.conf.d/50command-not-found && \
+    apt-get update -o APT::Update::Post-Invoke-Success="" && \
+    apt-get install -y --no-install-recommends \
         git \
         ffmpeg \
         libgl1 \

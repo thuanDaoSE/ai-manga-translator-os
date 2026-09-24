@@ -21,9 +21,21 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("runpod").setLevel(logging.WARNING)
 from nlp_engine import TranslationEngine
 import uuid
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+except ImportError:
+    class RateLimitExceeded(Exception): pass
+    async def _rate_limit_exceeded_handler(request, exc):
+        from starlette.responses import PlainTextResponse
+        return PlainTextResponse("Rate limit exceeded", status_code=429)
+    def get_remote_address(request=None): return "127.0.0.1"
+    class Limiter:
+        def __init__(self, *args, **kwargs): pass
+        def limit(self, *args, **kwargs):
+            def decorator(func): return func
+            return decorator
 from fastapi import Request
 import cv2
 import numpy as np
@@ -52,6 +64,9 @@ from typing import List, Dict, Any, Optional
 
 # 1. KHỞI TẠO APP TRƯỚC
 app = FastAPI(title="Manga AI Backend API", version="2.0.0")
+
+from routers.editor import router as editor_router
+app.include_router(editor_router)
 
 @app.on_event("startup")
 async def startup_warmup():
@@ -1844,8 +1859,8 @@ class AIRedrawMaskPayload(BaseModel):
     negative_prompt: Optional[str] = ""
     translation_mode: Optional[str] = "grok"
 
-@app.post("/api/ai-redraw-mask")
-async def ai_redraw_mask(
+@app.post("/api/legacy-ai-redraw-mask")
+async def legacy_ai_redraw_mask(
     payload: AIRedrawMaskPayload,
     request: Request,
     db: AsyncSession = Depends(get_db),

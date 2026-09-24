@@ -1041,7 +1041,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             pronouns: config.pronoun,
             glossary: config.glossary,
             target_language: config.targetLanguage || "Tiếng Việt",
-            source_language: config.sourceLanguage || "ja"
+            source_language: config.sourceLanguage || "auto"
           });
 
           if (result.status === "success") {
