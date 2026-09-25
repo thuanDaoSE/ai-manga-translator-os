@@ -1,0 +1,6 @@
+FROM thuandaose/ai-manga-translator:latest
+COPY flux_engine.py /app/manga-backend/flux_engine.py
+COPY joycaption_engine.py /app/manga-backend/joycaption_engine.py
+COPY main.py /app/manga-backend/main.py
+COPY routers/editor.py /app/manga-backend/routers/editor.py
+COPY static/ /app/manga-backend/static/

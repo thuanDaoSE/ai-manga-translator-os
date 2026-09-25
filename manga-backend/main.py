@@ -66,7 +66,8 @@ from typing import List, Dict, Any, Optional
 app = FastAPI(title="Manga AI Backend API", version="2.0.0")
 
 from routers.editor import router as editor_router
-app.include_router(editor_router)
+app.include_router(editor_router, prefix="/api")
+app.include_router(editor_router, prefix="/api/editor")
 
 @app.on_event("startup")
 async def startup_warmup():
@@ -2425,16 +2426,16 @@ def get_ctd_detector():
         try:
             import sys
             import torch
-            # Mock wandb to bypass protobuf version conflicts/lock issues on Windows
+            # Safe wandb setup with valid __spec__ to prevent Hayai-OCR importlib ValueError
             try:
-                from unittest.mock import MagicMock
-                sys.modules['wandb'] = MagicMock()
-                sys.modules['wandb.proto'] = MagicMock()
-                sys.modules['wandb.proto.wandb_telemetry_pb2'] = MagicMock()
-                sys.modules['wandb.proto.wandb_internal_pb2'] = MagicMock()
-                sys.modules['wandb.proto.wandb_server_pb2'] = MagicMock()
-            except Exception as mock_err:
-                print(f"⚠️ [MOCK WANDB] Failed to mock wandb: {mock_err}")
+                import wandb
+            except Exception:
+                import types, sys, importlib.machinery
+                for _m in ['wandb', 'wandb.proto', 'wandb.proto.wandb_telemetry_pb2', 'wandb.proto.wandb_internal_pb2', 'wandb.proto.wandb_server_pb2']:
+                    if _m not in sys.modules:
+                        _d = types.ModuleType(_m)
+                        _d.__spec__ = importlib.machinery.ModuleSpec(_m, None)
+                        sys.modules[_m] = _d
                 
             ctd_path = os.path.join(os.path.dirname(__file__), "comic_text_detector")
             if ctd_path not in sys.path:
@@ -4501,12 +4502,6 @@ async def process_redraw_prompt(
     API tiếp nhận Prompt tiếng Việt và Tag từ người dùng, dịch thuật
     và đóng gói thành Prompt tối ưu gửi cho GPU Backend.
     """
-    user_email = getattr(request.state, "user_email", None)
-    if user_email != "td2005dataeg@gmail.com":
-        raise HTTPException(
-            status_code=403,
-            detail="Tài khoản của bạn không có quyền sử dụng tính năng redraw."
-        )
 
     try:
         translated_text = await translate_vietnamese_to_danbooru(payload.vietnameseText)

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Sparkles, ChevronDown, Check, Loader2, Download, HardDrive } from 'lucide-react';
 import { mangaApi } from '../../services/api';
 import toast from 'react-hot-toast';
+import { notify } from '../../utils/toast';
 import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
 import { useTranslation } from 'react-i18next';
 import { useToolStore } from '../../store/useToolStore';
@@ -151,7 +152,10 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
     if (isTranslating || isProcessing) return;
 
     if (fluxReady === false) {
-      toast("Mô hình FLUX cần được tải về trước khi vẽ lại!", { icon: "🎨" });
+      notify.warning(
+        'Mô hình chưa sẵn sàng',
+        'Mô hình FLUX.1-Fill cần được tải về trước khi thực hiện vẽ lại!'
+      );
       setIsFluxModalOpen(true);
       return;
     }

@@ -13,6 +13,40 @@ import { useConfigStore } from './store/useConfigStore';
 import { supabase } from './services/supabaseClient';
 import toast, { Toaster } from 'react-hot-toast';
 import RightSidebar from './components/Layout/RightSidebar';
+import { notify } from './utils/toast';
+
+const darkToastOptions = {
+  duration: 4000,
+  style: {
+    background: 'rgba(15, 23, 42, 0.95)',
+    color: '#f8fafc',
+    border: '1px solid rgba(51, 65, 85, 0.8)',
+    borderRadius: '12px',
+    padding: '10px 16px',
+    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+    backdropFilter: 'blur(12px)',
+    fontSize: '13px',
+    maxWidth: '460px',
+  },
+  success: {
+    iconTheme: {
+      primary: '#10b981',
+      secondary: '#0f172a',
+    },
+  },
+  error: {
+    iconTheme: {
+      primary: '#f43f5e',
+      secondary: '#0f172a',
+    },
+  },
+  loading: {
+    iconTheme: {
+      primary: '#6366f1',
+      secondary: '#0f172a',
+    },
+  },
+};
 
 import TestFabric from './components/TestFabric';
 import { mangaApi } from './services/api';
@@ -110,9 +144,16 @@ export default function App() {
     useToolStore.getState().setSpeedlineType('eyedropper');
   }, { enableOnFormTags: false });
   useHotkeys('r', () => {
-    if (useAuthStore.getState().user?.email === 'td2005dataeg@gmail.com') {
-      setActiveMode('redraw');
+    const isFluxReady = useToolStore.getState().isFluxReady;
+    if (!isFluxReady) {
+      useToolStore.getState().triggerHighlightFluxBadge();
+      notify.warning(
+        'Yêu cầu mở khóa FLUX.1-Fill',
+        'Nhấn vào nút "FLUX Fill" ở góc trên để tải mô hình (~6.3GB) và mở khóa tính năng này.'
+      );
+      return;
     }
+    setActiveMode('redraw');
   }, { enableOnFormTags: false });
   useHotkeys('tab', (e) => { e.preventDefault(); toggleZenMode(); }, { enableOnFormTags: false });
 
@@ -181,7 +222,7 @@ export default function App() {
   if (!user) {
     return (
       <>
-        <Toaster position="top-center" reverseOrder={false} />
+        <Toaster position="top-center" reverseOrder={false} toastOptions={darkToastOptions} />
         <LandingPage onOpenAuth={() => setShowAuthModal(true)} />
         {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
       </>
@@ -191,7 +232,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-background text-text-main overflow-hidden font-sans">
-      <Toaster position="top-center" reverseOrder={false} />
+      <Toaster position="top-center" reverseOrder={false} toastOptions={darkToastOptions} />
 
       <div className="grid transition-[grid-template-rows] duration-300 ease-in-out" style={{ gridTemplateRows: isZenMode ? '0fr' : '1fr' }}>
         <div className={`min-h-0 ${isZenMode ? 'overflow-hidden' : ''}`}><Topbar /></div>

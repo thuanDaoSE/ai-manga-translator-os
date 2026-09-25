@@ -22,6 +22,11 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 # Chống văng app trên Windows
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
+import threading
+
+# Khóa tuần tự hóa AI pipeline: ngăn chặn race condition trong C++/OpenMP/PyTorch/ONNX Runtime
+ai_worker_lock = threading.Lock()
+
 load_dotenv()
 
 from database import SyncSessionLocal as SessionLocal
@@ -303,7 +308,11 @@ def sync_update_page_db(page_id: str, clean_url: str, bubbles: list):
         page = db.query(models.Page).filter(models.Page.id == page_id).first()
         if page:
             page.clean_url = clean_url
-            page.bubbles_data = json.dumps(bubbles, ensure_ascii=False)
+            page.bubbles_data = json.dumps(
+                bubbles, 
+                ensure_ascii=False, 
+                default=lambda o: int(o) if hasattr(o, 'item') else str(o)
+            )
             page.status = "completed"
             db.commit()
             print(f"✅ [WORKER DB] Đã cập nhật kết quả dịch cho trang {page_id} vào SQLite!")
@@ -313,6 +322,8 @@ def process_manga_page(task_id: str, page_id: str, config: dict):
     Hàm xử lý dịch trang truyện tranh (Single-tenant local mode)
     100% Native Python AI (comic-text-detector + LaMa ONNX + Hayai-OCR v2 + DeepSeek)
     """
+    broadcast_progress(task_id, 5, "Đang xếp hàng chờ xử lý...")
+    ai_worker_lock.acquire()
     try:
         import db_models as models
         
@@ -443,8 +454,8 @@ def process_manga_page(task_id: str, page_id: str, config: dict):
                     continue
 
                 extracted_data.append({
-                    "id": count,
-                    "box_coordinates": {"x1": bx1, "y1": by1, "x2": bx2, "y2": by2},
+                    "id": int(count),
+                    "box_coordinates": {"x1": int(bx1), "y1": int(by1), "x2": int(bx2), "y2": int(by2)},
                     "japanese": recognized_text.strip(),
                     "original_text": recognized_text.strip(),
                     "vietnamese": ""
@@ -536,4 +547,7 @@ def process_manga_page(task_id: str, page_id: str, config: dict):
             pass
             
         broadcast_progress(task_id, 0, f"Thất bại: {str(e)}", state="FAILURE")
-        raise e
+        return {"status": "failed", "error": str(e)}
+    finally:
+        if ai_worker_lock.locked():
+            ai_worker_lock.release()

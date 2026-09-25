@@ -3,7 +3,9 @@ import { useToolStore } from '../../store/useToolStore';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useAuthStore } from '../../store/useAuthStore';
-import { MousePointer2, Eraser, RotateCcw, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff, Sparkles, Loader, Copy, Target, Slash, Brush, Stamp, Pipette, Wand2, Bot, GripVertical, Minimize2, Maximize2 } from 'lucide-react';
+import { MousePointer2, Eraser, RotateCcw, ScanSearch, Undo2, Redo2, Type, ScanLine, Eye, EyeOff, Sparkles, Loader, Copy, Target, Slash, Brush, Stamp, Pipette, Wand2, Bot, GripVertical, Minimize2, Maximize2, Lock } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { notify } from '../../utils/toast';
 
 const GrokIcon = ({ className = "w-5 h-5 text-slate-200" }: { className?: string }) => (
   <svg className={className} fill="currentColor" fillRule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -53,7 +55,9 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
     setSpeedlineColor,
     speedlineType,
     setSpeedlineType,
-    isDrawingState
+    isDrawingState,
+    isFluxReady,
+    triggerHighlightFluxBadge
   } = useToolStore();
 
   const pageStatuses = useProjectStore((state) => state.pageStatuses);
@@ -161,6 +165,8 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
     label, 
     shortLabel,
     disabled = false,
+    isLocked = false,
+    onLockedClick,
     lockMessage
   }: { 
     mode: any, 
@@ -168,6 +174,8 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
     label: string, 
     shortLabel: string,
     disabled?: boolean,
+    isLocked?: boolean,
+    onLockedClick?: () => void,
     lockMessage?: string 
   }) => {
     const isActive = activeMode === mode;
@@ -179,30 +187,47 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
       <div className="relative flex flex-col items-center group">
         <div className="absolute -top-10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 px-2.5 py-1.5 bg-panel text-white text-[11px] font-bold rounded-lg shadow-xl whitespace-nowrap pointer-events-none border border-border z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center gap-1.5">
+            {isLocked && <Lock size={11} className="text-amber-400 shrink-0" />}
             <span>
               {isButtonLoading 
                 ? (mode === 'redraw' ? "Đang vẽ lại bằng AI..." : mode === 'erase' ? "Đang xóa nền bằng AI..." : "Đang xử lý...") 
                 : (lockMessage || shortLabel)}
             </span>
             {mode === 'redraw' && (
-              <span className="bg-blue-500/20 text-blue-400 text-[9px] px-1 py-0.5 rounded uppercase font-bold ml-1">BETA</span>
+              <span className={`text-[9px] px-1 py-0.5 rounded uppercase font-bold ml-1 ${isLocked ? 'bg-amber-500/20 text-amber-300' : 'bg-blue-500/20 text-blue-400'}`}>
+                {isLocked ? "CẦN TẢI FLUX" : "BETA"}
+              </span>
             )}
           </div>
           <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 border-4 border-transparent border-t-border"></div>
         </div>
 
         <button
-          onClick={() => !isDisabled && setActiveMode(mode)}
-          disabled={isDisabled}
+          onClick={() => {
+            if (isLocked) {
+              onLockedClick?.();
+              return;
+            }
+            if (!isDisabled) setActiveMode(mode);
+          }}
+          disabled={isDisabled && !isLocked}
           className={`w-10 h-10 rounded-full transition-all duration-200 flex items-center justify-center relative
             ${isActive 
               ? 'bg-primary text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]' 
-              : 'text-text-muted hover:bg-border hover:text-text-main'}
-            ${isDisabled && !isButtonLoading ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
+              : isLocked
+              ? 'text-slate-500 hover:text-amber-300 hover:bg-amber-500/10 cursor-pointer'
+              : 'text-text-muted hover:bg-border hover:text-text-main cursor-pointer'}
+            ${isDisabled && !isLocked && !isButtonLoading ? 'opacity-40 cursor-not-allowed' : ''}
             ${isButtonLoading ? 'bg-amber-500 text-amber-950 animate-pulse border border-amber-400/30' : ''}
           `}
+          title={isLocked ? "Cần tải mô hình FLUX trên thanh công cụ để mở khóa" : undefined}
         >
           <CurrentIcon size={20} strokeWidth={isActive ? 2.5 : 2} className={isButtonLoading ? "animate-spin" : ""} />
+          {isLocked && (
+            <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-amber-500 text-neutral-950 rounded-full flex items-center justify-center shadow">
+              <Lock size={8} strokeWidth={3} />
+            </span>
+          )}
         </button>
       </div>
     );
@@ -457,8 +482,16 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
             icon={Wand2} 
             label="Vẽ lại AI (FLUX) (R)" 
             shortLabel="Vẽ lại FLUX (R)" 
-            disabled={!useGpu}
-            lockMessage={!useGpu ? "Yêu cầu bật GPU Premium để sử dụng" : undefined}
+            isLocked={!isFluxReady}
+            lockMessage={!isFluxReady ? "Cần tải mô hình FLUX Fill (~6.3GB) để mở khóa" : undefined}
+            onLockedClick={() => {
+              triggerHighlightFluxBadge();
+              notify.warning(
+                'Yêu cầu mở khóa FLUX.1-Fill',
+                'Nhấn vào nút "FLUX Fill" ở góc trên để tải mô hình (~6.3GB) và mở khóa tính năng này.',
+                { icon: Lock }
+              );
+            }}
           />
 
           <ToolButton mode="clone" icon={Copy} label="Clone Stamp (S)" shortLabel="Clone Stamp" />
@@ -469,8 +502,6 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
             icon={ScanSearch} 
             label="Dịch Lens (W)" 
             shortLabel="Dịch Lens (W)" 
-            disabled={!useGpu}
-            lockMessage={!useGpu ? "Yêu cầu bật GPU Premium để sử dụng" : undefined}
           />
 
           <div className="w-px h-6 bg-border mx-1"></div>

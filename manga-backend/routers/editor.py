@@ -12,7 +12,7 @@ from database import get_db
 import db_models as models
 from worker import run_local_lama, get_ocr_manager, get_text_detector
 
-router = APIRouter(prefix="/api", tags=["editor"])
+router = APIRouter(tags=["editor"])
 
 class MaskPayload(BaseModel):
     image_url: str
@@ -227,12 +227,17 @@ async def stream_flux_progress():
     mgr = FluxFillDownloadManager.get_instance()
 
     async def event_generator():
-        while True:
-            status_data = mgr.get_status_dict()
-            yield f"data: {json.dumps(status_data, ensure_ascii=False)}\n\n"
-            if status_data["status"] in ("ready", "error"):
-                break
-            await asyncio.sleep(0.5)
+        try:
+            while True:
+                status_data = mgr.get_status_dict()
+                yield f"data: {json.dumps(status_data, ensure_ascii=False)}\n\n"
+                if status_data["status"] in ("ready", "error"):
+                    break
+                if status_data["status"] == "idle" and getattr(mgr, "is_cancelled", False):
+                    break
+                await asyncio.sleep(0.5)
+        except (asyncio.CancelledError, GeneratorExit):
+            pass
 
     return StreamingResponse(
         event_generator(),
@@ -243,6 +248,13 @@ async def stream_flux_progress():
             "X-Accel-Buffering": "no"
         }
     )
+
+@router.post("/flux/cancel")
+async def cancel_flux():
+    """Hủy tiến trình tải mô hình FLUX.1-Fill GGUF"""
+    from flux_engine import FluxFillDownloadManager
+    mgr = FluxFillDownloadManager.get_instance()
+    return mgr.cancel_download()
 
 @router.get("/joycaption/status")
 async def get_joycaption_status():
@@ -258,6 +270,13 @@ async def preload_joycaption():
     mgr = JoyCaptionDownloadManager.get_instance()
     return mgr.start_download()
 
+@router.post("/joycaption/cancel")
+async def cancel_joycaption():
+    """Hủy tiến trình tải mô hình JoyCaption"""
+    from joycaption_engine import JoyCaptionDownloadManager
+    mgr = JoyCaptionDownloadManager.get_instance()
+    return mgr.cancel_download()
+
 @router.get("/joycaption/progress")
 async def stream_joycaption_progress():
     """Stream SSE tiến độ tải mô hình JoyCaption thời gian thực"""
@@ -267,12 +286,17 @@ async def stream_joycaption_progress():
     mgr = JoyCaptionDownloadManager.get_instance()
 
     async def event_generator():
-        while True:
-            status_data = mgr.get_status_dict()
-            yield f"data: {json.dumps(status_data, ensure_ascii=False)}\n\n"
-            if status_data["status"] in ("ready", "error"):
-                break
-            await asyncio.sleep(0.5)
+        try:
+            while True:
+                status_data = mgr.get_status_dict()
+                yield f"data: {json.dumps(status_data, ensure_ascii=False)}\n\n"
+                if status_data["status"] in ("ready", "error"):
+                    break
+                if status_data["status"] == "idle" and getattr(mgr, "is_cancelled", False):
+                    break
+                await asyncio.sleep(0.5)
+        except (asyncio.CancelledError, GeneratorExit):
+            pass
 
     return StreamingResponse(
         event_generator(),
@@ -283,4 +307,5 @@ async def stream_joycaption_progress():
             "X-Accel-Buffering": "no"
         }
     )
+
 

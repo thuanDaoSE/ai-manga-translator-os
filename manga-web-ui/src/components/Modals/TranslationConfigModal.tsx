@@ -313,7 +313,7 @@ export default function TranslationConfigModal() {
     config.setUseGpu(true);
     config.saveToLocal();
     localStorage.setItem('has_configured_translation', 'true');
-    toast.success(t('configModal.saveConfigSuccess'), { icon: '💾' });
+    toast.success(t('configModal.saveConfigSuccess'));
     config.setModalOpen(false);
   };
 

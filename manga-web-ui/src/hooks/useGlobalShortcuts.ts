@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react';
 import { useToolStore } from '../store/useToolStore';
 import { useCanvasStore } from '../store/useCanvasStore';
 import { useAuthStore } from '../store/useAuthStore';
+import toast from 'react-hot-toast';
+import { Lock } from 'lucide-react';
+import { notify } from '../utils/toast';
 export const useGlobalShortcuts = () => {
   const previousToolRef = useRef<string | null>(null);
   const pressedKeyRef = useRef<string | null>(null);
@@ -60,8 +63,17 @@ export const useGlobalShortcuts = () => {
         's': 'clone', 'b': 'speedline',
       };
 
-      if (key === 'r' && useAuthStore.getState().user?.email !== 'td2005dataeg@gmail.com') {
-        return;
+      if (key === 'r') {
+        const isFluxReady = useToolStore.getState().isFluxReady;
+        if (!isFluxReady) {
+          useToolStore.getState().triggerHighlightFluxBadge();
+          notify.warning(
+            'Yêu cầu mở khóa FLUX.1-Fill',
+            'Nhấn vào nút "FLUX Fill" ở góc trên để tải mô hình (~6.3GB) và mở khóa tính năng này.',
+            { icon: Lock }
+          );
+          return;
+        }
       }
 
       if (keyToToolMap[key] && currentTool !== keyToToolMap[key]) {

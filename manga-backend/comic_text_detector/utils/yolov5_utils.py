@@ -119,7 +119,33 @@ def box_iou(box1, box2):
 
     # inter(N,M) = (rb(N,M,2) - lt(N,M,2)).clamp(0).prod(2)
     inter = (torch.min(box1[:, None, 2:], box2[:, 2:]) - torch.max(box1[:, None, :2], box2[:, :2])).clamp(0).prod(2)
-    return inter / (area1[:, None] + area2 - inter)  # iou = inter / (area1 + area2 - inter)
+def safe_nms(boxes, scores, iou_threshold):
+    if boxes.numel() == 0:
+        return torch.empty((0,), dtype=torch.int64, device=boxes.device)
+    x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+    areas = (x2 - x1) * (y2 - y1)
+    order = scores.argsort(descending=True)
+    keep = []
+    while order.numel() > 0:
+        if order.numel() == 1:
+            keep.append(int(order[0].item()))
+            break
+        i = int(order[0].item())
+        keep.append(i)
+        xx1 = torch.maximum(x1[i], x1[order[1:]])
+        yy1 = torch.maximum(y1[i], y1[order[1:]])
+        xx2 = torch.minimum(x2[i], x2[order[1:]])
+        yy2 = torch.minimum(y2[i], y2[order[1:]])
+        w = torch.clamp(xx2 - xx1, min=0)
+        h = torch.clamp(yy2 - yy1, min=0)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter + 1e-6)
+        ids = (ovr <= iou_threshold).nonzero().view(-1)
+        if ids.numel() == 0:
+            break
+        order = order[ids + 1]
+    return torch.tensor(keep, dtype=torch.int64, device=boxes.device)
+
 
 def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, multi_label=False,
                         labels=(), max_det=300):
@@ -199,7 +225,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         # Batched NMS
         c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
         boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
-        i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
+        i = safe_nms(boxes, scores, iou_thres)  # NMS
         if i.shape[0] > max_det:  # limit detections
             i = i[:max_det]
         if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)

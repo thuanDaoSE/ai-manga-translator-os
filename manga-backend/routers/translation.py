@@ -66,7 +66,15 @@ async def stream_task_progress(task_id: str):
         finally:
             local_task_manager.unsubscribe(task_id, queue)
             
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 @router.post("/tasks/{task_id}/cancel")
 async def cancel_task(task_id: str):

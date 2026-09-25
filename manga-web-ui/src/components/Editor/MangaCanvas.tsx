@@ -669,7 +669,7 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
             const hex = "#" + [pixel[0], pixel[1], pixel[2]].map(x => x.toString(16).padStart(2, '0')).join('');
             useToolStore.getState().setSpeedlineColor(hex);
             useToolStore.getState().setSpeedlineType('brush');
-            toast.success(`Đã chọn màu: ${hex.toUpperCase()}`, { icon: '🎨' });
+            toast.success(`Đã chọn màu: ${hex.toUpperCase()}`);
           } catch (err) {
             console.error("Eyedropper failed:", err);
             toast.error("Không thể chọn màu.");
@@ -1023,10 +1023,11 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
           const pStore = useProjectStore.getState();
           const originalName = pStore.fileQueue[pStore.currentIndex]?.name || "";
           const fileExt = originalName.includes('.') ? originalName.split('.').pop() : 'jpg';
-          const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${pStore.projectId}/raw/${pStore.pageIds[pStore.currentIndex]}.${fileExt}`;
+          const serverRawUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/${pStore.projectId}/raw/${pStore.pageIds[pStore.currentIndex]}.${fileExt}`;
           const targetUrl = pStore.processedUrls[pStore.currentIndex] || serverRawUrl;
 
-          const relativePath = targetUrl.replace(`${import.meta.env.VITE_API_URL}/`, '').split('?')[0];
+          const baseApi = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/` : '';
+          const relativePath = baseApi ? targetUrl.replace(baseApi, '').split('?')[0] : targetUrl.split('?')[0].replace(/^\//, '');
           const cleanTargetUrl = targetUrl.split('?')[0];
 
           const result = await mangaApi.quickScan({
@@ -1067,14 +1068,14 @@ export default function MangaCanvas({ rawUrl, displayUrl, originalCleanUrl }: Pr
 
             // Thông báo quota
             if (result.charged_xu > 0) {
-              toast(`⚡ Đã trừ 1 xu (Lens dịch lần ${result.lens_used} hôm nay)`, {
-                icon: '💸', duration: 2500,
-                style: { background: '#1a1a2e', color: '#fbbf24', fontSize: '12px' }
+              toast(`Đã trừ 1 xu (Lens dịch lần ${result.lens_used} hôm nay)`, {
+                duration: 2500,
+                style: { background: '#0f172a', color: '#fbbf24', fontSize: '12px', border: '1px solid rgba(51,65,85,0.7)' }
               });
             } else if (result.lens_free_remaining <= 5 && result.lens_free_remaining > 0) {
-              toast(`🔔 Còn ${result.lens_free_remaining} lần Lens Dịch miễn phí hôm nay`, {
+              toast(`Còn ${result.lens_free_remaining} lần Lens Dịch miễn phí hôm nay`, {
                 duration: 2500,
-                style: { background: '#1a1a2e', color: '#a78bfa', fontSize: '12px' }
+                style: { background: '#0f172a', color: '#a78bfa', fontSize: '12px', border: '1px solid rgba(51,65,85,0.7)' }
               });
             }
           }

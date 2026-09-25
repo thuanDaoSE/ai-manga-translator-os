@@ -1125,6 +1125,30 @@ export default function Sidebar() {
     }
   };
 
+  const handleCancelAll = async () => {
+    let count = 0;
+    const allIndices = allProjectFiles.map(f => f.index);
+    for (const idx of allIndices) {
+      const status = useProjectStore.getState().pageStatuses[idx];
+      if (status === 'waiting' || status === 'processing') {
+        count++;
+        projectStore.clearProgress(idx);
+        projectStore.setPageStatus(idx, "unprocessed");
+        const task = activeTasksRef.current[idx];
+        if (task) {
+          try {
+            task.eventSource.close();
+            mangaApi.cancelTask(task.taskId).catch(console.error);
+          } catch (e) {}
+          delete activeTasksRef.current[idx];
+        }
+      }
+    }
+    if (count > 0) {
+      toast.success(`Đã dừng toàn bộ tiến trình dịch (${count} trang)!`);
+    }
+  };
+
   const handleTranslateSelected = async () => {
     if (!checkFirstTimeConfig()) return;
     if (selectedPages.size === 0) return;
@@ -1157,6 +1181,31 @@ export default function Sidebar() {
       try { await processSinglePage(index); } catch (err) { console.error('Lỗi dịch selected:', index, err); } finally { runNext(); }
     };
     for (let i = 0; i < Math.min(limit, selectedIndexes.length); i++) { runNext(); }
+  };
+
+  const handleCancelSelected = () => {
+    let count = 0;
+    visibleFiles.forEach(({ uniqueId, index }) => {
+      if (selectedPages.has(uniqueId)) {
+        const status = useProjectStore.getState().pageStatuses[index];
+        if (status === 'waiting' || status === 'processing') {
+          count++;
+          projectStore.clearProgress(index);
+          projectStore.setPageStatus(index, "unprocessed");
+          const task = activeTasksRef.current[index];
+          if (task) {
+            try {
+              task.eventSource.close();
+              mangaApi.cancelTask(task.taskId).catch(console.error);
+            } catch (e) {}
+            delete activeTasksRef.current[index];
+          }
+        }
+      }
+    });
+    if (count > 0) {
+      toast.success(`Đã dừng dịch ${count} trang đã chọn!`);
+    }
   };
 
   const handleTranslateGroup = async (group: GroupedItem) => {
@@ -1577,32 +1626,39 @@ export default function Sidebar() {
 
         {/* NÚT DỊCH TẤT CẢ (Ẩn đi khi đang chọn ảnh) */}
         <div className={`absolute bottom-0 left-0 w-full p-3 bg-sidebar/95 backdrop-blur-md border-t border-border z-30 transition-transform duration-300 ${isSelectionMode ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
-          <button
-            onClick={handleTranslateAll}
-            disabled={!hasUnprocessed || isAnyProcessingOrWaiting}
-            className={`w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold
-              ${(hasUnprocessed && !isAnyProcessingOrWaiting)
-                ? 'bg-primary hover:bg-primary-hover text-white border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] hover:scale-[1.02] cursor-pointer pl-4 pr-12'
-                : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 font-medium'
-              }`}
-          >
-            {isAnyProcessingOrWaiting ? (
-              <Loader2 className="animate-spin" size={16} />
-            ) : errorPages > 0 ? (
-              <RefreshCw size={16} />
-            ) : (
-              <Sparkles size={16} />
-            )}
-            <span>
-              {isAnyProcessingOrWaiting
-                ? t('sidebar.batchTranslating')
-                : errorPages > 0
+          {isAnyProcessingOrWaiting ? (
+            <button
+              onClick={handleCancelAll}
+              className="w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-400 hover:text-rose-300 active:scale-95 cursor-pointer shadow-rose-950/20"
+              title="Nhấp để dừng toàn bộ tiến trình dịch hàng loạt"
+            >
+              <Square size={14} fill="currentColor" className="text-rose-400" />
+              <span>Dừng dịch hàng loạt ({processingPages + waitingPages} trang)</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleTranslateAll}
+              disabled={!hasUnprocessed}
+              className={`w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold
+                ${hasUnprocessed
+                  ? 'bg-primary hover:bg-primary-hover text-white shadow-lg shadow-indigo-500/20 hover:scale-[1.02] cursor-pointer'
+                  : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 font-medium'
+                }`}
+            >
+              {errorPages > 0 ? (
+                <RefreshCw size={16} />
+              ) : (
+                <Sparkles size={16} />
+              )}
+              <span>
+                {errorPages > 0
                   ? t('sidebar.retryError', { count: errorPages })
                   : hasUnprocessed
                     ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
                     : t('sidebar.completedAll')}
-            </span>
-          </button>
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1641,29 +1697,45 @@ export default function Sidebar() {
             selectedPages.has(uniqueId) &&
             (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error')
           ).length;
+          const selectedProcessingOrWaitingCount = visibleFiles.filter(({ uniqueId, index }) =>
+            selectedPages.has(uniqueId) &&
+            (pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting')
+          ).length;
           const hasEnough = currentCredits > 0;
           const nothingToTranslate = selectedUnprocessedCount === 0;
 
           return (
-            <button
-              onClick={handleTranslateSelected}
-              disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
-              title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết số dư thời gian GPU' : `Dịch ${selectedUnprocessedCount} trang`}
-              className={`relative flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
-                ${nothingToTranslate || isAnyProcessingOrWaiting
-                  ? 'bg-border/30 text-text-muted cursor-not-allowed border border-transparent'
-                  : !hasEnough
-                    ? 'bg-danger/10 border border-danger/30 text-danger cursor-not-allowed'
-                    : 'bg-amber-500 hover:bg-amber-400 text-black border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] cursor-pointer'
-                }`}
-            >
-              <Sparkles size={15} strokeWidth={2.5} />
-              {!hasEnough && !nothingToTranslate ? (
-                <span>Hết thời gian GPU</span>
-              ) : (
-                <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size} trang</span>
+            <div className="flex items-center gap-2">
+              {selectedProcessingOrWaitingCount > 0 && (
+                <button
+                  onClick={handleCancelSelected}
+                  className="flex items-center gap-1.5 py-2 px-3 text-xs font-bold rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 transition-all cursor-pointer"
+                  title="Dừng dịch các trang đã chọn đang xử lý"
+                >
+                  <Square size={13} fill="currentColor" />
+                  <span>Dừng ({selectedProcessingOrWaitingCount})</span>
+                </button>
               )}
-            </button>
+              <button
+                onClick={handleTranslateSelected}
+                disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
+                title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết số dư thời gian GPU' : `Dịch ${selectedUnprocessedCount} trang`}
+                className={`relative flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
+                  ${nothingToTranslate || isAnyProcessingOrWaiting
+                    ? 'bg-border/30 text-text-muted cursor-not-allowed border border-transparent'
+                    : !hasEnough
+                      ? 'bg-danger/10 border border-danger/30 text-danger cursor-not-allowed'
+                      : 'bg-amber-500 hover:bg-amber-400 text-black border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] cursor-pointer'
+                  }`}
+              >
+                <Sparkles size={15} strokeWidth={2.5} />
+                {!hasEnough && !nothingToTranslate ? (
+                  <span>Hết thời gian GPU</span>
+                ) : (
+                  <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size} trang</span>
+                )}
+              </button>
+            </div>
           );
         })()}
 

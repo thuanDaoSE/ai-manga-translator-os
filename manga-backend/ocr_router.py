@@ -48,39 +48,17 @@ class OCRRouter:
         """Lazy load SOTA Multilingual Manga OCR (Hayai-OCR v2 + SigLIP 2 NaFlex)"""
         if "hayai_ocr" not in self._models:
             try:
-                import torch
-                from transformers import AutoModel, AutoProcessor, PreTrainedTokenizerFast
+                from hayai_ocr import HayaiOcr
+                logger.info("Loading Hayai-OCR v2 via official engine (SigLIP 2 NaFlex)...")
+                engine = HayaiOcr(use_v2=True, compile=False)
 
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                model_id = "JustANormalTinkerer/hayai-ocr-v2"
-                processor_id = "google/siglip2-base-patch16-naflex"
-
-                logger.info(f"Loading Hayai-OCR v2 with SigLIP 2 Vision Backbone on {device}...")
-                tokenizer = PreTrainedTokenizerFast.from_pretrained(model_id)
-                processor = AutoProcessor.from_pretrained(processor_id)
-
-                dtype = torch.bfloat16 if (device != "cpu" and torch.cuda.is_bf16_supported()) else (
-                    torch.float16 if device != "cpu" else torch.float32
-                )
-                model = AutoModel.from_pretrained(
-                    model_id,
-                    torch_dtype=dtype if device != "cpu" else torch.float32,
-                    trust_remote_code=True
-                )
-                if device != "cpu":
-                    model = model.to(device)
-                model.eval()
-
-                class HayaiWrapper:
-                    def __init__(self, m, p, t, dev):
-                        self.model = m
-                        self.processor = p
-                        self.tokenizer = t
-                        self.device = dev
+                class OfficialHayaiWrapper:
+                    def __init__(self, eng):
+                        self.engine = eng
 
                     def __call__(self, pil_image: Image.Image) -> str:
-                        res = self.recognize_batch([pil_image])
-                        return res[0] if res else ""
+                        res = self.engine(pil_image)
+                        return (res or "").strip()
 
                     def recognize_batch(self, images: list) -> list:
                         if not images:
@@ -89,28 +67,29 @@ class OCRRouter:
                             img.convert("RGB") if isinstance(img, Image.Image) else Image.fromarray(img).convert("RGB")
                             for img in images
                         ]
-                        with torch.inference_mode():
-                            inputs = self.processor(images=crops, max_num_patches=256, return_tensors="pt")
-                            if self.device != "cpu":
-                                inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                            decoded_texts = self.model.generate(
-                                pixel_values=inputs["pixel_values"],
-                                pixel_attention_mask=inputs.get("pixel_attention_mask"),
-                                spatial_shapes=inputs.get("spatial_shapes"),
-                                tokenizer=self.tokenizer,
-                                max_new_tokens=128,
-                                repetition_penalty=1.0,
-                            )
-                            return [str(t).strip() for t in decoded_texts]
+                        batch_res = self.engine(crops)
+                        if isinstance(batch_res, list):
+                            return [str(t).strip() for t in batch_res]
+                        return [str(batch_res).strip()]
 
-                self._models["hayai_ocr"] = HayaiWrapper(model, processor, tokenizer, device)
+                self._models["hayai_ocr"] = OfficialHayaiWrapper(engine)
                 self._hayai_ocr_available = True
-                logger.info("✅ Hayai-OCR v2 (SigLIP 2 NaFlex) loaded successfully.")
+                logger.info("✅ Hayai-OCR v2 (SigLIP 2 NaFlex) loaded successfully via official HayaiOcr.")
             except Exception as e:
                 logger.error(f"Failed to load Hayai-OCR v2: {e}")
                 self._hayai_ocr_available = False
                 return None
         return self._models.get("hayai_ocr")
+
+    def _get_fallback_ocr(self):
+        if "fallback_ocr" not in self._models:
+            try:
+                from manga_ocr import MangaOcr
+                logger.info("Loading Manga-OCR fallback engine...")
+                self._models["fallback_ocr"] = MangaOcr()
+            except Exception as e:
+                logger.warning(f"Could not load fallback MangaOcr: {e}")
+        return self._models.get("fallback_ocr")
 
     def _get_manga_ocr(self):
         return self._get_hayai_ocr()
@@ -146,11 +125,21 @@ class OCRRouter:
             hayai = self._get_hayai_ocr()
             if hayai:
                 text = hayai(pil_img)
-                return (text or "").strip()
-            else:
-                raise RuntimeError("Hayai-OCR v2 instance not available")
+                if text:
+                    return text.strip()
+            # Fallback nếu Hayai trả về rỗng hoặc chưa sẵn sàng
+            fallback = self._get_fallback_ocr()
+            if fallback:
+                return (fallback(pil_img) or "").strip()
+            return ""
         except Exception as e:
             logger.error(f"❌ [Hayai-OCR Error on Box {box_id}]: {e}")
+            try:
+                fallback = self._get_fallback_ocr()
+                if fallback:
+                    return (fallback(pil_img) or "").strip()
+            except Exception:
+                pass
             return ""
 
     def recognize_batch(

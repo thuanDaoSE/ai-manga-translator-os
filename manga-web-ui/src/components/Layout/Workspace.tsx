@@ -399,7 +399,7 @@ export default function Workspace() {
                   const ctx = drawCanvas?.getContext("2d");
                   if (ctx) ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
  
-                  toast.success("✨ Dịch và xóa chữ thành công!", { duration: 3000 });
+                  toast.success("Dịch và xóa chữ thành công!", { duration: 3000 });
                   setActiveMode("none");
                   break;
                 }
@@ -1160,7 +1160,7 @@ export default function Workspace() {
     setActionPosition(null);
     setShowAiPromptInput(false);
 
-    toast("Đang xử lý Xóa với AI...", { icon: "✨", duration: 2500 });
+    toast("Đang xử lý xóa chữ với AI...", { duration: 2500 });
 
     try {
       const maskBase64 = drawCanvas.toDataURL("image/png");
@@ -1168,7 +1168,7 @@ export default function Workspace() {
 
       const fileName = fileQueue[currentIndex]?.name || "";
       const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
-      const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
+      const serverRawUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
       const targetUrl = processedUrls[currentIndex] || serverRawUrl;
 
       const finalPrompt = promptText.trim() || "clean background, erase text, restore original manga artwork";
@@ -1219,7 +1219,7 @@ export default function Workspace() {
     setIsProcessing(true);
     setActionPosition(null);
     
-    toast("Đang xử lý vẽ lại bằng AI...", { icon: "🎨", duration: 2000 });
+    toast("Đang xử lý vẽ lại bằng AI...", { duration: 2000 });
 
     try {
       const maskBase64 = drawCanvas.toDataURL("image/png");
@@ -1227,7 +1227,7 @@ export default function Workspace() {
 
       const fileName = fileQueue[currentIndex]?.name || "";
       const fileExt = fileName.includes('.') ? fileName.split('.').pop() : 'jpg';
-      const serverRawUrl = `${import.meta.env.VITE_API_URL}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
+      const serverRawUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`;
       const targetUrl = processedUrls[currentIndex] || serverRawUrl;
 
       // Call API with originalImageHash to prevent hash mismatch

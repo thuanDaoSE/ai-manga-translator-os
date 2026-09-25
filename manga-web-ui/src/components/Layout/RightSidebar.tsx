@@ -246,7 +246,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
   const handleCopy = (text: string, type: string) => {
     if (!text) return toast.error(t('rightSidebar.copyEmpty', { type }));
     navigator.clipboard.writeText(text);
-    toast.success(t('rightSidebar.copySuccess', { type }), { icon: '📋' });
+    toast.success(t('rightSidebar.copySuccess', { type }));
   };
 
   const handleRetryTranslation = async (e: React.MouseEvent, bubble: any) => {
@@ -812,7 +812,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                 });
                 
                 if (count > 0) {
-                  toast.success(t('rightSidebar.applySuccess', { count }), { icon: '✨' });
+                  toast.success(t('rightSidebar.applySuccess', { count }));
                 } else {
                   toast.error(t('rightSidebar.applyNoBubbles'));
                 }

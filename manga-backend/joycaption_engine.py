@@ -22,21 +22,48 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 
 
+import requests
+
+JOYCAPTION_FILES = [
+    ("config.json", 1120),
+    ("generation_config.json", 181),
+    ("chat_template.json", 1373),
+    ("preprocessor_config.json", 554),
+    ("processor_config.json", 670),
+    ("special_tokens_map.json", 607),
+    ("tokenizer_config.json", 50849),
+    ("tokenizer.json", 17215904),
+    ("model.safetensors.index.json", 104448),
+    ("model-00001-of-00004.safetensors", 4886339264),
+    ("model-00002-of-00004.safetensors", 4999885824),
+    ("model-00003-of-00004.safetensors", 4915901840),
+    ("model-00004-of-00004.safetensors", 2158011760),
+]
+
+TOTAL_JOYCAPTION_BYTES = sum(sz for _, sz in JOYCAPTION_FILES)  # 16,977,543,892 (~15.81 GB)
+
+
 class JoyCaptionDownloadManager:
     _instance: Optional["JoyCaptionDownloadManager"] = None
 
     def __init__(self):
         self.model_id = os.getenv("JOYCAPTION_MODEL_ID", "fancyfeast/llama-joycaption-beta-one-hf-llava")
+        self.models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+        self.target_dir = os.path.join(self.models_dir, "joycaption")
+        os.makedirs(self.target_dir, exist_ok=True)
+
         self.status = "idle"  # idle | downloading | ready | error
         self.progress_pct = 0.0
         self.downloaded_bytes = 0
-        self.total_bytes = 7800000000  # ~7.26 GB
+        self.total_bytes = TOTAL_JOYCAPTION_BYTES
         self.speed_mbps = 0.0
         self.eta_seconds = 0
         self.error_message = ""
-        self.lock = threading.Lock()
-        self._last_time = time.time()
-        self._bytes_in_interval = 0
+        self.is_cancelled = False
+        self.lock = threading.RLock()
+
+        self.abort_event = threading.Event()
+        self._active_response: Optional[requests.Response] = None
         self._thread: Optional[threading.Thread] = None
 
     @classmethod
@@ -45,21 +72,95 @@ class JoyCaptionDownloadManager:
             cls._instance = cls()
         return cls._instance
 
-    def is_model_ready(self) -> bool:
-        """Kiểm tra xem toàn bộ trọng số JoyCaption đã có trong cache cục bộ chưa"""
+    def _cleanup_incomplete_files(self):
+        """Dọn dẹp các tệp tạm thời .incomplete dở dang của JoyCaption"""
         try:
-            from huggingface_hub import snapshot_download
-            path = snapshot_download(self.model_id, local_files_only=True)
-            # Kiểm tra file trọng số chính
-            has_config = os.path.exists(os.path.join(path, "config.json"))
-            if has_config:
+            if os.path.exists(self.target_dir):
+                for fn in os.listdir(self.target_dir):
+                    if fn.endswith(".incomplete") or ".tmp" in fn:
+                        try:
+                            os.remove(os.path.join(self.target_dir, fn))
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.warning(f"Lỗi khi dọn dẹp tệp dở dang JoyCaption: {e}")
+
+        # Đồng thời dọn cả trong huggingface hub nếu có
+        try:
+            hub_root = os.path.expanduser("~/.cache/huggingface/hub")
+            if os.path.exists(hub_root):
+                for r, _, fls in os.walk(hub_root):
+                    if "joycaption" in r.lower() or "llama" in r.lower():
+                        for fn in fls:
+                            if fn.endswith(".incomplete") or ".tmp" in fn:
+                                try:
+                                    os.remove(os.path.join(r, fn))
+                                except Exception:
+                                    pass
+        except Exception:
+            pass
+
+    def cancel_download(self) -> Dict[str, Any]:
+        """Dừng/hủy quá trình tải JoyCaption ngay lập tức và ngắt kết nối mạng triệt để"""
+        logger.info("🛑 [JoyCaption] Nhận lệnh hủy tải từ người dùng. Đang đóng kết nối mạng...")
+        self.abort_event.set()
+        self.is_cancelled = True
+
+        if self._active_response is not None:
+            try:
+                self._active_response.close()
+            except Exception:
+                pass
+
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=2.5)
+
+        self._cleanup_incomplete_files()
+
+        with self.lock:
+            self.status = "idle"
+            self.progress_pct = 0.0
+            self.downloaded_bytes = 0
+            self.speed_mbps = 0.0
+            self.eta_seconds = 0
+            self.error_message = ""
+            self._active_response = None
+            self._thread = None
+
+        logger.info("✅ [JoyCaption] Đã dừng tải hoàn toàn, thread đã kết thúc.")
+        return self.get_status_dict()
+
+    def is_model_ready(self) -> bool:
+        """Kiểm tra xem toàn bộ trọng số JoyCaption (~15.8GB) đã có đầy đủ chưa (cục bộ hoặc HF cache)"""
+        # 1. Kiểm tra thư mục cục bộ models/joycaption
+        if os.path.exists(self.target_dir):
+            safetensors = [f for f in os.listdir(self.target_dir) if f.endswith(".safetensors") and not f.endswith(".incomplete")]
+            total_size = sum(os.path.getsize(os.path.join(self.target_dir, f)) for f in safetensors)
+            if len(safetensors) >= 4 and total_size > 14 * (1024**3):
                 with self.lock:
                     self.status = "ready"
                     self.progress_pct = 100.0
                 return True
-            return False
+
+        # 2. Kiểm tra trong cache HuggingFace
+        try:
+            from huggingface_hub import snapshot_download
+            path = snapshot_download(self.model_id, local_files_only=True)
+            safetensors = [f for f in os.listdir(path) if f.endswith(".safetensors") and not f.endswith(".incomplete")]
+            total_size = sum(os.path.getsize(os.path.join(path, f)) for f in safetensors)
+            if len(safetensors) >= 4 and total_size > 14 * (1024**3):
+                with self.lock:
+                    self.status = "ready"
+                    self.progress_pct = 100.0
+                return True
         except Exception:
-            return False
+            pass
+
+        with self.lock:
+            if self.status != "downloading":
+                self.status = "idle"
+                self.progress_pct = 0.0
+        return False
 
     def get_status_dict(self) -> Dict[str, Any]:
         with self.lock:
@@ -100,11 +201,13 @@ class JoyCaptionDownloadManager:
             if self.status == "downloading":
                 return self.get_status_dict()
             self.status = "downloading"
+            self.is_cancelled = False
+            self.abort_event.clear()
             self.error_message = ""
             self.progress_pct = 0.0
             self.downloaded_bytes = 0
-            self._last_time = time.time()
-            self._bytes_in_interval = 0
+            self.speed_mbps = 0.0
+            self.eta_seconds = 0
 
         self._thread = threading.Thread(target=self._run_download, daemon=True)
         self._thread.start()
@@ -112,47 +215,108 @@ class JoyCaptionDownloadManager:
 
     def _run_download(self):
         try:
-            logger.info(f"🚀 [JoyCaption] Bắt đầu tải mô hình: {self.model_id}...")
-            from huggingface_hub import HfApi, snapshot_download
-            import tqdm
+            logger.info(f"🚀 [JoyCaption] Bắt đầu tải mô hình {self.model_id} (~15.8GB)...")
 
-            mgr = self
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            }
+            token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
 
-            class JoyCaptionTqdm(tqdm.tqdm):
-                def update(self, n=1):
-                    super().update(n)
-                    with mgr.lock:
-                        mgr.downloaded_bytes += n
-                        mgr._bytes_in_interval += n
+            session = requests.Session()
+
+            # Đếm trước các file đã có để tính base downloaded_bytes
+            already_done_bytes = 0
+            for fname, fsize in JOYCAPTION_FILES:
+                fpath = os.path.join(self.target_dir, fname)
+                if os.path.exists(fpath) and os.path.getsize(fpath) >= fsize:
+                    already_done_bytes += fsize
+
+            bytes_downloaded = already_done_bytes
+            last_time = time.time()
+            last_bytes = bytes_downloaded
+            smoothed_speed = 0.0
+
+            with self.lock:
+                self.downloaded_bytes = bytes_downloaded
+                if self.total_bytes > 0:
+                    self.progress_pct = min(99.9, round((bytes_downloaded / self.total_bytes) * 100.0, 1))
+
+            for fname, fsize in JOYCAPTION_FILES:
+                if self.abort_event.is_set():
+                    break
+
+                target_file = os.path.join(self.target_dir, fname)
+                incomplete_file = os.path.join(self.target_dir, f"{fname}.incomplete")
+
+                # Bỏ qua nếu file đã có đủ dung lượng
+                if os.path.exists(target_file) and os.path.getsize(target_file) >= fsize:
+                    continue
+
+                url = f"https://huggingface.co/{self.model_id}/resolve/main/{fname}"
+                logger.info(f"📥 [JoyCaption] Tải tệp {fname}...")
+
+                response = session.get(url, stream=True, headers=headers, timeout=15, allow_redirects=True)
+                self._active_response = response
+
+                if response.status_code not in (200, 206):
+                    raise RuntimeError(f"Server trả về mã {response.status_code} khi tải {fname}")
+
+                with open(incomplete_file, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=1024 * 1024):  # 1 MB chunk
+                        if self.abort_event.is_set():
+                            logger.info(f"🛑 [JoyCaption] Nhận abort_event khi đang tải {fname}.")
+                            break
+                        if not chunk:
+                            continue
+
+                        f.write(chunk)
+                        bytes_downloaded += len(chunk)
+
                         now = time.time()
-                        elapsed = now - mgr._last_time
-                        if elapsed >= 0.5:
-                            speed = mgr._bytes_in_interval / elapsed
-                            mgr.speed_mbps = round(speed / (1024 * 1024), 1)
-                            mgr._bytes_in_interval = 0
-                            mgr._last_time = now
-                            if mgr.total_bytes > 0:
-                                mgr.progress_pct = min(99.9, round((mgr.downloaded_bytes / mgr.total_bytes) * 100, 1))
-                                remaining = max(0, mgr.total_bytes - mgr.downloaded_bytes)
-                                if speed > 0:
-                                    mgr.eta_seconds = int(remaining / speed)
+                        dt = now - last_time
+                        if dt >= 0.5:
+                            delta_bytes = bytes_downloaded - last_bytes
+                            instant_mbps = (delta_bytes / dt) / (1024 * 1024)
 
-            try:
-                api = HfApi()
-                info = api.model_info(self.model_id, files_metadata=True)
-                calc_total = sum(s.size for s in info.siblings if s.size)
-                if calc_total > 0:
-                    with self.lock:
-                        self.total_bytes = calc_total
-            except Exception as e:
-                logger.warning(f"Không thể lấy metadata dung lượng JoyCaption: {e}")
+                            if smoothed_speed == 0.0:
+                                smoothed_speed = instant_mbps
+                            else:
+                                smoothed_speed = (0.7 * smoothed_speed) + (0.3 * instant_mbps)
 
-            snapshot_download(
-                self.model_id,
-                tqdm_class=JoyCaptionTqdm,
-                resume_download=True,
-                ignore_patterns=["*.jpeg", "*.png", "*.md"]
-            )
+                            with self.lock:
+                                if self.abort_event.is_set():
+                                    break
+                                self.downloaded_bytes = bytes_downloaded
+                                self.speed_mbps = round(max(0.0, smoothed_speed), 1)
+                                if self.total_bytes > 0:
+                                    self.progress_pct = min(99.9, round((bytes_downloaded / self.total_bytes) * 100.0, 1))
+                                    rem_bytes = max(0, self.total_bytes - bytes_downloaded)
+                                    if smoothed_speed > 0.05:
+                                        self.eta_seconds = int(rem_bytes / (smoothed_speed * 1024 * 1024))
+                                    else:
+                                        self.eta_seconds = 0
+
+                            last_time = now
+                            last_bytes = bytes_downloaded
+
+                if self.abort_event.is_set():
+                    self._cleanup_incomplete_files()
+                    return
+
+                # Đổi tên file sau khi tải xong tệp này
+                if os.path.exists(incomplete_file):
+                    if os.path.exists(target_file):
+                        try:
+                            os.remove(target_file)
+                        except Exception:
+                            pass
+                    os.replace(incomplete_file, target_file)
+
+            if self.abort_event.is_set():
+                self._cleanup_incomplete_files()
+                return
 
             if self.is_model_ready():
                 with self.lock:
@@ -160,16 +324,30 @@ class JoyCaptionDownloadManager:
                     self.progress_pct = 100.0
                     self.speed_mbps = 0.0
                     self.eta_seconds = 0
+                    self.downloaded_bytes = self.total_bytes
                 logger.info("✅ Tải JoyCaption VLM thành công 100%!")
             else:
                 with self.lock:
                     self.status = "error"
-                    self.error_message = "Tải hoàn tất nhưng thiếu file cấu hình"
+                    self.error_message = "Tải hoàn tất nhưng thiếu file safetensors"
+
         except Exception as e:
+            if self.abort_event.is_set():
+                logger.info("🛑 [JoyCaption] Kết thúc do người dùng hủy.")
+                self._cleanup_incomplete_files()
+                return
             logger.error(f"❌ Lỗi tải JoyCaption: {e}", exc_info=True)
             with self.lock:
                 self.status = "error"
                 self.error_message = str(e)
+            self._cleanup_incomplete_files()
+        finally:
+            if self._active_response:
+                try:
+                    self._active_response.close()
+                except Exception:
+                    pass
+            self._active_response = None
 
 
 class JoyCaptionEngine:
@@ -228,14 +406,17 @@ class JoyCaptionEngine:
                 bnb_4bit_use_double_quant=True,
             )
 
+            target_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "joycaption")
+            model_target = target_dir if (os.path.exists(target_dir) and len([f for f in os.listdir(target_dir) if f.endswith(".safetensors") and not f.endswith(".incomplete")]) >= 4) else self.model_id
+
             self._processor = AutoProcessor.from_pretrained(
-                self.model_id,
+                model_target,
                 trust_remote_code=True,
                 local_files_only=True
             )
 
             self._model = LlavaForConditionalGeneration.from_pretrained(
-                self.model_id,
+                model_target,
                 quantization_config=quantization_config,
                 device_map="auto",
                 torch_dtype=compute_dtype,

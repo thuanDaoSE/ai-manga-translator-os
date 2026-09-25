@@ -87,6 +87,12 @@ interface ToolState {
 
   viewLayout: 'page' | 'webtoon';
   setViewLayout: (layout: 'page' | 'webtoon') => void;
+
+  // 🚀 FLUX Ready & Highlight state for Redraw lock UX
+  isFluxReady: boolean;
+  setIsFluxReady: (ready: boolean) => void;
+  highlightFluxBadge: boolean;
+  triggerHighlightFluxBadge: () => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
@@ -172,4 +178,15 @@ export const useToolStore = create<ToolState>((set) => ({
 
   viewLayout: 'page',
   setViewLayout: (layout) => set({ viewLayout: layout }),
+
+  // 🚀 FLUX Ready & Highlight state for Redraw lock UX
+  isFluxReady: false,
+  setIsFluxReady: (ready) => set({ isFluxReady: ready }),
+  highlightFluxBadge: false,
+  triggerHighlightFluxBadge: () => {
+    set({ highlightFluxBadge: true });
+    setTimeout(() => {
+      set({ highlightFluxBadge: false });
+    }, 2800);
+  },
 }));
