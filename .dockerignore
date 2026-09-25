@@ -23,6 +23,7 @@ runpod-cpu-worker
 manga-backend/workspace
 manga-backend/venv
 manga-backend/node_modules
+manga-backend/models
 manga-backend/.env
 manga-backend/__pycache__
 manga-backend/**/__pycache__
