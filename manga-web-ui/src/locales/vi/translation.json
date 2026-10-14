@@ -367,6 +367,8 @@
     "restoreProgress": "Khôi phục tiến trình",
     "restoreDesc": "Mở tệp sao lưu định dạng .manga để khôi phục lại các layer đã dịch.",
     "policyLinkText": "Điều khoản & Chính sách",
+    "privacyNoticePrefix": "Ảnh của bạn được xử lý riêng tư trên GPU và tự động hủy sau phiên. Bằng việc tải tệp lên, bạn đồng ý với",
+    "termsOfService": "Điều khoản dịch vụ",
     "appVersion": "Phiên bản 2.1.0-alpha",
     "uploadLabel": "Tải lên dự án mới",
     "restoreLabel": "Khôi phục tiến trình từ file .manga"

@@ -564,6 +564,15 @@ class OCRManager:
             print(f"❌ [OCR Error]: {e}")
             return ""
 
+    def recognize_batch(self, crop_images: list, language: str = "ja", batch_size: int = 16) -> list:
+        """Runs batch recognition on cropped images using SOTA OCRRouter."""
+        try:
+            from ocr_router import get_ocr_router
+            return get_ocr_router().recognize_batch(crop_images, source_language=language, batch_size=batch_size)
+        except Exception as e:
+            print(f"❌ [OCR Batch Error]: {e}")
+            return [self.recognize_crop(img, language=language, is_vip=True) for img in crop_images]
+
 
 # Mock User/Request class for testing
 class MockUser:

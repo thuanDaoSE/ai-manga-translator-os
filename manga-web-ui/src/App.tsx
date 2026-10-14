@@ -94,10 +94,16 @@ export default function App() {
       user: mockUser
     };
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session || mockSession);
-      cleanTrailingHash();
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setUser(session || mockSession);
+        cleanTrailingHash();
+      })
+      .catch((err) => {
+        console.warn("Supabase getSession fallback to mock session:", err);
+        setUser(mockSession);
+        cleanTrailingHash();
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session || mockSession);

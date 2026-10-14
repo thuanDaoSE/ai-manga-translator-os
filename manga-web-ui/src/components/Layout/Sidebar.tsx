@@ -9,9 +9,9 @@ import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useTranslation } from 'react-i18next';
-import { useServerStatusStore } from '../../store/useServerStatusStore';
 import toast from 'react-hot-toast';
 import { mangaApi } from '../../services/api';
+import { PaywallDrawer } from '../Drawers/PaywallDrawer';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 
@@ -97,7 +97,7 @@ function SortableItem({
             <div className="w-full h-full flex items-center justify-center bg-gray-800"><Loader2 className="animate-spin text-gray-600" size={16} /></div>
           )}
 
-          {(status === 'processing' || isProcessing) && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={20} /></div>}
+          {(status === 'processing' || status === 'uploading' || isProcessing) && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={20} /></div>}
           {status === 'completed' && <div className="absolute top-1 right-1 bg-emerald-500 rounded-full p-0.5 shadow-sm"><CheckCircle2 size={10} className="text-white" /></div>}
         </div>
 
@@ -105,7 +105,7 @@ function SortableItem({
         {/* 🚀 BẢN VÁ UI 2: CHIA LẠI KHÔNG GIAN (PADDING ĐỘNG) VÀ FIX BỊ ÉP CHỮ */}
         {/* ============================================================== */}
         <div className={`flex flex-col gap-1 overflow-hidden flex-1 min-w-0 pl-3 justify-center transition-all duration-300 ${
-          (status === 'processing' || status === 'waiting') 
+          (status === 'processing' || status === 'waiting' || status === 'uploading') 
             ? 'pr-12' 
             : 'pr-[80px]'
         }`}>
@@ -118,6 +118,11 @@ function SortableItem({
             </span>
           )}
           
+          {status === 'uploading' && (
+            <span className="flex items-center gap-1.5 text-[10px] text-blue-400 font-bold uppercase truncate animate-pulse">
+              <Upload size={12} className="animate-bounce" /> Đang tải ảnh lên...
+            </span>
+          )}
           {(status === 'unprocessed' || status === 'cleaned' || status === 'translating') && <span className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold uppercase truncate"><Clock size={12} /> {t('sidebar.waiting')}</span>}
           {status === 'waiting' && <span className="flex items-center gap-1.5 text-[10px] text-amber-500 font-bold uppercase truncate animate-pulse"><Clock size={12} /> {t('sidebar.waitingQueue')}</span>}
           
@@ -152,7 +157,7 @@ function SortableItem({
         {/* ============================================================== */}
         {/* 🚀 BẢN VÁ UI 3: TĂNG KÍCH THƯỚC CÁC NÚT BẤM DỄ THAO TÁC HƠN */}
         {/* ============================================================== */}
-        {!isSelectionMode && status !== 'processing' && status !== 'waiting' && (
+        {!isSelectionMode && status !== 'processing' && status !== 'waiting' && status !== 'uploading' && (
           <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex flex-col items-end gap-2 
             opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20"
           >
@@ -290,7 +295,8 @@ export default function Sidebar() {
   const isProcessing = useToolStore((state) => state.isProcessing);
   const { t } = useTranslation();
   const user = useAuthStore((state) => state.user);
-  const currentCredits = 999999; // Dedicated GPU instance in UFO-Space: Unlimited credits
+  const currentCredits = user?.isPro ? 999999 : (user?.credits !== undefined ? user.credits : 30);
+  const [showPaywall, setShowPaywall] = useState(false);
   const useGpu = useConfigStore((state) => state.useGpu);
   const checkFirstTimeConfig = () => {
     return true;
@@ -469,10 +475,9 @@ export default function Sidebar() {
   };
 
   const processSinglePage = (pageIndex: number) => {
-    const configStore = useConfigStore.getState();
-    const serverStatus = useServerStatusStore.getState().serverStatus;
-    if (configStore.useGpu && serverStatus === 'STARTING') {
-      toast.error("Vui lòng chờ GPU nổ máy...");
+    if (currentCredits < 1) {
+      setShowPaywall(true);
+      toast.error("Tài khoản của bạn đã hết điểm năng lượng (⚡0). Vui lòng nạp thêm để tiếp tục!");
       return Promise.resolve();
     }
     return new Promise<void>(async (resolve) => {
@@ -1070,10 +1075,12 @@ export default function Sidebar() {
   const errorPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'error').length;
   const processingPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'processing').length;
   const waitingPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'waiting').length;
+  const uploadingPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'uploading').length;
   const unprocessedPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating').length;
   const progressPercent = totalPages === 0 ? 0 : ((completedPages + errorPages) / totalPages) * 100;
   const hasUnprocessed = allProjectFiles.some(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error');
   const isAnyProcessingOrWaiting = allProjectFiles.some(({ index }) => pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting');
+  const isAnyUploading = allProjectFiles.some(({ index }) => pageStatuses[index] === 'uploading');
 
   const visibleFiles = visibleGroups.flatMap(g => g.pages);
 
@@ -1083,6 +1090,11 @@ export default function Sidebar() {
   const handleTranslateAll = async () => {
     if (!checkFirstTimeConfig()) return;
     if (visibleFiles.length === 0) return;
+    if (currentCredits < 1) {
+      setShowPaywall(true);
+      toast.error("Tài khoản của bạn đã hết điểm năng lượng (⚡0). Vui lòng nạp thêm để tiếp tục!");
+      return;
+    }
 
     // Lọc ra các trang cần dịch
     const pendingIndexes = visibleFiles
@@ -1163,8 +1175,9 @@ export default function Sidebar() {
 
     if (selectedIndexes.length === 0) return;
 
-    if (currentCredits <= 0) {
-      toast.error("Tài khoản đã hết số dư thời gian! Vui lòng nạp thêm để tiếp tục.");
+    if (currentCredits < 1) {
+      setShowPaywall(true);
+      toast.error("Tài khoản của bạn đã hết điểm năng lượng (⚡0). Vui lòng nạp thêm để tiếp tục!");
       return;
     }
 
@@ -1401,6 +1414,27 @@ export default function Sidebar() {
           )}
         </div>
 
+        {/* ⚡ HIỂN THỊ NĂNG LƯỢNG & NẠP ĐIỂM */}
+        <div className="mx-3 mb-2 px-3 py-2 bg-amber-500/10 border border-amber-500/25 rounded-xl flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-amber-400 font-black text-sm">⚡</span>
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-text-main leading-tight">
+                {Math.round(user?.isPro ? 999999 : (user?.credits !== undefined ? user.credits : 30))} Năng lượng
+              </span>
+              <span className="text-[9.5px] text-text-muted leading-tight">
+                {user?.isPro ? "Tài khoản Pro" : "1 trang = 1⚡"}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowPaywall(true)}
+            className="px-2.5 py-1 text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-black rounded-lg transition-all active:scale-95 cursor-pointer shadow-sm"
+          >
+            Nạp thêm
+          </button>
+        </div>
+
         {/* ── ZONE 2: COHESIVE PROGRESS & UPLOAD WIDGET ── */}
         <div className="px-3 pb-2 shrink-0 flex flex-col gap-2.5">
           {/* DEDICATED UPLOAD ZONE CARD - Tách biệt và làm to rõ ràng, tránh click nhầm */}
@@ -1562,6 +1596,8 @@ export default function Sidebar() {
                   
                   if (statuses.some(s => s === 'processing')) {
                     overallStatus = 'processing';
+                  } else if (statuses.some(s => s === 'uploading')) {
+                    overallStatus = 'uploading';
                   } else if (statuses.some(s => s === 'waiting')) {
                     overallStatus = 'waiting';
                   } else if (statuses.some(s => s === 'error')) {
@@ -1634,6 +1670,14 @@ export default function Sidebar() {
             >
               <Square size={14} fill="currentColor" className="text-rose-400" />
               <span>Dừng dịch hàng loạt ({processingPages + waitingPages} trang)</span>
+            </button>
+          ) : isAnyUploading ? (
+            <button
+              disabled
+              className="w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-md rounded-xl font-bold bg-blue-500/15 border border-blue-500/30 text-blue-400 cursor-wait select-none"
+            >
+              <Loader2 size={16} className="animate-spin text-blue-400" />
+              <span>Đang tải ảnh lên ({uploadingPages} trang)...</span>
             </button>
           ) : (
             <button
@@ -1794,6 +1838,12 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
+
+      {/* 🚀 MODAL NẠP TIỀN / NĂNG LƯỢNG */}
+      <PaywallDrawer
+        isOpen={showPaywall}
+        onClose={() => setShowPaywall(false)}
+      />
     </>
   );
 }

@@ -850,10 +850,10 @@ async def ensure_user_exists(db: AsyncSession, user_id: str, email: str = None):
         except Exception as e:
             logger.warning(f"Notice querying user by email: {e}")
 
-    # 3. Tạo mới User an toàn tuyệt đối
-    initial_balance = 86400.0 if (email and "td2005dataeg@gmail.com" in email) else 900.0
+    # 3. Tạo mới User an toàn tuyệt đối (Tặng 30 điểm năng lượng khi mới đăng ký)
+    initial_balance = 9999.0 if (email and "td2005dataeg@gmail.com" in email) else 30.0
     try:
-        user = models.User(id=user_id, email=email, balance_seconds=initial_balance)
+        user = models.User(id=user_id, email=email, credits=initial_balance, balance_seconds=initial_balance)
         db.add(user)
         await db.flush()
         return user
@@ -864,12 +864,12 @@ async def ensure_user_exists(db: AsyncSession, user_id: str, email: str = None):
             pass
         fallback_email = f"user_{user_id}_{uuid.uuid4().hex[:6]}@deepkoma.local"
         try:
-            user = models.User(id=user_id, email=fallback_email, balance_seconds=initial_balance)
+            user = models.User(id=user_id, email=fallback_email, credits=initial_balance, balance_seconds=initial_balance)
             db.add(user)
             await db.flush()
             return user
         except Exception:
-            user = models.User(id=user_id, email=email or fallback_email, balance_seconds=initial_balance)
+            user = models.User(id=user_id, email=email or fallback_email, credits=initial_balance, balance_seconds=initial_balance)
             return user
 
 # 🚀 HELPER: Kiểm tra quyền sở hữu trang truyện (Single-tenant mode: tìm trang theo page_id)
@@ -2479,19 +2479,12 @@ async def redraw_image(
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(get_current_user_id) # Bắt buộc đăng nhập
 ):
-    user_email = getattr(request.state, "user_email", None)
-    if user_email != "td2005dataeg@gmail.com":
-        raise HTTPException(
-            status_code=403,
-            detail="Tài khoản của bạn không có quyền sử dụng tính năng redraw."
-        )
-
     redraw_start = time.time()
     if req.page_id:
         # Kiểm tra quyền sở hữu trang truyện (Chống lỗ hổng IDOR)
         await check_page_ownership(req.page_id, user_id, db)
 
-    await check_balance_before_task(db, user_id)
+    await check_balance_before_task(db, user_id, min_balance=1.0)
 
     r2_input_filename = None
     r2_mask_filename = None
@@ -2755,13 +2748,12 @@ async def redraw_image(
             with open(clean_path, "wb") as f:
                 f.write(result_bytes)
 
-        # Deduct balance based on execution time
-        execution_time_seconds = time.time() - redraw_start
+        # Khấu trừ 1 điểm năng lượng cho mỗi lần Vẽ lại bằng AI (Redraw)
         target_key = req.page_id if req.page_id else req.original_image_hash
         if not target_key:
             target_key = hashlib.md5(req.image_url.encode('utf-8')).hexdigest()
         description = f"Vẽ lại bằng AI (Redraw) - Target: {target_key}"
-        user_obj = await deduct_balance(db, user_id, execution_time_seconds, description)
+        user_obj = await deduct_balance(db, user_id, 1.0, description)
 
         # 6. Đồng bộ DB nếu có page_id và không phải stitched mode (stitched đã lưu ở trên)
         if req.page_id and not is_stitched_mode:
@@ -3349,30 +3341,23 @@ async def cancel_page_translation(
         page = await check_page_ownership(page_id, user_id, db)
         
         task_id = payload.task_id
-        from worker import celery_app
-        from celery.result import AsyncResult
+        from task_manager import local_task_manager
+        local_task_manager.cancel_task(task_id)
         
-        res = AsyncResult(task_id, app=celery_app)
-        task_state = res.state
-        
-        # Đăng ký cờ hủy vào Redis cho Worker phát hiện
-        await async_redis_client.set(f"cancelled_task:{task_id}", "true", ex=3600)
-        
-        # Đặt trạng thái thất bại giả lập để ngắt quãng polling client
-        error_payload = {"status": "FAILURE", "result": "Đã hủy bởi người dùng"}
-        await async_redis_client.set(f"celery-task-meta-{task_id}", json.dumps(error_payload), ex=3600)
-        
-        # Gửi tín hiệu thu hồi (revoke) của Celery để tắt Worker
-        celery_app.control.revoke(task_id, terminate=True)
+        # Đăng ký cờ hủy vào Redis nếu có
+        try:
+            await async_redis_client.set(f"cancelled_task:{task_id}", "true", ex=3600)
+            error_payload = {"status": "FAILURE", "result": "Đã hủy bởi người dùng"}
+            await async_redis_client.set(f"celery-task-meta-{task_id}", json.dumps(error_payload), ex=3600)
+            await async_redis_client.publish(
+                f"task_progress:{task_id}", 
+                json.dumps({"state": "FAILURE", "progress": 0, "message": "Tiến trình đã bị hủy bởi người dùng!"})
+            )
+        except Exception:
+            pass
         
         page.status = "failed"
         await db.commit()
-        
-        # Gửi thông báo thất bại qua Pub/Sub
-        await async_redis_client.publish(
-            f"task_progress:{task_id}", 
-            json.dumps({"state": "FAILURE", "progress": 0, "message": "Tiến trình đã bị hủy bởi người dùng!"})
-        )
         
         return {
             "status": "success", 
@@ -3392,29 +3377,22 @@ async def cancel_task(
     user_id: str = Depends(get_current_user_id)
 ):
     try:
-        # Điều tuyến thông minh: Lấy page_id từ Redis để gọi API chuẩn hóa
-        page_id = await async_redis_client.get(f"task_page_id:{task_id}")
-        if not page_id:
-            # Fallback nếu không tìm thấy page_id
-            from worker import celery_app
-            celery_app.control.revoke(task_id, terminate=True)
-            await async_redis_client.set(f"cancelled_task:{task_id}", "true", ex=3600)
+        from task_manager import local_task_manager
+        local_task_manager.cancel_task(task_id)
+        
+        try:
+            page_id = await async_redis_client.get(f"task_page_id:{task_id}")
+            if page_id:
+                return await cancel_page_translation(
+                    page_id=page_id, 
+                    payload=CancelPayload(task_id=task_id), 
+                    db=db, 
+                    user_id=user_id
+                )
+        except Exception:
+            pass
             
-            error_payload = {"status": "FAILURE", "result": "Đã hủy bởi người dùng"}
-            await async_redis_client.set(f"celery-task-meta-{task_id}", json.dumps(error_payload), ex=3600)
-            
-            await async_redis_client.publish(
-                f"task_progress:{task_id}", 
-                json.dumps({"state": "FAILURE", "progress": 0, "message": "Tiến trình đã bị hủy!"})
-            )
-            return {"status": "success", "message": "Đã hủy tiến trình (không hoàn tiền)!"}
-            
-        return await cancel_page_translation(
-            page_id=page_id, 
-            payload=CancelPayload(task_id=task_id), 
-            db=db, 
-            user_id=user_id
-        )
+        return {"status": "success", "message": "Đã hủy tiến trình!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
@@ -3444,7 +3422,10 @@ async def translate_page(
     if not os.path.exists(raw_path):
         raise HTTPException(status_code=404, detail="Không tìm thấy file ảnh gốc trên máy chủ")
 
-    config = await request.json() if request else {}
+    try:
+        config = await request.json() if request else {}
+    except Exception:
+        config = {}
     task_id = str(uuid.uuid4())
 
     from task_manager import local_task_manager
@@ -3494,8 +3475,16 @@ async def translate_page(
                 except Exception as ex:
                     print(f"⚠️ [DeepSeek Error]: {ex}")
 
-    # Chạy tác vụ nền trên ThreadPool không làm nghẽn Event Loop
-    asyncio.create_task(asyncio.to_thread(run_pipeline_with_translation, task_id, page_id, config))
+    # Ưu tiên bắn sang RunPod Serverless GPU nếu có cấu hình
+    runpod_key = os.getenv("RUNPOD_API_KEY")
+    runpod_endpoint = os.getenv("RUNPOD_TRANSLATE_ENDPOINT_ID") or os.getenv("RUNPOD_ENDPOINT_ID")
+
+    if runpod_key and runpod_endpoint:
+        from runpod_service import process_page_on_runpod
+        asyncio.create_task(process_page_on_runpod(task_id, page_id, config))
+    else:
+        # Chạy tác vụ nền trên ThreadPool không làm nghẽn Event Loop
+        asyncio.create_task(asyncio.to_thread(run_pipeline_with_translation, task_id, page_id, config))
 
     return {"task_id": task_id}
 
@@ -3826,7 +3815,7 @@ async def log_time_transaction(
 
 async def check_balance_before_task(db: AsyncSession, user_id: str, min_balance: float = 1.0) -> User:
     """
-    Kiểm tra số dư thời gian của user. Nếu balance_seconds < min_balance, chặn ngay lập tức.
+    Kiểm tra số dư năng lượng của user. Nếu credits < min_balance, chặn ngay lập tức.
     """
     stmt = select(User).where(User.id == user_id)
     res = await db.execute(stmt)
@@ -3837,16 +3826,17 @@ async def check_balance_before_task(db: AsyncSession, user_id: str, min_balance:
     if user.is_pro:
         return user
         
-    if user.balance_seconds < min_balance:
+    current_credits = getattr(user, "credits", getattr(user, "balance_seconds", 0.0))
+    if current_credits < min_balance:
         raise HTTPException(
             status_code=402,
-            detail=f"Số dư tài khoản không đủ ({user.balance_seconds:.1f}s còn lại, yêu cầu tối thiểu {min_balance:.1f}s). Vui lòng nạp thêm thời gian GPU!"
+            detail=f"Tài khoản không đủ năng lượng ({current_credits:.0f} năng lượng còn lại, yêu cầu {min_balance:.0f}). Vui lòng nạp thêm để tiếp tục!"
         )
     return user
 
 async def deduct_balance(db: AsyncSession, user_id: str, execution_time_seconds: float, description: str) -> User:
     """
-    Khấu trừ chính xác số giây thực thi GPU của User.
+    Khấu trừ điểm năng lượng của User.
     🛡️ BẢO MẬT TÀI CHÍNH: Chặn đứng exploit nạp tiền miễn phí bằng số âm hoặc 0.
     """
     if execution_time_seconds <= 0:
@@ -3863,7 +3853,10 @@ async def deduct_balance(db: AsyncSession, user_id: str, execution_time_seconds:
     if user.is_pro:
         return user
         
-    user.balance_seconds = max(0.0, user.balance_seconds - execution_time_seconds)
+    current_cred = getattr(user, "credits", getattr(user, "balance_seconds", 0.0))
+    new_cred = max(0.0, current_cred - execution_time_seconds)
+    user.credits = new_cred
+    user.balance_seconds = new_cred
     
     # Ghi nhận lịch sử giao dịch
     new_txn = UserTransaction(
@@ -3877,8 +3870,8 @@ async def deduct_balance(db: AsyncSession, user_id: str, execution_time_seconds:
     # Ghi nhận lịch sử biến động số dư (CreditLog)
     desc_upper = description.upper()
     action_type = "TRANSLATE_LAMA"
-    if any(keyword in desc_upper for keyword in ["RUNPOD", "VÀ NỀN", "INPAINT", "GROK", "OPENAI", "CHATGPT", "BANANA"]):
-        action_type = "VÀ_NỀN_RUNPOD"
+    if any(keyword in desc_upper for keyword in ["RUNPOD", "VÀ NỀN", "INPAINT", "GROK", "OPENAI", "CHATGPT", "BANANA", "REDRAW"]):
+        action_type = "REDRAW_AI"
         
     await log_time_transaction(
         user_id=user.id,
@@ -3922,12 +3915,19 @@ async def activate_redraw_tool(
 # API 1: TẠO MÃ QR/LINK THANH TOÁN CHO NGƯỜI DÙNG
 # ==========================================
 def calculate_credits(amount_vnd: int) -> float:
-    # Quy đổi: 10.000 VNĐ = 15 phút (900 giây) chạy GPU
-    return float((amount_vnd / 10000) * 900)
+    # Quy đổi điểm năng lượng cho DeepKoma:
+    # 20.000 VNĐ = 50 điểm năng lượng
+    # 50.000 VNĐ = 150 điểm năng lượng
+    # 200.000 VNĐ = 700 điểm năng lượng
+    if amount_vnd >= 200000:
+        return float(amount_vnd // 285)
+    elif amount_vnd >= 50000:
+        return float(amount_vnd // 333)
+    else:
+        return float(amount_vnd // 400)
 
 def calculate_seconds(amount_vnd: int) -> float:
-    # Quy đổi: 10.000 VNĐ = 15 phút (900 giây) chạy GPU
-    return float((amount_vnd / 10000) * 900)
+    return calculate_credits(amount_vnd)
 
 class CreatePaymentLinkPayload(BaseModel):
     amount: int
@@ -3942,8 +3942,8 @@ async def create_payment_link(
 ):
     try:
         amount = payload.amount
-        if amount < 25000:
-            raise HTTPException(status_code=400, detail="Số tiền nạp tối thiểu là 25.000 VNĐ")
+        if amount < 20000:
+            raise HTTPException(status_code=400, detail="Số tiền nạp tối thiểu là 20.000 VNĐ")
     
         # Quy đổi kèm bonus
         credits_to_add = calculate_credits(amount)
@@ -4055,16 +4055,16 @@ async def get_payment_status(
                 user = user_res.scalar_one_or_none()
                 
                 if user:
-                    # Tính toán lượng giây cần cộng
-                    seconds_to_add = txn.seconds_added if txn.seconds_added else calculate_seconds(txn.amount)
-                    user.balance_seconds += seconds_to_add
+                    credits_to_add = txn.seconds_added if txn.seconds_added else calculate_credits(txn.amount)
+                    user.credits = (getattr(user, "credits", 0.0) or 0.0) + credits_to_add
+                    user.balance_seconds = (getattr(user, "balance_seconds", 0.0) or 0.0) + credits_to_add
                     
                     # Ghi lịch sử biến động số dư
                     new_hist = UserTransaction(
                         user_id=user.id,
-                        amount=seconds_to_add,
+                        amount=credits_to_add,
                         type="TOPUP",
-                        description=f"Nạp {seconds_to_add:.0f} giây qua cổng PayOS (Số tiền: {txn.amount:,}đ - Polling)",
+                        description=f"Nạp {credits_to_add:.0f} năng lượng qua cổng PayOS (Số tiền: {txn.amount:,}đ - Polling)",
                         order_code=order_code
                     )
                     db.add(new_hist)
@@ -4072,14 +4072,14 @@ async def get_payment_status(
                     # Ghi nhận lịch sử biến động số dư mới (TimeLog)
                     await log_time_transaction(
                         user_id=user.id,
-                        amount=seconds_to_add,
+                        amount=credits_to_add,
                         action_type="DEPOSIT",
-                        description=f"Nạp {seconds_to_add:.0f} giây qua cổng PayOS (Số tiền: {txn.amount:,}đ - Polling)",
+                        description=f"Nạp {credits_to_add:.0f} năng lượng qua cổng PayOS (Số tiền: {txn.amount:,}đ - Polling)",
                         db=db
                     )
                     
                     await db.commit()
-                    print(f"💰 [POLLING] TING TING! Đã cộng {seconds_to_add:.0f} giây cho user {user.id} (Order: {order_code})")
+                    print(f"💰 [POLLING] TING TING! Đã cộng {credits_to_add:.0f} năng lượng cho user {user.id} (Order: {order_code})")
                 else:
                     await db.commit()
             elif real_status == "CANCELLED" and txn.status == "PENDING":
@@ -4159,15 +4159,16 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 user = user_res.scalar_one_or_none()
                 
                 if user:
-                    seconds_to_add = txn.seconds_added if (txn and txn.seconds_added) else calculate_seconds(amount_paid)
-                    user.balance_seconds += seconds_to_add
+                    credits_to_add = txn.seconds_added if (txn and txn.seconds_added) else calculate_credits(amount_paid)
+                    user.credits = (getattr(user, "credits", 0.0) or 0.0) + credits_to_add
+                    user.balance_seconds = (getattr(user, "balance_seconds", 0.0) or 0.0) + credits_to_add
                     
                     # Ghi lịch sử biến động số dư
                     new_hist = UserTransaction(
                         user_id=user.id,
-                        amount=seconds_to_add,
+                        amount=credits_to_add,
                         type="TOPUP",
-                        description=f"Nạp {seconds_to_add:.0f} giây qua cổng PayOS (Số tiền: {amount_paid:,}đ)",
+                        description=f"Nạp {credits_to_add:.0f} năng lượng qua cổng PayOS (Số tiền: {amount_paid:,}đ)",
                         order_code=order_code
                     )
                     db.add(new_hist)
@@ -4175,14 +4176,14 @@ async def payos_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                     # Ghi nhận lịch sử biến động số dư mới (TimeLog)
                     await log_time_transaction(
                         user_id=user.id,
-                        amount=seconds_to_add,
+                        amount=credits_to_add,
                         action_type="DEPOSIT",
-                        description=f"Nạp {seconds_to_add:.0f} giây qua cổng PayOS (Số tiền: {amount_paid:,}đ)",
+                        description=f"Nạp {credits_to_add:.0f} năng lượng qua cổng PayOS (Số tiền: {amount_paid:,}đ)",
                         db=db
                     )
                     
                     await db.commit()
-                    print(f"💰 TING TING! Đã cộng {seconds_to_add:.0f} giây cho user {user.id} (Order: {order_code})")
+                    print(f"💰 TING TING! Đã cộng {credits_to_add:.0f} năng lượng cho user {user.id} (Order: {order_code})")
                 else:
                     await db.commit()
                     print(f"⚠️ Không tìm thấy user {txn.user_id} để cộng tiền")

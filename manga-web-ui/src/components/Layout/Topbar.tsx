@@ -12,7 +12,6 @@ import { useCanvasStore } from "../../store/useCanvasStore";
 import { exportTranslationToText } from "../Editor/ExportTextButton";
 import { mangaApi } from "../../services/api";
 import DeepKomaLogo from "../ui/DeepKomaLogo";
-import { ModelUpgradeBadges } from "./ModelUpgradeBadges";
 
 function getPageGroupKey(filename: string): string {
   const match = filename.match(/^(.*)_part_\d+\.[^.]+$/i);
@@ -353,9 +352,6 @@ export default function Topbar() {
           - TUYỆT ĐỐI KHÔNG TỰ Ý ĐƯA LẠI VÀO ĐÂY DƯỚI BẤT KỲ LÝ DO NÀO!
           ========================================================================================
         */}
-
-        {/* Badges nâng cấp model AI (đặt sát bên trái nút Export) */}
-        <ModelUpgradeBadges />
 
         {/* Menu Export */}
         <div className="relative shrink-0" ref={exportMenuRef}>

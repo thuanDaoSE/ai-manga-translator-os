@@ -1,3 +1,4 @@
+import os
 import uuid
 import json
 import asyncio
@@ -9,6 +10,7 @@ from database import get_db
 import db_models as models
 from task_manager import local_task_manager
 from worker import process_manga_page
+from runpod_service import process_page_on_runpod
 
 router = APIRouter(prefix="/api", tags=["translation"])
 
@@ -18,12 +20,17 @@ async def translate_page(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """Kích hoạt dịch trang truyện bằng Native Python AI GPU (Single-tenant local mode)"""
+    """Kích hoạt dịch trang truyện (Ưu tiên RunPod GPU Serverless nếu có config, fallback local)"""
     result = await db.execute(select(models.Page).where(models.Page.id == page_id))
     page = result.scalars().first()
     if not page:
         raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện")
         
+    # Kiểm tra số dư năng lượng (Tối thiểu 1 điểm năng lượng / trang)
+    from main import get_current_user_id, check_balance_before_task
+    user_id = await get_current_user_id(request)
+    await check_balance_before_task(db, user_id, min_balance=1.0)
+    
     config = await request.json()
     task_id = str(uuid.uuid4())
     
@@ -33,8 +40,15 @@ async def translate_page(
     page.status = "processing"
     await db.commit()
     
-    # Chạy tác vụ nền trên ThreadPool không làm nghẽn Event Loop
-    asyncio.create_task(asyncio.to_thread(process_manga_page, task_id, page_id, config))
+    runpod_key = os.getenv("RUNPOD_API_KEY")
+    runpod_endpoint = os.getenv("RUNPOD_TRANSLATE_ENDPOINT_ID") or os.getenv("RUNPOD_ENDPOINT_ID")
+
+    if runpod_key and runpod_endpoint:
+        # Bắn trực tiếp lên RunPod Serverless GPU
+        asyncio.create_task(process_page_on_runpod(task_id, page_id, config, user_id=user_id))
+    else:
+        # Chạy tác vụ nền trên ThreadPool không làm nghẽn Event Loop
+        asyncio.create_task(asyncio.to_thread(process_manga_page, task_id, page_id, config, user_id=user_id))
     
     return {"task_id": task_id}
 

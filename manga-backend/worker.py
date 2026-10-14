@@ -139,22 +139,16 @@ def get_lama_session():
             
         if os.path.exists(model_path):
             available = ort.get_available_providers()
-            providers = []
             if torch.cuda.is_available() and 'CUDAExecutionProvider' in available:
-                providers.append(('CUDAExecutionProvider', {
-                    'device_id': 0,
-                    'arena_extend_strategy': 'kNextPowerOfTwo',
-                    'gpu_mem_limit': 4 * 1024 * 1024 * 1024,
-                    'cudnn_conv_algo_search': 'DEFAULT',
-                    'do_copy_in_default_stream': True,
-                }))
-            providers.append('CPUExecutionProvider')
-            try:
-                _lama_session = ort.InferenceSession(model_path, providers=providers)
-                print(f"✅ [LAMA INIT] Khởi tạo LaMa ONNX thành công! Providers: {_lama_session.get_providers()}")
-            except Exception as e:
-                print(f"⚠️ [LAMA INIT CUDA FAIL] Lỗi GPU: {e}, fallback CPU...")
+                try:
+                    _lama_session = ort.InferenceSession(model_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+                    print(f"✅ [LAMA INIT] Khởi tạo LaMa ONNX thành công trên GPU CUDA! Providers: {_lama_session.get_providers()}")
+                except Exception as e:
+                    print(f"⚠️ [LAMA INIT CUDA FAIL] Lỗi GPU: {e}, fallback CPU...")
+                    _lama_session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+            else:
                 _lama_session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+                print(f"ℹ️ [LAMA INIT] Khởi tạo LaMa trên CPU. Providers: {_lama_session.get_providers()}")
         else:
             raise FileNotFoundError(f"Missing lama-manga.onnx at {model_path}")
     return _lama_session

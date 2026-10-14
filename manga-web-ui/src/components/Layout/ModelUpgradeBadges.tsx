@@ -98,7 +98,7 @@ export const ModelUpgradeBadges: React.FC = () => {
       }
     };
     eventSource.onerror = () => {
-      setIsJoyDownloading(false);
+      // SSE connection dropped/buffered by reverse proxy. Close SSE and let fallback polling maintain progress!
       eventSource.close();
       joySseRef.current = null;
     };
@@ -139,11 +139,66 @@ export const ModelUpgradeBadges: React.FC = () => {
       }
     };
     eventSource.onerror = () => {
-      setIsFluxDownloading(false);
+      // SSE connection dropped/buffered by reverse proxy. Close SSE and let fallback polling maintain progress!
       eventSource.close();
       fluxSseRef.current = null;
     };
   };
+
+  // 🚀 Fallback Polling every 1.5s when downloading to guarantee progress updates even through Cloudflare / Salad proxy buffering
+  useEffect(() => {
+    if (!isJoyDownloading && !isFluxDownloading) return;
+
+    const interval = setInterval(async () => {
+      try {
+        if (isJoyDownloading) {
+          const resJoy = await fetch(`${apiUrl}/api/editor/joycaption/status`).then((r) => (r.ok ? r.json() : null));
+          if (resJoy) {
+            setJoyStatus(resJoy);
+            if (resJoy.status === 'ready') {
+              setIsJoyDownloading(false);
+              notify.success(
+                'JoyCaption VLM đã sẵn sàng',
+                'Hệ thống tự động phân tích nét mặt và bối cảnh để nâng cao chất lượng dịch.'
+              );
+            } else if (resJoy.status === 'error') {
+              setIsJoyDownloading(false);
+              notify.error(
+                'Lỗi tải JoyCaption',
+                resJoy.error || 'Vui lòng kiểm tra kết nối mạng và thử lại sau.'
+              );
+            }
+          }
+        }
+
+        if (isFluxDownloading) {
+          const resFlux = await fetch(`${apiUrl}/api/editor/flux/status`).then((r) => (r.ok ? r.json() : null));
+          if (resFlux) {
+            setFluxStatus(resFlux);
+            if (resFlux.status === 'ready') {
+              setIsFluxDownloading(false);
+              setIsFluxReady(true);
+              notify.success(
+                'FLUX.1-Fill đã sẵn sàng',
+                'Công cụ Vẽ lại AI (Redraw) đã được mở khóa và sẵn sàng sử dụng.'
+              );
+            } else if (resFlux.status === 'error') {
+              setIsFluxDownloading(false);
+              setIsFluxReady(false);
+              notify.error(
+                'Lỗi tải FLUX.1-Fill',
+                resFlux.error || 'Vui lòng kiểm tra kết nối mạng và thử lại sau.'
+              );
+            }
+          }
+        }
+      } catch (e) {
+        // silent
+      }
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [isJoyDownloading, isFluxDownloading, apiUrl, setIsFluxReady]);
 
   // Trigger JoyCaption Preload
   const handleUpgradeJoyCaption = async () => {

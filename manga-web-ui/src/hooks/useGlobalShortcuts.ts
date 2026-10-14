@@ -59,22 +59,9 @@ export const useGlobalShortcuts = () => {
       }
 
       const keyToToolMap: Record<string, any> = {
-        'v': 'none', 'e': 'erase', 'y': 'restore', 'w': 'scan', 'r': 'redraw',
+        'v': 'none', 'e': 'erase', 'y': 'restore', 'w': 'scan',
         's': 'clone', 'b': 'speedline',
       };
-
-      if (key === 'r') {
-        const isFluxReady = useToolStore.getState().isFluxReady;
-        if (!isFluxReady) {
-          useToolStore.getState().triggerHighlightFluxBadge();
-          notify.warning(
-            'Yêu cầu mở khóa FLUX.1-Fill',
-            'Nhấn vào nút "FLUX Fill" ở góc trên để tải mô hình (~6.3GB) và mở khóa tính năng này.',
-            { icon: Lock }
-          );
-          return;
-        }
-      }
 
       if (keyToToolMap[key] && currentTool !== keyToToolMap[key]) {
         previousToolRef.current = currentTool;

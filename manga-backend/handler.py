@@ -16,6 +16,7 @@ from comic_text_detector.inference import TextDetector
 # Models are initialized lazily to optimize VRAM usage and enable cleanup
 device = "cuda" if torch.cuda.is_available() else "cpu"
 _ocr_manager = None
+_mocr = None
 text_detector = None
 lama_session = None
 
@@ -24,6 +25,33 @@ from torch.nn import functional as F
 import math
 import urllib.request
 import gc
+
+def get_manga_ocr():
+    global _mocr
+    if _mocr is None:
+        print("⚡ [GPU OCR] Initializing MangaOCR on GPU...")
+        from manga_ocr import MangaOcr
+        _mocr = MangaOcr()
+    return _mocr
+
+def run_batch_manga_ocr(mocr_engine, pil_images: list) -> list:
+    """Chạy MangaOCR theo Batch trên GPU để đạt tốc độ tối đa (~0.2s cho toàn trang)"""
+    if not pil_images:
+        return []
+    try:
+        pixel_values = mocr_engine.processor(images=pil_images, return_tensors="pt").pixel_values.to(mocr_engine.device)
+        generated_ids = mocr_engine.model.generate(pixel_values, max_new_tokens=128)
+        texts = mocr_engine.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+        return [mocr_engine._postprocess(t).strip() for t in texts]
+    except Exception as e:
+        print(f"⚠️ [MangaOCR Batch Warning]: {e}. Fallback to sequential...")
+        results = []
+        for img in pil_images:
+            try:
+                results.append(mocr_engine(img).strip())
+            except Exception:
+                results.append("")
+        return results
 
 def get_ocr_manager():
     global _ocr_manager
@@ -43,10 +71,126 @@ def get_text_detector():
 def get_lama_session():
     global lama_session
     if lama_session is None:
-        print("Lazy-loading LaMa session...")
-        device_providers = ['CUDAExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
-        lama_session = ort.InferenceSession(os.path.join(os.path.dirname(__file__), "lama-manga.onnx"), providers=device_providers)
+        model_path = os.path.join(os.path.dirname(__file__), "lama-manga.onnx")
+        if not os.path.exists(model_path):
+            model_path = os.path.join(os.path.dirname(__file__), "weights", "lama-manga.onnx")
+        
+        available = ort.get_available_providers()
+        print(f"ℹ️ [ORT] Available providers: {available}")
+        
+        providers = []
+        if torch.cuda.is_available() and 'CUDAExecutionProvider' in available:
+            providers.append(('CUDAExecutionProvider', {
+                'device_id': 0,
+                'arena_extend_strategy': 'kNextPowerOfTwo',
+                'gpu_mem_limit': 4 * 1024 * 1024 * 1024,
+                'cudnn_conv_algo_search': 'DEFAULT',
+                'do_copy_in_default_stream': True,
+            }))
+        providers.append('CPUExecutionProvider')
+
+        print(f"🚀 Initializing LaMa session with: {[p if isinstance(p, str) else p[0] for p in providers]}...")
+        try:
+            lama_session = ort.InferenceSession(model_path, providers=providers)
+            print(f"✅ LaMa ONNX session active: {lama_session.get_providers()}")
+        except Exception as e:
+            print(f"⚠️ LaMa GPU init failed ({e}), falling back to CPU...")
+            lama_session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
     return lama_session
+
+def inpaint_crop_lama(session, crop_img: np.ndarray, crop_mask: np.ndarray) -> np.ndarray:
+    """Inpaint một vùng crop cục bộ bằng LaMa 512x512 bảo toàn độ phân giải gốc 1:1"""
+    try:
+        h_crop, w_crop = crop_img.shape[:2]
+        original_crop_mask = crop_mask.copy()
+
+        scale = 1.0
+        if h_crop > 512 or w_crop > 512:
+            scale = 512.0 / max(h_crop, w_crop)
+            new_w, new_h = int(w_crop * scale), int(h_crop * scale)
+            crop_img_scaled = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            crop_mask_scaled = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+        else:
+            new_w, new_h = w_crop, h_crop
+            crop_img_scaled = crop_img
+            crop_mask_scaled = crop_mask
+
+        pad_bottom = 512 - new_h
+        pad_right = 512 - new_w
+        if pad_bottom > 0 or pad_right > 0:
+            crop_img_padded = cv2.copyMakeBorder(crop_img_scaled, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
+            crop_mask_padded = cv2.copyMakeBorder(crop_mask_scaled, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+        else:
+            crop_img_padded = crop_img_scaled
+            crop_mask_padded = crop_mask_scaled
+
+        img_t = np.transpose(cv2.cvtColor(crop_img_padded, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
+        mask_norm = (crop_mask_padded > 0).astype(np.float32)
+        mask_t = mask_norm[np.newaxis, np.newaxis, ...]
+
+        inputs = session.get_inputs()
+        ort_outs = session.run(None, {inputs[0].name: img_t, inputs[1].name: mask_t})
+        out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255.0).clip(0, 255).astype(np.uint8)
+        clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+
+        if scale != 1.0:
+            clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
+
+        mask_bool = original_crop_mask > 0
+        result = crop_img.copy()
+        result[mask_bool] = clean_crop[mask_bool]
+        return result
+    except Exception as e:
+        print(f"⚠️ [INPAINT CROP ERROR] {e}")
+        return crop_img
+
+def run_local_lama(img: np.ndarray, mask: np.ndarray, target_boxes: list = None) -> np.ndarray:
+    """Xóa chữ trên ảnh sử dụng LaMa ONNX trên GPU với context padding"""
+    try:
+        session = get_lama_session()
+        if session is None:
+            return img
+        h_img, w_img = img.shape[:2]
+
+        if max(h_img, w_img) <= 768:
+            return inpaint_crop_lama(session, img, mask)
+
+        clean_img = img.copy()
+
+        regions = []
+        if target_boxes:
+            for (bx1, by1, bx2, by2) in target_boxes:
+                regions.append((bx1, by1, bx2 - bx1, by2 - by1))
+        else:
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                if w < 10 or h < 10:
+                    continue
+                regions.append((x, y, w, h))
+
+        if not regions:
+            return clean_img
+
+        for (x, y, w, h) in regions:
+            pad_x = max(30, min(int(w * 0.4), 120))
+            pad_y = max(30, min(int(h * 0.4), 120))
+            x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
+            x2_pad, y2_pad = min(w_img, x + w + pad_x), min(h_img, y + h + pad_y)
+
+            crop_img = clean_img[y1_pad:y2_pad, x1_pad:x2_pad]
+            crop_mask = mask[y1_pad:y2_pad, x1_pad:x2_pad]
+
+            if cv2.countNonZero(crop_mask) == 0:
+                continue
+
+            cleaned_crop = inpaint_crop_lama(session, crop_img, crop_mask)
+            clean_img[y1_pad:y2_pad, x1_pad:x2_pad] = cleaned_crop
+
+        return clean_img
+    except Exception as e:
+        print(f"⚠️ [LAMA RUN ERROR] {e}")
+        return img
 
 # MangaOcr fallback functions purged in SaaS optimization
 
@@ -388,38 +532,11 @@ def handler(job):
         mask_b64 = job_input['mask_base64']
         crop_img = cv2.imdecode(np.frombuffer(base64.b64decode(img_b64), np.uint8), cv2.IMREAD_COLOR)
         crop_mask = cv2.imdecode(np.frombuffer(base64.b64decode(mask_b64), np.uint8), cv2.IMREAD_GRAYSCALE)
-
-        h_crop, w_crop = crop_img.shape[:2]
-        
-        # Xử lý tự scale và padding cho LaMa
-        scale = 1.0
-        if h_crop > 512 or w_crop > 512:
-            scale = 512.0 / max(h_crop, w_crop)
-            new_w, new_h = int(w_crop * scale), int(h_crop * scale)
-            crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-            crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-        else:
-            new_w, new_h = w_crop, h_crop
-
-        pad_bottom, pad_right = 512 - new_h, 512 - new_w
-        if pad_bottom > 0 or pad_right > 0:
-            crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
-            crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
-
-        img_t = np.transpose(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
-        mask_t = np.transpose((crop_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
-
-        ort_outs = get_lama_session().run(None, {get_lama_session().get_inputs()[0].name: img_t, get_lama_session().get_inputs()[1].name: mask_t})
-        out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
-        clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
-
-        if scale != 1.0:
-            clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
-
+        clean_crop = inpaint_crop_lama(get_lama_session(), crop_img, crop_mask)
         _, buffer = cv2.imencode('.png', clean_crop)
         return {"status": "success", "clean_crop_base64": base64.b64encode(buffer).decode('utf-8')}
 
-    # 🟢 4. LỆNH TRANSLATE: Dịch toàn bộ trang truyện (Giữ nguyên code cũ của sếp, bổ sung Modular API và Upscaling)
+    # 🟢 4. LỆNH TRANSLATE: Dịch toàn bộ trang truyện (Tối ưu GPU Serverless siêu tốc ~1-3s)
     task_type = job_input.get('task_type', 'clean_only')
     img_b64 = job_input['image_base64']
     img_data = base64.b64decode(img_b64)
@@ -430,85 +547,127 @@ def handler(job):
     extracted_data = []
 
     try:
-        # Step 1: Clean Phase (CTD + LaMa)
+        # Step 1: Clean Phase (CTD + LaMa + Batch OCR)
         if task_type in ['clean_only', 'clean_and_upscale']:
-            result = get_text_detector()(image)
-            ctd_mask = result[0] if isinstance(result, tuple) else result
-            if ctd_mask.max() <= 1.0: ctd_mask = (ctd_mask * 255).astype(np.uint8)
-            else: ctd_mask = ctd_mask.astype(np.uint8)
+            detector = get_text_detector()
+            result = detector(image)
             
-            _, ctd_mask = cv2.threshold(ctd_mask, 127, 255, cv2.THRESH_BINARY)
-            fat_mask = cv2.dilate(ctd_mask, np.ones((7, 7), np.uint8), iterations=2)
-            _, white_regions = cv2.threshold(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), 200, 255, cv2.THRESH_BINARY)
+            mask_raw = result[0] if isinstance(result, tuple) else result
+            blk_list = result[2] if isinstance(result, tuple) and len(result) > 2 else []
             
-            smart_mask = cv2.dilate(cv2.bitwise_and(fat_mask, cv2.bitwise_or(ctd_mask, white_regions)), np.ones((3, 3), np.uint8), iterations=1)
-            mask = smart_mask.copy()
-            mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
+            if mask_raw.max() <= 1.0:
+                mask_raw_bin = (mask_raw * 255).astype(np.uint8)
+            else:
+                mask_raw_bin = mask_raw.astype(np.uint8)
+            _, mask_raw_bin = cv2.threshold(mask_raw_bin, 127, 255, cv2.THRESH_BINARY)
             
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            count = 1
-
+            fat_mask = cv2.dilate(mask_raw_bin, np.ones((7, 7), np.uint8), iterations=2)
+            gray_img = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            _, white_regions = cv2.threshold(gray_img, 200, 255, cv2.THRESH_BINARY)
+            
+            smart_mask = cv2.bitwise_and(fat_mask, cv2.bitwise_or(mask_raw_bin, white_regions))
+            smart_mask = cv2.dilate(smart_mask, np.ones((3, 3), np.uint8), iterations=1)
+            mask = cv2.dilate(smart_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
+            
+            # 1.1 Lấy tọa độ text boxes (ưu tiên blk_list của CTD)
+            detector_boxes = []
+            if blk_list:
+                for blk in blk_list:
+                    bx1, by1, bx2, by2 = blk.xyxy
+                    w_blk = bx2 - bx1
+                    h_blk = by2 - by1
+                    if w_blk >= 16 and h_blk >= 16:
+                        detector_boxes.append((int(bx1), int(by1), int(bx2), int(by2)))
+            
+            if not detector_boxes:
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                for cnt in contours:
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    if w >= 16 and h >= 16:
+                        detector_boxes.append((x, y, x + w, y + h))
+            
             lang = job_input.get('language') or job_input.get('source_language') or 'ja'
-            ocr_manager = get_ocr_manager()
-            for cnt in contours:
-                x, y, w, h = cv2.boundingRect(cnt)
-                if w < 16 or h < 16: continue 
-                
-                japanese_text = ocr_manager.recognize_crop(image[y:y+h, x:x+w], language=lang, is_vip=True)
-                clean_text = (japanese_text or "").strip()
-                extracted_data.append({"id": count, "box_coordinates": {"x1": x, "y1": y, "x2": x+w, "y2": y+h}, "japanese": clean_text, "vietnamese": ""})
-                count += 1
-                
-                pad_x, pad_y = max(40, min(int(w * 0.5), 150)), max(40, min(int(h * 0.5), 150))
-                x1_pad, y1_pad = max(0, x - pad_x), max(0, y - pad_y)
-                x2_pad, y2_pad = min(w_img, x + w + pad_x), min(h_img, y + h + pad_y)
-                crop_img = clean_image[y1_pad:y2_pad, x1_pad:x2_pad]
-                crop_mask = mask[y1_pad:y2_pad, x1_pad:x2_pad]
-                
-                if cv2.countNonZero(crop_mask) == 0: continue
-                
-                h_crop, w_crop = crop_img.shape[:2]
-                original_crop_mask = crop_mask.copy()
-                
-                scale = 1.0
-                if h_crop > 512 or w_crop > 512:
-                    scale = 512.0 / max(h_crop, w_crop)
-                    new_w, new_h = int(w_crop * scale), int(h_crop * scale)
-                    crop_img = cv2.resize(crop_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-                    crop_mask = cv2.resize(crop_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
-                else:
-                    new_w, new_h = w_crop, h_crop
+            if lang == 'ja':
+                detector_boxes.sort(key=lambda b: (-b[2], b[1]))
+            else:
+                detector_boxes.sort(key=lambda b: (b[1], b[0]))
+            
+            # 1.2 Xóa chữ bằng LaMa Inpainting trên GPU siêu tốc
+            clean_image = run_local_lama(image, mask, target_boxes=detector_boxes)
+            
+            # 1.3 Batch OCR nhận diện chữ đa ngữ (Hayai-OCR v2 SigLIP 2)
+            valid_boxes = []
+            box_crops = []
+            for (bx1, by1, bx2, by2) in detector_boxes:
+                crop = image[by1:by2, bx1:bx2]
+                if crop.size == 0:
+                    continue
+                valid_boxes.append((bx1, by1, bx2, by2))
+                box_crops.append(crop)
+            
+            if box_crops:
+                recognized_texts = []
+                pil_crops = [Image.fromarray(cv2.cvtColor(c, cv2.COLOR_BGR2RGB)) for c in box_crops]
 
-                pad_bottom, pad_right = 512 - new_h, 512 - new_w
-                if pad_bottom > 0 or pad_right > 0:
-                    crop_img = cv2.copyMakeBorder(crop_img, 0, pad_bottom, 0, pad_right, cv2.BORDER_REPLICATE)
-                    crop_mask = cv2.copyMakeBorder(crop_mask, 0, pad_bottom, 0, pad_right, cv2.BORDER_CONSTANT, value=0)
+                # Ưu tiên MangaOCR chạy Batch GPU trực tiếp cho Manga Tiếng Nhật (chuẩn 100% ngữ cảnh Manga)
+                if lang in ['ja', 'auto', 'japanese', '']:
+                    try:
+                        mocr = get_manga_ocr()
+                        recognized_texts = run_batch_manga_ocr(mocr, pil_crops)
+                    except Exception as mocr_err:
+                        print(f"⚠️ [GPU MANGA OCR ERROR] {mocr_err}")
 
-                img_t = np.transpose(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0, (2, 0, 1))[np.newaxis, ...]
-                mask_t = np.transpose((crop_mask > 0).astype(np.float32)[:, :, np.newaxis], (2, 0, 1))[np.newaxis, ...]
-
-                ort_outs = get_lama_session().run(None, {get_lama_session().get_inputs()[0].name: img_t, get_lama_session().get_inputs()[1].name: mask_t})
-                out_img = (np.transpose(ort_outs[0][0], (1, 2, 0)) * 255).clip(0, 255).astype(np.uint8)
-                clean_crop = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)[0:new_h, 0:new_w]
+                # Nếu tiếng Hàn/Trung/Anh hoặc MangaOCR chưa có kết quả, chạy ocr_router / ocr_manager
+                if not recognized_texts or all(not t for t in recognized_texts):
+                    try:
+                        from ocr_router import get_ocr_router
+                        ocr_router = get_ocr_router()
+                        recognized_texts = ocr_router.recognize_batch(
+                            image_inputs=box_crops,
+                            source_language=lang,
+                            batch_size=16
+                        )
+                    except Exception as batch_ocr_err:
+                        print(f"⚠️ [BATCH OCR FALLBACK] {batch_ocr_err}")
+                        try:
+                            ocr_mgr = get_ocr_manager()
+                            recognized_texts = [
+                                ocr_mgr.recognize_crop(crop, language=lang, is_vip=True)
+                                for crop in box_crops
+                            ]
+                        except Exception as mgr_err:
+                            print(f"⚠️ [OCR MGR ERROR] {mgr_err}")
+                            recognized_texts = [""] * len(box_crops)
                 
-                if scale != 1.0: clean_crop = cv2.resize(clean_crop, (w_crop, h_crop), interpolation=cv2.INTER_CUBIC)
-                mask_bool = original_crop_mask > 0
-                clean_image[y1_pad:y2_pad, x1_pad:x2_pad][mask_bool] = clean_crop[mask_bool]
+                count = 1
+                for (bx1, by1, bx2, by2), recognized_text in zip(valid_boxes, recognized_texts):
+                    clean_text = (recognized_text or "").strip()
+                    extracted_data.append({
+                        "id": count,
+                        "box_coordinates": {"x1": int(bx1), "y1": int(by1), "x2": int(bx2), "y2": int(by2)},
+                        "japanese": clean_text,
+                        "original_text": clean_text,
+                        "vietnamese": ""
+                    })
+                    count += 1
         else:
             # upscale_only: direct original image to upscaling phase without cleaning
             clean_image = image
 
+
         # Step 2: VRAM release for clean models before upscaling to prevent OOM
         if task_type == 'clean_and_upscale':
             print("Releasing VRAM of CTD/LaMa/OCR before upscaling...")
-            global _ocr_manager, text_detector, lama_session
+            global _ocr_manager, _mocr, text_detector, lama_session
             try:
                 del _ocr_manager
+                del _mocr
                 del text_detector
                 del lama_session
             except Exception as e:
                 print(f"Error deleting models: {e}")
             _ocr_manager = None
+            _mocr = None
             text_detector = None
             lama_session = None
             gc.collect()

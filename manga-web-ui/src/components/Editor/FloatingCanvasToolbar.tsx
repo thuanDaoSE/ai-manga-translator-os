@@ -481,19 +481,8 @@ export const FloatingCanvasToolbar: React.FC<Props> = ({
             mode="redraw" 
             icon={Wand2} 
             label="Vẽ lại AI (FLUX) (R)" 
-            shortLabel="Vẽ lại FLUX (R)" 
-            isLocked={!isFluxReady}
-            lockMessage={!isFluxReady ? "Cần tải mô hình FLUX Fill (~6.3GB) để mở khóa" : undefined}
-            onLockedClick={() => {
-              triggerHighlightFluxBadge();
-              notify.warning(
-                'Yêu cầu mở khóa FLUX.1-Fill',
-                'Nhấn vào nút "FLUX Fill" ở góc trên để tải mô hình (~6.3GB) và mở khóa tính năng này.',
-                { icon: Lock }
-              );
-            }}
+            shortLabel="Vẽ lại AI (R)" 
           />
-
           <ToolButton mode="clone" icon={Copy} label="Clone Stamp (S)" shortLabel="Clone Stamp" />
           <ToolButton mode="speedline" icon={Brush} label="Cọ vẽ tay (B)" shortLabel="Cọ vẽ tay" />
           <ToolButton mode="restore" icon={RotateCcw} label="Khôi phục gốc (Y)" shortLabel="Khôi phục gốc (Y)" />

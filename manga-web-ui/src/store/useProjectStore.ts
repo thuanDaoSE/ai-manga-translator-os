@@ -5,7 +5,7 @@ import { splitLongImage } from "../utils";
 
 // 🚀 1. THÊM "cleaned" VÀO ĐÂY:
 // 🚀 Thêm "translating", "completed" và "waiting" vào danh sách
-export type PageStatus = "unprocessed" | "processing" | "cleaned" | "translating" | "completed" | "error" | "trash" | "waiting";
+export type PageStatus = "unprocessed" | "processing" | "cleaned" | "translating" | "completed" | "error" | "trash" | "waiting" | "uploading";
 
 export interface ProgressData {
   percent: number;
@@ -83,7 +83,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       const newStatuses = { ...state.pageStatuses };
       const newRetryCounts = { ...state.retryCounts };
       for (let i = 0; i < files.length; i++) {
-        newStatuses[startIndex + i] = "waiting";
+        newStatuses[startIndex + i] = "uploading";
         newRetryCounts[startIndex + i] = 0;
       }
       return {
@@ -130,8 +130,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
           const i = nextIndex++;
           const actualIndex = startIndex + i;
           set((state) => ({
-            pageStatuses: { ...state.pageStatuses, [actualIndex]: "processing" },
-            progresses: { ...state.progresses, [actualIndex]: { percent: 50, message: "Đang Upload..." } }
+            pageStatuses: { ...state.pageStatuses, [actualIndex]: "uploading" },
+            progresses: { ...state.progresses, [actualIndex]: { percent: 50, message: "Đang tải lên..." } }
           }));
 
           let attempts = 0;

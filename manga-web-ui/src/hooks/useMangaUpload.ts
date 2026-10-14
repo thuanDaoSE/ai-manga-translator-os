@@ -15,7 +15,8 @@ export interface UseMangaUploadReturn {
 export function useMangaUpload(): UseMangaUploadReturn {
   const projectStore = useProjectStore();
   const [isAgreed, setIsAgreedState] = useState<boolean>(() => {
-    return localStorage.getItem('manga_policy_agreed') === 'true';
+    const saved = localStorage.getItem('manga_policy_agreed');
+    return saved !== null ? saved === 'true' : true;
   });
 
   const setIsAgreed = (agreed: boolean) => {
@@ -37,6 +38,9 @@ export function useMangaUpload(): UseMangaUploadReturn {
       e.target.value = '';
       return;
     }
+
+    localStorage.setItem('manga_policy_agreed', 'true');
+    setIsAgreedState(true);
 
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files).sort((a, b) =>

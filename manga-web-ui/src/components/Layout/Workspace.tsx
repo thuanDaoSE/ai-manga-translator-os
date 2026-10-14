@@ -1714,6 +1714,23 @@ export default function Workspace() {
                     {(isCurrentPageProcessing || isProcessing) ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} className="group-hover:text-slate-950 transition-colors" />}
                     <span>{(isCurrentPageProcessing || isProcessing) ? dynamicLoadingText : "✨ Xóa chữ thông minh"}</span>
                   </button>
+
+                  <div className="w-px h-6 bg-border mx-0.5 shrink-0"></div>
+
+                  {/* Button 3: Vẽ với AI */}
+                  <button 
+                    onClick={() => {
+                      useToolStore.getState().setActiveMode('redraw');
+                      useToolStore.getState().setShowRightPanel(true);
+                      toast("Hãy dùng cọ tô vùng cần vẽ lại trên tranh, sau đó nhập Prompt mô tả ở bảng bên phải!", { icon: "🎨" });
+                    }} 
+                    disabled={isCurrentPageProcessing || isProcessing} 
+                    className="relative flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500 hover:text-slate-950 disabled:opacity-50 transition-all cursor-pointer group shadow-sm shrink-0"
+                    title="Dùng AI vẽ lại tranh hoặc chi tiết theo mô tả"
+                  >
+                    <Bot size={14} className="group-hover:text-slate-950 transition-colors" />
+                    <span>✨ Vẽ với AI</span>
+                  </button>
                 </div>
               )}
             </>

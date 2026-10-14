@@ -12,11 +12,13 @@ interface PaywallDrawerProps {
 }
 
 const calculateSeconds = (vnd: number) => {
-  const baseSeconds = (vnd / 1000) * 100;
+  let credits = Math.floor(vnd / 400);
+  if (vnd >= 200000) credits = Math.floor(vnd / 285);
+  else if (vnd >= 50000) credits = Math.floor(vnd / 333);
   return {
-    base: baseSeconds,
+    base: credits,
     bonus: 0,
-    total: baseSeconds,
+    total: credits,
     percent: 0
   };
 };
@@ -37,9 +39,9 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const predefinedAmounts = [
-    { value: 20000, label: '20k' },
-    { value: 50000, label: '50k' },
-    { value: 200000, label: '200k' },
+    { value: 20000, label: '20k (+50⚡)' },
+    { value: 50000, label: '50k (+150⚡)' },
+    { value: 200000, label: '200k (+700⚡)' },
   ];
 
   const finalAmount = selectedAmount;
@@ -212,7 +214,7 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
                 <h3 className="text-sm text-gray-400 font-semibold uppercase tracking-wider">{t('paywall.totalAmountToPay')}</h3>
                 <p className="text-2xl font-black text-white">{finalAmount.toLocaleString('vi-VN')} VNĐ</p>
                 <div className="inline-block px-3 py-1 bg-yellow-400/10 border border-yellow-400/20 rounded-full text-yellow-400 text-[11px] font-black mt-1">
-                  {t('paywall.receiveCredits', { count: equivalentSeconds, minutes: Math.round(equivalentSeconds / 60) })}
+                  ⚡ Nhận ngay +{equivalentSeconds} Điểm Năng Lượng
                 </div>
               </div>
 

@@ -11,8 +11,9 @@ class User(Base):
     id = Column(String, primary_key=True, index=True) # ID từ Supabase/Firebase
     email = Column(String, unique=True, index=True)
     
-    # Chiến lược Pay-as-you-go bằng thời gian chạy GPU (Time-Based Billing)
-    balance_seconds = Column(Float, default=900.0)  # Tặng 900 giây (15 phút) dùng thử khi tạo nick mới
+    # Điểm năng lượng (Mới đăng ký tặng 30 điểm năng lượng)
+    credits = Column(Float, default=30.0)
+    balance_seconds = Column(Float, default=30.0)  # Tương thích ngược
     
     # Chiến lược Subscription (Thuê bao tháng)
     is_pro = Column(Boolean, default=False)

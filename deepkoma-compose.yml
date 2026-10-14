@@ -1,0 +1,34 @@
+services:
+  deepkoma-backend:
+    image: thuandaose/ai-manga-translator:latest
+    container_name: deepkoma-backend
+    restart: unless-stopped
+    working_dir: /app/manga-backend
+    entrypoint: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://deepkoma:secretpassword@ufo-postgres:5432/manga_studio
+      - SYNC_DATABASE_URL=postgresql+psycopg2://deepkoma:secretpassword@ufo-postgres:5432/manga_studio
+      - REDIS_HOST=ufo-redis
+      - REDIS_PORT=6379
+      - BACKEND_BASE_URL=https://deepkoma.pro
+      - PORT=8000
+      - UFO_DEV_BYPASS=true
+      - DISABLE_LOCAL_NSFW=True
+    env_file:
+      - .env
+    volumes:
+      - ./workspace:/app/workspace
+    networks:
+      - ufo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1536M
+
+networks:
+  ufo_network:
+    external: true
+    name: ufo-infra_default

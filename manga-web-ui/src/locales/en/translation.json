@@ -367,6 +367,8 @@
     "restoreProgress": "Restore Progress",
     "restoreDesc": "Open .manga backup files to restore translated text layers.",
     "policyLinkText": "Terms & Policy",
+    "privacyNoticePrefix": "Your images are processed privately on GPU and automatically deleted after the session. By uploading files, you agree to the",
+    "termsOfService": "Terms of Service",
     "appVersion": "Version 2.1.0-alpha",
     "uploadLabel": "Upload new project",
     "restoreLabel": "Restore progress from .manga file"
