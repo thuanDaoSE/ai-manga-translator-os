@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Check, Copy, AlertCircle, Sparkles, CreditCard, ArrowLeft, ExternalLink } from 'lucide-react';
+import { X, Check, Copy, AlertCircle, Zap, CreditCard, ArrowLeft, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../store/useAuthStore';
 import { mangaApi } from '../../services/api';
@@ -137,8 +137,8 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800/60 bg-black/20">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-indigo-400" />
-            <h2 className="text-lg font-bold tracking-tight">{t('paywall.title')}</h2>
+            <Zap className="w-5 h-5 text-amber-400 fill-amber-400" />
+            <h2 className="text-lg font-bold tracking-tight">Nạp Điểm Năng Lượng</h2>
           </div>
           <button 
             onClick={onClose} 
@@ -213,8 +213,8 @@ export const PaywallDrawer: React.FC<PaywallDrawerProps> = ({ isOpen, onClose })
               <div className="text-center space-y-1">
                 <h3 className="text-sm text-gray-400 font-semibold uppercase tracking-wider">{t('paywall.totalAmountToPay')}</h3>
                 <p className="text-2xl font-black text-white">{finalAmount.toLocaleString('vi-VN')} VNĐ</p>
-                <div className="inline-block px-3 py-1 bg-yellow-400/10 border border-yellow-400/20 rounded-full text-yellow-400 text-[11px] font-black mt-1">
-                  ⚡ Nhận ngay +{equivalentSeconds} Điểm Năng Lượng
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-400/10 border border-amber-400/20 rounded-full text-amber-400 text-[11px] font-black mt-1">
+                  <Zap size={13} className="fill-amber-400" /> Nhận ngay +{equivalentSeconds} Điểm Năng Lượng
                 </div>
               </div>
 

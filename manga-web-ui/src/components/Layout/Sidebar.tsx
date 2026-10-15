@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Lock, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search, Settings2, Globe, Plus } from 'lucide-react';
+import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Lock, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search, Settings2, Globe, Plus, Zap } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
@@ -1417,7 +1417,7 @@ export default function Sidebar() {
         {/* ⚡ HIỂN THỊ NĂNG LƯỢNG & NẠP ĐIỂM */}
         <div className="mx-3 mb-2 px-3 py-2 bg-amber-500/10 border border-amber-500/25 rounded-xl flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-2">
-            <span className="text-amber-400 font-black text-sm">⚡</span>
+            <Zap size={16} className="text-amber-400 fill-amber-400 shrink-0" />
             <div className="flex flex-col">
               <span className="text-xs font-bold text-text-main leading-tight">
                 {Math.round(user?.isPro ? 999999 : (user?.credits !== undefined ? user.credits : 30))} Năng lượng
@@ -1763,7 +1763,7 @@ export default function Sidebar() {
               <button
                 onClick={handleTranslateSelected}
                 disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
-                title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết số dư thời gian GPU' : `Dịch ${selectedUnprocessedCount} trang`}
+                title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết năng lượng (⚡0)' : `Dịch ${selectedUnprocessedCount} trang`}
                 className={`relative flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
                   ${nothingToTranslate || isAnyProcessingOrWaiting
                     ? 'bg-border/30 text-text-muted cursor-not-allowed border border-transparent'
@@ -1774,7 +1774,7 @@ export default function Sidebar() {
               >
                 <Sparkles size={15} strokeWidth={2.5} />
                 {!hasEnough && !nothingToTranslate ? (
-                  <span>Hết thời gian GPU</span>
+                  <span>Hết năng lượng (0⚡)</span>
                 ) : (
                   <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size} trang</span>
                 )}

@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Download, ChevronDown, Palette, ImageDown, FileText, Image as ImageIcon } from "lucide-react";
+import { 
+  Download, ChevronDown, Palette, ImageDown, FileText, Image as ImageIcon,
+  User, CreditCard, HelpCircle, LogOut, Zap
+} from "lucide-react";
 import { saveAs } from 'file-saver';
 import { useTranslation } from "react-i18next";
 import toast from "react-hot-toast";
@@ -12,6 +15,9 @@ import { useCanvasStore } from "../../store/useCanvasStore";
 import { exportTranslationToText } from "../Editor/ExportTextButton";
 import { mangaApi } from "../../services/api";
 import DeepKomaLogo from "../ui/DeepKomaLogo";
+import { PaywallDrawer } from "../Drawers/PaywallDrawer";
+import PaymentHistoryModal from "../Modals/PaymentHistoryModal";
+import SupportModal from "../Modals/SupportModal";
 
 function getPageGroupKey(filename: string): string {
   const match = filename.match(/^(.*)_part_\d+\.[^.]+$/i);
@@ -21,6 +27,7 @@ function getPageGroupKey(filename: string): string {
 export default function Topbar() {
   const { t } = useTranslation();
   const { isComparing, setIsComparing } = useToolStore();
+  const { user, signOut } = useAuthStore();
   const projectStore = useProjectStore();
   const { fileQueue, currentIndex } = projectStore;
   const activeFile = fileQueue[currentIndex];
@@ -40,12 +47,20 @@ export default function Topbar() {
 
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [isPaywallOpen, setIsPaywallOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
         setIsExportMenuOpen(false);
+      }
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+        setIsAccountMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -339,19 +354,18 @@ export default function Topbar() {
         </div>
       </div>
 
-      {/* 3. RIGHT ZONE: MODEL UPGRADE BADGES & EXPORT */}
+      {/* 3. RIGHT ZONE: ENERGY, EXPORT & USER PROFILE */}
       <div className="flex items-center justify-end gap-2.5 flex-1 relative">
-        {/* 
-          ========================================================================================
-          ⚠️ QUY TẮC CỐT LÕI (BẮT BUỘC TUÂN THỦ - TUYỆT ĐỐI KHÔNG ĐƯỢC PHÉP THAY ĐỔI):
-          1. TUYỆT ĐỐI KHÔNG ĐƯỢC THÊM CỤM "NẠP GPU" (GPU BALANCE / CREDITS / CONSOLE / RECHARGE SWITCH)
-             VÀO TOPBAR!
-          2. TUYỆT ĐỐI KHÔNG ĐƯỢC THÊM MENU "PROFILE / ACCOUNT / AVATAR" VÀO TOPBAR!
-          - Lý do: Người dùng yêu cầu Topbar phải tối giản, sạch sẽ, chỉ giữ các công cụ thao tác trực tiếp.
-          - Toàn bộ tính năng tài khoản và nạp GPU thuộc về Sidebar hoặc Settings Modal riêng biệt.
-          - TUYỆT ĐỐI KHÔNG TỰ Ý ĐƯA LẠI VÀO ĐÂY DƯỚI BẤT KỲ LÝ DO NÀO!
-          ========================================================================================
-        */}
+        {/* Nút Năng Lượng (Energy Badge) - Dùng icon Zap tia sét, không dùng icon AI */}
+        <button
+          onClick={() => setIsPaywallOpen(true)}
+          className="h-9 flex items-center gap-1.5 px-3 rounded-xl border border-amber-500/25 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 transition-all group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-xs font-bold active:scale-95"
+          title="Nạp thêm năng lượng"
+        >
+          <Zap size={14} className="text-amber-400 fill-amber-400 group-hover:scale-110 transition-transform" />
+          <span>{user?.isPro ? "Pro" : `${Math.round(user?.credits !== undefined ? user.credits : 30).toLocaleString()} ⚡`}</span>
+          {!user?.isPro && <span className="text-[10px] font-extrabold uppercase text-amber-500/90 ml-0.5 hidden sm:inline">Nạp thêm</span>}
+        </button>
 
         {/* Menu Export */}
         <div className="relative shrink-0" ref={exportMenuRef}>
@@ -360,6 +374,7 @@ export default function Topbar() {
             onClick={() => {
               if (isExporting) return;
               setIsExportMenuOpen(!isExportMenuOpen); 
+              setIsAccountMenuOpen(false);
             }} 
             className={`flex items-center gap-1.5 bg-primary hover:bg-primary-hover px-4 py-1.5 rounded-lg text-[12px] font-bold text-white shadow-md transition-colors active:scale-95 shrink-0 ${isExporting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
           >
@@ -387,7 +402,83 @@ export default function Topbar() {
             </div>
           )}
         </div>
+
+        {/* Menu Account / Profile */}
+        <div className="relative shrink-0" ref={accountMenuRef}>
+          <button 
+            onClick={() => { 
+              setIsAccountMenuOpen(!isAccountMenuOpen); 
+              setIsExportMenuOpen(false); 
+            }} 
+            className="flex items-center justify-center w-9 h-9 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 hover:brightness-110 focus:ring-2 focus:ring-amber-500/50 transition-all active:scale-95 cursor-pointer shadow-sm shrink-0"
+            title={user?.email || "Tài khoản của bạn"}
+          >
+            <User size={16} className="text-amber-950" strokeWidth={2.5} />
+          </button>
+
+          {isAccountMenuOpen && (
+            <div className="absolute top-[calc(100%+12px)] right-0 w-64 bg-panel border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 origin-top-right z-[99999]" style={{ zIndex: 99999 }}>
+              <div className="px-4 py-3 border-b border-border bg-background/50">
+                <p className="text-[13px] font-bold text-text-main truncate">{t('topbar.welcomeUser', 'Xin chào!')}</p>
+                <p className="text-[11px] text-text-muted truncate mt-0.5">{user?.email || "Chưa đăng nhập"}</p>
+              </div>
+
+              <div className="px-2 py-2 border-b border-border">
+                {/* Dòng hiển thị số dư năng lượng với icon Zap (KHÔNG DÙNG ICON AI) */}
+                <div className="flex items-center justify-between px-3 py-2.5 mb-1 bg-background rounded-xl border border-border/50">
+                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main">
+                    <Zap size={14} className="text-amber-400 fill-amber-400" />
+                    <span>{user?.isPro ? t('topbar.proPlan', 'Tài khoản Pro') : `${Math.round(user?.credits !== undefined ? user.credits : 30).toLocaleString()} Năng lượng`}</span>
+                  </div>
+                  <button 
+                    onClick={() => { 
+                      setIsAccountMenuOpen(false); 
+                      setIsPaywallOpen(true); 
+                    }} 
+                    className="text-[10px] font-black uppercase text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                  >
+                    {t('topbar.rechargeMore', 'Nạp thêm')}
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => { 
+                    setIsAccountMenuOpen(false); 
+                    setIsHistoryOpen(true); 
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-lg transition-colors cursor-pointer"
+                >
+                  <CreditCard size={14} /> {t('topbar.transactionHistory', 'Lịch sử giao dịch')}
+                </button>
+
+                <button
+                  onClick={() => { 
+                    setIsSupportOpen(true); 
+                    setIsAccountMenuOpen(false); 
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-lg transition-colors cursor-pointer mt-0.5"
+                >
+                  <HelpCircle size={14} /> {t('topbar.supportRequest', 'Yêu cầu hỗ trợ')}
+                </button>
+              </div>
+
+              <div className="px-2 py-2 bg-background/30">
+                <button 
+                  onClick={signOut} 
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-bold text-danger/80 hover:bg-danger/10 hover:text-danger rounded-lg transition-colors cursor-pointer"
+                >
+                  <LogOut size={14} strokeWidth={2.5} /> {t('topbar.logout', 'Đăng xuất')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
       </div>
+
+      <PaywallDrawer isOpen={isPaywallOpen} onClose={() => setIsPaywallOpen(false)} />
+      <PaymentHistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
+      <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
 
     </header>
   );
