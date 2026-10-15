@@ -1,17 +1,18 @@
 import { create } from "zustand";
 import { mangaApi } from "../services/api"; // 🚀 Đã đổi sang dùng API trung tâm
 import toast from 'react-hot-toast';
+import { splitLongImage } from "../utils";
 
 // 🚀 1. THÊM "cleaned" VÀO ĐÂY:
 // 🚀 Thêm "translating", "completed" và "waiting" vào danh sách
-export type PageStatus = "unprocessed" | "processing" | "cleaned" | "translating" | "completed" | "error" | "trash" | "waiting";
+export type PageStatus = "unprocessed" | "processing" | "cleaned" | "translating" | "completed" | "error" | "trash" | "waiting" | "uploading";
 
 export interface ProgressData {
   percent: number;
   message: string;
 }
 
-const API_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api`;
+const API_URL = `${import.meta.env.VITE_API_URL || ''}/api`;
 
 interface ProjectState {
   projectId: string | null;
@@ -25,6 +26,8 @@ interface ProjectState {
 
   pastUrls: Record<number, string[]>;
   futureUrls: Record<number, string[]>;
+  originalCleanUrls: Record<number, string>;
+  setOriginalCleanUrl: (index: number, url: string) => void;
 
   uploadProjectFiles: (files: File[]) => Promise<void>;
   setCurrentIndex: (index: number) => void;
@@ -37,7 +40,7 @@ interface ProjectState {
 
   undoUrl: () => void;
   redoUrl: () => void;
-  removePage: (index: number) => Promise<void>;
+  removePage: (index: number, silent?: boolean) => Promise<void>;
 
   setProjectId: (id: string) => void;
   clearProject: () => void;
@@ -58,8 +61,21 @@ export const useProjectStore = create<ProjectState>((set) => ({
   retryCounts: {}, // 🚀 Khởi tạo
   pastUrls: {},
   futureUrls: {},
+  originalCleanUrls: {},
 
-  uploadProjectFiles: async (files: File[]) => {
+  uploadProjectFiles: async (rawFiles: File[]) => {
+    // 🚀 Tự động cắt ảnh dài (Webtoon) bên client trước khi tải lên
+    const files: File[] = [];
+    for (const file of rawFiles) {
+      try {
+        const parts = await splitLongImage(file, 2000);
+        files.push(...parts);
+      } catch (err) {
+        console.error("Lỗi cắt ảnh:", err);
+        files.push(file);
+      }
+    }
+
     const currentState = useProjectStore.getState();
     const startIndex = currentState.fileQueue.length;
 
@@ -67,7 +83,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       const newStatuses = { ...state.pageStatuses };
       const newRetryCounts = { ...state.retryCounts };
       for (let i = 0; i < files.length; i++) {
-        newStatuses[startIndex + i] = "processing";
+        newStatuses[startIndex + i] = "uploading";
         newRetryCounts[startIndex + i] = 0;
       }
       return {
@@ -93,33 +109,95 @@ export const useProjectStore = create<ProjectState>((set) => ({
         set({ projectId: currentProjectId });
       }
 
-      for (let i = 0; i < files.length; i++) {
-        const actualIndex = startIndex + i;
-        set((state) => ({ progresses: { ...state.progresses, [actualIndex]: { percent: 50, message: "Đang Upload..." } } }));
+      // ⚡ TỐI ƯU HÓA: Tải lên song song (Concurrent Worker Pool 3 luồng đồng thời)
+      const CONCURRENCY = 3;
+      let nextIndex = 0;
+      let isProjectFull = false;
 
-        try {
-          // 🚀 GỌI UPLOAD QUA MANGA API (Đảm bảo Token luôn tươi mới)
-          const data = await mangaApi.uploadProjectFile(currentProjectId as string, files[i]);
-
-          set((state) => {
-            const newProgresses = { ...state.progresses };
-            delete newProgresses[actualIndex];
-            return { pageIds: { ...state.pageIds, [actualIndex]: data.page_id }, pageStatuses: { ...state.pageStatuses, [actualIndex]: "unprocessed" }, progresses: newProgresses };
-          });
-        } catch (fileError: any) {
-          // Nếu lỗi là 401, mangaApi đã tự ném ra và đá văng người dùng rồi, ta dừng vòng lặp luôn
-          if (fileError.message === "Phiên đăng nhập đã hết hạn!") {
-            throw fileError;
+      const uploadWorker = async () => {
+        while (nextIndex < files.length) {
+          if (isProjectFull) {
+            const i = nextIndex++;
+            const actualIndex = startIndex + i;
+            set((state) => {
+              const newProgresses = { ...state.progresses };
+              delete newProgresses[actualIndex];
+              return { pageStatuses: { ...state.pageStatuses, [actualIndex]: "trash" as any }, progresses: newProgresses };
+            });
+            continue;
           }
 
-          toast.error(`Lỗi file ${files[i].name}: ${fileError.message}`);
-          set((state) => {
-            const newProgresses = { ...state.progresses };
-            delete newProgresses[actualIndex];
-            return { pageStatuses: { ...state.pageStatuses, [actualIndex]: "trash" as any }, progresses: newProgresses };
-          });
+          const i = nextIndex++;
+          const actualIndex = startIndex + i;
+          set((state) => ({
+            pageStatuses: { ...state.pageStatuses, [actualIndex]: "uploading" },
+            progresses: { ...state.progresses, [actualIndex]: { percent: 50, message: "Đang tải lên..." } }
+          }));
+
+          let attempts = 0;
+          let uploadSuccess = false;
+
+          while (attempts < 3 && !uploadSuccess) {
+            attempts++;
+            try {
+              // 🚀 GỌI UPLOAD QUA MANGA API (Đảm bảo Token luôn tươi mới)
+              const data = await mangaApi.uploadProjectFile(currentProjectId as string, files[i]);
+
+              set((state) => {
+                const newProgresses = { ...state.progresses };
+                delete newProgresses[actualIndex];
+                return {
+                  pageIds: { ...state.pageIds, [actualIndex]: data.page_id },
+                  pageStatuses: { ...state.pageStatuses, [actualIndex]: "unprocessed" },
+                  progresses: newProgresses
+                };
+              });
+              uploadSuccess = true;
+            } catch (fileError: any) {
+              // Nếu lỗi là 401, mangaApi đã tự ném ra và đá văng người dùng rồi, ta dừng luôn
+              if (fileError.message === "Phiên đăng nhập đã hết hạn!") {
+                throw fileError;
+              }
+
+              const errorText = String(fileError.message || fileError);
+
+              // 🚀 1. XỬ LÝ KHI DỰ ÁN ĐÃ ĐẠT GIỚI HẠN (403 HOẶC ĐÃ ĐỦ 500 TRANG)
+              if (errorText.includes("giới hạn") || errorText.includes("403")) {
+                if (!isProjectFull) {
+                  isProjectFull = true;
+                  toast.error(errorText.includes("giới hạn") ? errorText : "Dự án đã đạt giới hạn tối đa số trang! Vui lòng tạo dự án mới.");
+                }
+                set((state) => {
+                  const newProgresses = { ...state.progresses };
+                  delete newProgresses[actualIndex];
+                  return { pageStatuses: { ...state.pageStatuses, [actualIndex]: "trash" as any }, progresses: newProgresses };
+                });
+                break;
+              }
+
+              // 🚀 2. XỬ LÝ KHI BỊ RATE LIMIT 429 (Too Many Requests) -> CHỜ VÀ THỬ LẠI
+              if (errorText.includes("429") || errorText.includes("Too Many Requests")) {
+                await new Promise((res) => setTimeout(res, 2000 * attempts));
+                continue;
+              }
+
+              // Nếu là lỗi khác hoặc đã hết số lần thử
+              if (attempts >= 3) {
+                toast.error(`Lỗi file ${files[i].name}: ${errorText}`);
+                set((state) => {
+                  const newProgresses = { ...state.progresses };
+                  delete newProgresses[actualIndex];
+                  return { pageStatuses: { ...state.pageStatuses, [actualIndex]: "trash" as any }, progresses: newProgresses };
+                });
+                break;
+              }
+            }
+          }
         }
-      }
+      };
+
+      const workerCount = Math.min(CONCURRENCY, files.length);
+      await Promise.all(Array.from({ length: workerCount }, () => uploadWorker()));
 
       set((state) => {
         const validFiles: File[] = [];
@@ -181,20 +259,11 @@ export const useProjectStore = create<ProjectState>((set) => ({
       };
     }),
 
-  removePage: async (indexToRemove) => {
+  removePage: async (indexToRemove, silent = false) => {
     const currentState = useProjectStore.getState();
     const pageId = currentState.pageIds[indexToRemove];
 
-    if (pageId) {
-      try {
-        // 🚀 Đã chuyển qua dùng API trung tâm
-        await mangaApi.deletePage(pageId);
-      } catch (err) {
-        console.error("Lỗi xóa trang:", err);
-        toast.error("Lỗi xóa trang. Vui lòng thử lại sau.");
-      }
-    }
-
+    // 1. Cập nhật giao diện tức thì (Optimistic 0ms)
     set((state) => {
       const tempArr = state.fileQueue.map((f, i) => ({
         file: f, url: state.processedUrls[i], status: state.pageStatuses[i],
@@ -229,17 +298,27 @@ export const useProjectStore = create<ProjectState>((set) => ({
       } else if (state.currentIndex > indexToRemove) {
         newCurrentIndex--;
       }
-      toast.success("Đã xóa trang và giải phóng bộ nhớ máy chủ!");
+      if (!silent) {
+        toast.success("Đã xóa trang!");
+      }
       return {
         fileQueue: newQueue, processedUrls: newProcessed, pageStatuses: newStatuses,
         progresses: newProgresses, pageIds: newPageIds, retryCounts: newRetryCounts, pastUrls: newPast, futureUrls: newFuture,
         currentIndex: newCurrentIndex
       };
     });
+
+    // 2. Gọi API xóa ngầm ở phía Server (Fire & Forget trong background, không chặn UI)
+    if (pageId) {
+      mangaApi.deletePage(pageId).catch((err) => {
+        console.warn("Lỗi xóa trang ngầm trên server:", err);
+      });
+    }
   },
 
   setPageStatus: (index, status) => set((state) => ({ pageStatuses: { ...state.pageStatuses, [index]: status } })),
   setRetryCount: (index, count) => set((state) => ({ retryCounts: { ...state.retryCounts, [index]: count } })),
+  setOriginalCleanUrl: (index, url) => set((state) => ({ originalCleanUrls: { ...state.originalCleanUrls, [index]: url } })),
   clearProgress: (index) => set((state) => {
     const newProgresses = { ...state.progresses };
     delete newProgresses[index];
@@ -340,16 +419,17 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   setProjectId: (id: string) => {
     localStorage.setItem('active_manga_project_id', id);
-    set({ projectId: id, fileQueue: [], pageIds: {}, processedUrls: {}, currentIndex: -1 });
+    set({ projectId: id, fileQueue: [], pageIds: {}, processedUrls: {}, currentIndex: -1, originalCleanUrls: {} });
   },
   clearProject: () => {
     localStorage.removeItem('active_manga_project_id');
-    set({ projectId: null, fileQueue: [], pageIds: {}, processedUrls: {}, currentIndex: -1 });
+    set({ projectId: null, fileQueue: [], pageIds: {}, processedUrls: {}, currentIndex: -1, originalCleanUrls: {} });
   }, // 🚀 THUẬT TOÁN BUNG DỮ LIỆU BẰNG FILE ẢO 0-BYTE
   restoreProject: (pages) => {
     const newPageIds: Record<number, string> = {};
     const newPageStatuses: Record<number, PageStatus> = {};
     const newProcessedUrls: Record<number, string> = {};
+    const newOriginalCleanUrls: Record<number, string> = {};
     const newRetryCounts: Record<number, number> = {};
     const newQueue: File[] = [];
 
@@ -371,7 +451,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
       newRetryCounts[index] = page.retry_count || 0; // 🚀 Trích xuất retry_count từ Server
 
       if (page.clean_url) {
-        newProcessedUrls[index] = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${page.clean_url}?t=${Date.now()}`;
+        let cleanPath = page.clean_url.split('?')[0];
+        if (cleanPath.includes('/workspace/')) {
+          cleanPath = '/workspace/' + cleanPath.split('/workspace/')[1];
+        }
+        const fullUrl = cleanPath.startsWith('http') ? cleanPath : `${import.meta.env.VITE_API_URL || ''}${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`;
+        newProcessedUrls[index] = `${fullUrl}?t=${Date.now()}`;
+        newOriginalCleanUrls[index] = fullUrl;
       }
 
       newQueue.push(new File([""], page.filename, { type: "image/jpeg" }));
@@ -381,6 +467,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       pageIds: newPageIds,
       pageStatuses: newPageStatuses,
       processedUrls: newProcessedUrls,
+      originalCleanUrls: newOriginalCleanUrls,
       retryCounts: newRetryCounts,
       fileQueue: newQueue,
       currentIndex: pages.length > 0 ? 0 : -1
@@ -399,7 +486,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       checkUrl = currentState.processedUrls[index];
     } else {
       const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
-      checkUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${currentState.projectId}/raw/${pageId}.${ext}`;
+      checkUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/${currentState.projectId}/raw/${pageId}.${ext}`;
     }
 
     if (!checkUrl || checkUrl.startsWith('blob:')) return;

@@ -1,46 +1,46 @@
 # --- CORE WEB & API ---
 fastapi==0.110.0
 uvicorn==0.29.0
+slowapi
 pydantic>=2.11.7
 python-multipart==0.0.9
 python-dotenv==1.2.2
 requests==2.31.0
 httpx==0.27.0
 
-
 # --- DATABASE & CACHE ---
 SQLAlchemy==2.0.49
-asyncpg
-psycopg2-binary
 aiosqlite==0.22.1
-redis==5.0.1
+redis>=5.0.0
+celery>=5.3.0
 
-# --- AUTH & SECURITY ---
-python-jose[cryptography]==3.5.0
-slowapi
-PyJWT
-
-# --- ASYNC TASKS ---
-celery==5.3.6
-
-# --- AI API & NLP ENGINE ---
+# --- AI ENGINES & OCR ---
 openai==2.35.0
-onnxruntime==1.23.2
+# onnxruntime-gpu: Ép LaMa Inpainting chạy trực tiếp trên GPU CUDA Tensor Cores thay vì ăn 100% CPU
+onnxruntime-gpu>=1.18.0
 pyahocorasick
+# SOTA Multilingual Manga OCR (Hayai-OCR v2 + SigLIP 2 NaFlex, Manga-OCR) & JoyCaption 4-bit NF4
+hayai-ocr>=2.3.0
+manga-ocr>=0.1.13
+fugashi>=1.3.0
+unidic-lite>=1.0.8
+jaconv>=0.3.4
+pyclipper>=1.3.0.5
+transformers>=4.45.0,<5.0.0
+accelerate>=0.28.0
+bitsandbytes>=0.43.0
+diffusers>=0.30.0
+sentencepiece
+protobuf
+huggingface-hub
+shapely
 
-# --- IMAGE VALIDATION (Siêu nhẹ, không chứa GUI) ---
+# --- IMAGE PROCESSING ---
 Pillow==10.3.0
 opencv-python-headless==4.9.0.80
 numpy==1.26.4
 filetype
 
-
-# --- PAYMENT ---
-payos==1.1.0
-
-# --- MONITORING & ANALYTICS ---
-sentry-sdk==1.45.0
-posthog==3.5.0
-
-# --- S3/R2 STORAGE ---
+# --- PSD & STORAGE UTILS ---
 boto3==1.34.84
+psd-tools

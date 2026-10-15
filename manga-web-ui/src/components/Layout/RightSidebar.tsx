@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Sliders, Bot, AlignLeft as ListIcon, Type, MoveVertical, Settings2, Wand2,
   MessageSquareDashed, ArrowRight, RefreshCcw, Sparkles, MessageCircle, Check,
-  Globe, MousePointer2, ChevronDown, Zap, Trash2, PanelRightClose, Minus, Plus,
+  Globe, MousePointer2, ChevronDown, Trash2, PanelRightClose, Minus, Plus,
   Upload, AlignCenter, AlignLeft, AlignRight, AlignJustify,
   Copy, MoreVertical, MessageSquareText, PaintBucket, PenTool,
   Layers, X, Lock, Unlock, Diamond, Square, Triangle// <-- 🚀 3 ICON MỚI BỔ SUNG
@@ -209,7 +209,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
     const loadId = toast.loading(t('rightSidebar.translatingAdvancedLoading'));
     useToolStore.getState().setIsProcessing(true);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/retry-text-translation`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/pages/${pageId}/retry-text-translation`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -246,7 +246,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
   const handleCopy = (text: string, type: string) => {
     if (!text) return toast.error(t('rightSidebar.copyEmpty', { type }));
     navigator.clipboard.writeText(text);
-    toast.success(t('rightSidebar.copySuccess', { type }), { icon: '📋' });
+    toast.success(t('rightSidebar.copySuccess', { type }));
   };
 
   const handleRetryTranslation = async (e: React.MouseEvent, bubble: any) => {
@@ -317,7 +317,7 @@ function DialogueListTab({ activeId }: { activeId: string | null }) {
             className={`flex-1 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all flex items-center justify-center gap-1 ${sortMode === 'length' ? 'bg-amber-500 text-amber-950 shadow-sm' : 'text-text-muted hover:text-amber-500 hover:bg-amber-500/10'}`}
             title={t('rightSidebar.sortOcrCleanTooltip')}
           >
-            <Zap size={10} /> {t('rightSidebar.sortOcrClean')}
+            <Sparkles size={10} /> {t('rightSidebar.sortOcrClean')}
           </button>
         </div>
       </div>
@@ -591,7 +591,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
         
         const fontName = res.filename;
         const familyName = fontName.replace(/\.[^/.]+$/, "");
-        const fontUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/fonts/${fontName}`;
+        const fontUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/fonts/${fontName}`;
         
         const newFont = new FontFace(familyName, `url(${fontUrl})`);
         try {
@@ -812,7 +812,7 @@ function DesignInspectorTab({ activeId }: { activeId: string | null }) {
                 });
                 
                 if (count > 0) {
-                  toast.success(t('rightSidebar.applySuccess', { count }), { icon: '✨' });
+                  toast.success(t('rightSidebar.applySuccess', { count }));
                 } else {
                   toast.error(t('rightSidebar.applyNoBubbles'));
                 }
@@ -1121,10 +1121,11 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
         <div className="relative flex items-center">
           <input
             type="text"
+            maxLength={300}
             value={instruction}
-            onChange={(e) => setInstruction(e.target.value)}
+            onChange={(e) => setInstruction(e.target.value.slice(0, 300))}
             onKeyDown={(e) => { if (e.key === 'Enter') handleRealAI('custom'); }}
-            placeholder={t('rightSidebar.aiInputPlaceholder')}
+            placeholder={t('rightSidebar.aiInputPlaceholder') + " (tối đa 300 ký tự)"}
             className="w-full bg-background border border-border rounded-lg py-2 pl-3 pr-10 text-[11px] text-text-main placeholder-text-muted focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all shadow-sm"
           />
           <button
@@ -1151,10 +1152,17 @@ function InlineAIAssistant({ bubble, onClose }: { bubble: any, onClose: () => vo
                 <button
                   onClick={() => { updateBubble(bubble.id, { text: aiResult }); setAiResult(''); onClose();
                 
-                  const { user, deductLocalCredits } = useAuthStore.getState();
+                  const { user } = useAuthStore.getState();
                     if (!user?.isPro) {
-                      deductLocalCredits(1); // Trừ 1 credit trên UI
-                      mangaApi.deductCredits(1).catch(e => console.error("Lỗi trừ tiền:", e)); // Gọi Backend trừ tiền thật
+                      mangaApi.deductCredits(1)
+                        .then(res => {
+                          if (res && res.balance_seconds !== undefined) {
+                            useAuthStore.setState(state => ({
+                              user: state.user ? { ...state.user, credits: res.balance_seconds } : null
+                            }));
+                          }
+                        })
+                        .catch(e => console.error("Lỗi trừ tiền:", e));
                     }
                   }}
                   className="w-full flex items-center justify-center gap-1.5 py-2 bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold text-[11px] uppercase tracking-wider rounded-lg transition-transform active:scale-[0.98] shadow-sm"

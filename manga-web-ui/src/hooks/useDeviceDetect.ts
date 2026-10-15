@@ -15,7 +15,7 @@ export function useDeviceDetect() {
         navigator.maxTouchPoints > 0 ||
         (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
 
-      setIsMobileOrTouch(isMobileWidth || isTouchDevice);
+      setIsMobileOrTouch(isMobileWidth || (isTouchDevice && window.innerWidth < 1024));
     };
 
     checkDevice();

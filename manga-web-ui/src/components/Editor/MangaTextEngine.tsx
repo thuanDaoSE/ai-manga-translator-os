@@ -161,7 +161,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
     // 🚀 BẢN VÁ: VÒNG KHOÁ (BLOCKER) CHỜ LOAD FONT
     const loadFontsAndRender = async () => {
       // 1. Quét xem trên màn hình đang cần dùng những font gì
-      const requiredFonts = [...new Set(bubbles.map(b => b.fontFamily.replace(/'/g, '')))];
+      const requiredFonts = [...new Set(bubbles.map(b => (b.fontFamily || 'Playpen Sans').replace(/'/g, '')))];
 
       // 2. Chặn luồng render, ép tải xong toàn bộ font mới cho đi tiếp
       await Promise.all(requiredFonts.map(fontName => loadFont(fontName)));
@@ -208,7 +208,7 @@ export default function MangaTextEngine({ imgWidth, imgHeight }: MangaTextEngine
             top: bubble.y + (bubble.h / 2),
             width: bubble.w,
             angle: bubble.rotation || 0,
-            fontFamily: bubble.fontFamily.replace(/'/g, ''),
+            fontFamily: (bubble.fontFamily || 'Playpen Sans').replace(/'/g, ''),
             fontSize: defaultFontSize,
             originX: 'center',
             originY: 'center',

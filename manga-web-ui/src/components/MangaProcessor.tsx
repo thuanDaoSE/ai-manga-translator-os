@@ -1,13 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, AlertCircle, RefreshCw, FileText, CheckCircle2, Sparkles } from 'lucide-react';
+import { Upload, AlertCircle, RefreshCw, FileText, CheckCircle2, Sparkles, ChevronDown, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { getAuthHeaders } from '../services/api';
 
-const BoltIcon = () => (
-  <svg className="w-3 h-3 text-amber-500 fill-current inline-block align-middle" viewBox="-11 0 32 32" xmlns="http://www.w3.org/2000/svg">
-    <path d="M1.84 26.24c-0.080 0-0.16 0-0.24-0.040-0.4-0.12-0.64-0.52-0.56-0.92l1.32-9.16h-1.52c-0.24 0-0.52-0.12-0.68-0.32s-0.2-0.48-0.16-0.72l2.32-8.68c0.080-0.36 0.44-0.64 0.8-0.64h5.56c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-2.6 5.12h1.24c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-6.24 12.48c-0.12 0.28-0.44 0.48-0.76 0.48zM1.92 14.44h1.4c0.24 0 0.48 0.12 0.64 0.28 0.16 0.2 0.24 0.44 0.2 0.68l-0.72 4.92 3.28-6.56h-1.24c-0.28 0-0.56-0.16-0.72-0.4s-0.16-0.56-0.040-0.8l2.6-5.12h-3.56l-1.84 7z"></path>
-  </svg>
-);
 
 interface Box {
   x1: number;
@@ -28,6 +23,9 @@ export const MangaProcessor: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [outputFormat, setOutputFormat] = useState<'png' | 'jpeg'>('jpeg');
   const [qualityLevel, setQualityLevel] = useState<number>(2);
+  const [sourceLanguage, setSourceLanguage] = useState<string>('auto');
+  const [showSrcLangDropdown, setShowSrcLangDropdown] = useState<boolean>(false);
+  const [showJaWarningModal, setShowJaWarningModal] = useState<boolean>(false);
 
   // Image scaling references
   const imageRef = useRef<HTMLImageElement>(null);
@@ -68,6 +66,15 @@ export const MangaProcessor: React.FC = () => {
   const startStreamProcessing = async () => {
     if (!originalImageFile) return;
 
+    if (sourceLanguage === 'ja') {
+      const isFreeTier = !user?.isPro;
+      const hasZeroBalance = (user?.credits || 0) <= 0;
+      if (isFreeTier || hasZeroBalance) {
+        setShowJaWarningModal(true);
+        return;
+      }
+    }
+
     setIsProcessing(true);
     setProcessingState('uploading');
     setErrorMsg('');
@@ -79,9 +86,10 @@ export const MangaProcessor: React.FC = () => {
     formData.append('prompt', prompt);
     formData.append('output_format', outputFormat);
     formData.append('quality_level', qualityLevel.toString());
+    formData.append('source_language', 'auto');
 
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const baseUrl = import.meta.env.VITE_API_URL || '';
       const authHeaders = await getAuthHeaders(true);
       const response = await fetch(`${baseUrl}/api/v1/ai-process`, {
         method: 'POST',
@@ -232,6 +240,14 @@ export const MangaProcessor: React.FC = () => {
             </div>
 
             <div className="flex flex-col gap-2">
+              <label className="text-xs text-slate-500 font-medium">Ngôn ngữ nguồn (Đa ngữ)</label>
+              <div className="w-full bg-slate-950/80 border border-slate-800 text-slate-200 text-sm rounded-xl p-3 flex items-center gap-2.5 font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>✨ Tự động nhận diện đa ngữ (Nhật, Hàn, Trung, Anh)</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
               <label className="text-xs text-slate-500 font-medium">2. AI Redraw Instruction Prompt</label>
               <textarea
                 value={prompt}
@@ -363,6 +379,28 @@ export const MangaProcessor: React.FC = () => {
           )}
         </div>
       </div>
+      {showJaWarningModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center gap-4 text-slate-100">
+            <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 text-indigo-400">
+              <AlertTriangle size={24} />
+            </div>
+            <h3 className="text-base font-black uppercase tracking-wider text-slate-100">Japanese Translation (VIP/Paid)</h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Japanese translation and OCR uses high-speed GPU processing and requires a paid balance. Please upgrade or purchase credits in the workspace screen.
+            </p>
+            <div className="w-full mt-2">
+              <button
+                type="button"
+                onClick={() => setShowJaWarningModal(false)}
+                className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold text-xs text-white shadow-lg shadow-indigo-600/20 transition-all cursor-pointer"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -3,26 +3,31 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search, Zap } from 'lucide-react';
+import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Lock, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search, Settings2, Globe, Plus, Zap } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useTranslation } from 'react-i18next';
-
 import toast from 'react-hot-toast';
 import { mangaApi } from '../../services/api';
+import { PaywallDrawer } from '../Drawers/PaywallDrawer';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
+
+export function getPageGroupKey(filename: string): string {
+  const match = filename.match(/^(.*)_part_\d+\.[^.]+$/i);
+  return match ? match[1] : filename.split('.')[0] || filename;
+}
 
 // =========================================
 // 1. COMPONENT CON: THẺ TRANG TRUYỆN (UI NÂNG CẤP)
 // =========================================
 function SortableItem({
-  id, file, isActive, status, displayImg, progress,
+  id, file, displayName, pagesCount, isActive, status, displayImg, progress,
   onClick, onTranslate, onDelete, onCancel, onRetry,
   isSelected, isSelectionMode, onToggleSelection, hasCleanUrl,
-  isProcessing, disabled, retryCount, modeCost
+  isProcessing, disabled, retryCount
 }: any) {
 
   const {
@@ -39,6 +44,7 @@ function SortableItem({
   });
 
   const { t } = useTranslation();
+  const useGpu = useConfigStore((state) => state.useGpu);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -91,7 +97,7 @@ function SortableItem({
             <div className="w-full h-full flex items-center justify-center bg-gray-800"><Loader2 className="animate-spin text-gray-600" size={16} /></div>
           )}
 
-          {(status === 'processing' || isProcessing) && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={20} /></div>}
+          {(status === 'processing' || status === 'uploading' || isProcessing) && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={20} /></div>}
           {status === 'completed' && <div className="absolute top-1 right-1 bg-emerald-500 rounded-full p-0.5 shadow-sm"><CheckCircle2 size={10} className="text-white" /></div>}
         </div>
 
@@ -99,14 +105,24 @@ function SortableItem({
         {/* 🚀 BẢN VÁ UI 2: CHIA LẠI KHÔNG GIAN (PADDING ĐỘNG) VÀ FIX BỊ ÉP CHỮ */}
         {/* ============================================================== */}
         <div className={`flex flex-col gap-1 overflow-hidden flex-1 min-w-0 pl-3 justify-center transition-all duration-300 ${
-          (status === 'processing' || status === 'waiting') 
+          (status === 'processing' || status === 'waiting' || status === 'uploading') 
             ? 'pr-12' 
             : 'pr-[80px]'
         }`}>
           <span className={`text-xs font-bold truncate block w-full ${isActive || isSelected ? 'text-primary' : status === 'error' ? 'text-danger' : 'text-text-main'}`}>
-            {file.name}
+            {displayName || file.name}
           </span>
+          {pagesCount > 1 && (
+            <span className="text-[9px] text-primary font-black uppercase mt-0.5 bg-primary/10 px-1.5 py-0.5 rounded-md inline-block w-fit">
+              Webtoon
+            </span>
+          )}
           
+          {status === 'uploading' && (
+            <span className="flex items-center gap-1.5 text-[10px] text-blue-400 font-bold uppercase truncate animate-pulse">
+              <Upload size={12} className="animate-bounce" /> Đang tải ảnh lên...
+            </span>
+          )}
           {(status === 'unprocessed' || status === 'cleaned' || status === 'translating') && <span className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold uppercase truncate"><Clock size={12} /> {t('sidebar.waiting')}</span>}
           {status === 'waiting' && <span className="flex items-center gap-1.5 text-[10px] text-amber-500 font-bold uppercase truncate animate-pulse"><Clock size={12} /> {t('sidebar.waitingQueue')}</span>}
           
@@ -141,7 +157,7 @@ function SortableItem({
         {/* ============================================================== */}
         {/* 🚀 BẢN VÁ UI 3: TĂNG KÍCH THƯỚC CÁC NÚT BẤM DỄ THAO TÁC HƠN */}
         {/* ============================================================== */}
-        {!isSelectionMode && status !== 'processing' && status !== 'waiting' && (
+        {!isSelectionMode && status !== 'processing' && status !== 'waiting' && status !== 'uploading' && (
           <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex flex-col items-end gap-2 
             opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20"
           >
@@ -157,29 +173,54 @@ function SortableItem({
 
             {/* CÁC NÚT HÀNH ĐỘNG (Cải tiến bố cục giá xu ở góc dưới bên phải tránh chồng chữ) */}
             {(status === 'unprocessed' || status === 'cleaned' || status === 'translating') && (
-              <div className="relative shrink-0">
-                <button
-                  disabled={disabled}
-                  onClick={(e) => { e.stopPropagation(); onTranslate(); }}
-                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary-hover text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                >
-                  <Wand2 size={11} className="shrink-0" />
-                  <span>{t('canvas.translateAction', 'Dịch')}</span>
-                </button>
-                <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                  {modeCost}<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
-                </span>
-              </div>
+              <button
+                disabled={disabled}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (disabled) return;
+                  if (!useGpu) {
+                    useConfigStore.getState().setUseGpu(true);
+                    setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
+                    toast.success("Đã mở khóa GPU Premium ⚡");
+                    return;
+                  }
+                  onTranslate();
+                }}
+                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-white rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer 
+                  ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''} 
+                  ${useGpu 
+                    ? 'bg-primary hover:bg-primary-hover border border-purple-400/80 shadow-[0_0_10px_rgba(168,85,247,0.55)]' 
+                    : 'bg-neutral-800 hover:bg-neutral-700 text-text-muted border border-border/40 opacity-70 grayscale'
+                  }`}
+              >
+                {useGpu ? <Wand2 size={11} className="shrink-0" /> : <Lock size={11} className="shrink-0" />}
+                <span>{t('canvas.translateAction', 'Dịch')}</span>
+              </button>
             )}
 
             {status === 'error' && (
-              <div className="relative shrink-0">
-                <button
-                  disabled={disabled || (hasCleanUrl && retryCount >= 3)}
-                  onClick={(e) => { e.stopPropagation(); hasCleanUrl ? onRetry() : onTranslate(); }}
-                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-danger hover:bg-red-600 text-white rounded-lg text-[11px] font-bold shadow-sm transition-colors cursor-pointer ${(disabled || (hasCleanUrl && retryCount >= 3)) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`}
-                >
-                  {hasCleanUrl ? (
+              <button
+                disabled={disabled || (hasCleanUrl && retryCount >= 3)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (disabled || (hasCleanUrl && retryCount >= 3)) return;
+                  if (!useGpu) {
+                    useConfigStore.getState().setUseGpu(true);
+                    setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
+                    toast.success("Đã mở khóa GPU Premium ⚡");
+                    return;
+                  }
+                  hasCleanUrl ? onRetry() : onTranslate();
+                }}
+                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-white rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer 
+                  ${(disabled || (hasCleanUrl && retryCount >= 3)) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}
+                  ${useGpu 
+                    ? 'bg-danger hover:bg-red-600 border border-purple-400/80 shadow-[0_0_10px_rgba(168,85,247,0.55)]' 
+                    : 'bg-neutral-800 hover:bg-neutral-700 text-text-muted border border-border/40 opacity-70 grayscale'
+                  }`}
+              >
+                {useGpu ? (
+                  hasCleanUrl ? (
                     <>
                       <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
                       <span>Dịch lại</span>
@@ -189,25 +230,40 @@ function SortableItem({
                       <RefreshCw size={12} />
                       <span>{t('sidebar.retrySingle')}</span>
                     </>
-                  )}
-                </button>
-                {!hasCleanUrl && (
-                  <span className="absolute -bottom-1.5 -right-1.5 inline-flex items-center text-amber-400 text-[9.5px] font-black whitespace-nowrap pointer-events-none select-none z-30 drop-shadow-[0_1.5px_2px_rgba(0,0,0,1)]">
-                    {modeCost}<Zap size={9.5} className="fill-current shrink-0 ml-[0.5px]" />
-                  </span>
+                  )
+                ) : (
+                  <>
+                    <Lock size={11} />
+                    <span>Dịch lại</span>
+                  </>
                 )}
-              </div>
+              </button>
             )}
 
             {status === 'completed' && (
               <div className="relative shrink-0">
                 <button 
                   disabled={disabled || retryCount >= 3}
-                  onClick={(e) => { e.stopPropagation(); onRetry(); }} 
-                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 bg-background/95 backdrop-blur-md border border-border hover:border-primary/50 text-primary hover:bg-primary/10 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer ${(disabled || retryCount >= 3) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}`} 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (disabled || retryCount >= 3) return;
+                    if (!useGpu) {
+                      useConfigStore.getState().setUseGpu(true);
+                      setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
+                      toast.success("Đã mở khóa GPU Premium ⚡");
+                      return;
+                    }
+                    onRetry();
+                  }} 
+                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer 
+                    ${(disabled || retryCount >= 3) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}
+                    ${useGpu 
+                      ? 'bg-background/95 backdrop-blur-md border border-purple-400/80 text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.45)]' 
+                      : 'bg-neutral-800/80 backdrop-blur-md border border-border/40 text-text-muted hover:bg-neutral-700 opacity-70'
+                    }`} 
                   title={t('sidebar.retranslate')}
                 >
-                  <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
+                  {useGpu ? <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} /> : <Lock size={11} />}
                   <span>Dịch lại</span>
                 </button>
               </div>
@@ -239,10 +295,14 @@ export default function Sidebar() {
   const isProcessing = useToolStore((state) => state.isProcessing);
   const { t } = useTranslation();
   const user = useAuthStore((state) => state.user);
-  const currentCredits = user?.credits || 0;
+  const currentCredits = user?.isPro ? 999999 : (user?.credits !== undefined ? user.credits : 30);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const useGpu = useConfigStore((state) => state.useGpu);
+  const checkFirstTimeConfig = () => {
+    return true;
+  };
 
-  const unrestrictedMode = useConfigStore((s) => s.unrestrictedMode);
-  const modeCost = unrestrictedMode ? 2 : 1; // Chi phí dịch chạy ngầm Celery mặc định là 1 Xu/trang, hoặc 2 Xu nếu bật chế độ không giới hạn
+  const modeCost = 1; // Chi phí dịch chạy ngầm Celery mặc định là 1 Xu/trang
 
   const [previews, setPreviews] = useState<Record<number, string>>({});
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -278,8 +338,8 @@ export default function Sidebar() {
       file.type.startsWith('image/') || file.name.endsWith('.manga')
     );
     if (imageFiles.length === 0) return;
-    if (imageFiles.length > 30) {
-      toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 30 trang mỗi lần!");
+    if (imageFiles.length > 500) {
+      toast.error("Hệ thống hỗ trợ tải lên tối đa 500 trang cho mỗi phiên làm việc!");
       return;
     }
     uploadProjectFiles(imageFiles.sort((a, b) => a.name.localeCompare(b.name)));
@@ -415,6 +475,11 @@ export default function Sidebar() {
   };
 
   const processSinglePage = (pageIndex: number) => {
+    if (currentCredits < 1) {
+      setShowPaywall(true);
+      toast.error("Tài khoản của bạn đã hết điểm năng lượng (⚡0). Vui lòng nạp thêm để tiếp tục!");
+      return Promise.resolve();
+    }
     return new Promise<void>(async (resolve) => {
       const pageId = projectStore.pageIds[pageIndex];
       if (!pageId) {
@@ -426,147 +491,239 @@ export default function Sidebar() {
 
       try {
         const configStore = useConfigStore.getState();
-
+        const serverStatus = useServerStatusStore.getState().serverStatus;
+ 
         const data = await mangaApi.translatePageById(pageId, {
           genre: configStore.genre,
           tone: configStore.tone,
           pronouns: configStore.pronoun,
           glossary: configStore.glossary,
           targetLanguage: configStore.targetLanguage || "Tiếng Việt",
-          unrestrictedMode: configStore.unrestrictedMode
+          sourceLanguage: configStore.sourceLanguage || "auto",
+          useGpu: configStore.useGpu,
+          client_saw_hot: serverStatus === 'HOT'
         });
 
         if (data.task_id) {
           const taskId = data.task_id;
-          
-          // Kiểm tra xem có phải là cache hit không (nếu là cache hit thì taskId bắt đầu bằng cached_)
-          const isCacheHit = taskId.startsWith("cached_");
-          if (!isCacheHit) {
-            toast(`Đã trừ ${modeCost} Xu`, { icon: "💰", duration: 2000 });
-            useAuthStore.getState().deductLocalCredits(modeCost);
-          }
+          let isDone = false;
 
-          // 🚀 Chỉ mở 1 đường truyền SSE duy nhất
-          const eventSource = new EventSource(`${API_URL}/stream/${taskId}`);
-          activeTasksRef.current[pageIndex] = { taskId, eventSource };
-
-          eventSource.onmessage = async (event) => {
-            const sseData = JSON.parse(event.data);
-
-            // 🚀 Liên tục cập nhật tiến độ (Ví dụ: Runpod đang tải 10%... 30%...)
-            useProjectStore.setState((state: any) => ({
-              progresses: { ...state.progresses, [pageIndex]: { percent: sseData.progress, message: sseData.message } }
-            }));
-
-            if (sseData.state === "SUCCESS") {
-              eventSource.close();
-              delete activeTasksRef.current[pageIndex];
-
-              // 🚀 BẢN VÁ UX: RUNPOD XONG RỒI NHƯNG KHÔNG ĐƯỢC BÁO HOÀN TẤT VỘI!
-              // Ép thanh tiến trình đứng ở 90% và báo đang gọi DeepSeek
-              projectStore.setPageStatus(pageIndex, "processing");
-              useProjectStore.setState((state: any) => ({
-                progresses: { ...state.progresses, [pageIndex]: { percent: 90, message: "Đang dịch thuật..." } }
-              }));
-
-              let taskData = null;
-              // Vòng lặp chờ VPS và DeepSeek làm việc (Cái này tốn 2-3 giây)
-              for (let i = 0; i < 15; i++) {
-                const taskRes = await fetch(`${API_URL}/task/${taskId}`);
-                const data = await taskRes.json();
-                if (data.status === "SUCCESS" && data.result) {
-                  taskData = data;
-                  break;
-                }
-                await new Promise(res => setTimeout(res, 1000));
+          const finishSuccess = async (taskData: any) => {
+            if (isDone) return;
+            isDone = true;
+            try {
+              if (activeTasksRef.current[pageIndex]?.eventSource) {
+                activeTasksRef.current[pageIndex].eventSource.close();
               }
+            } catch (e) {}
+            delete activeTasksRef.current[pageIndex];
 
-              if (taskData && taskData.result) {
-                const result = taskData.result;
-                const fullCleanUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${result.clean_url}?t=${Date.now()}`;
-                projectStore.setProcessedUrl(pageIndex, fullCleanUrl);
+            if (taskData && taskData.result) {
+              const result = taskData.result;
+              let cleanBaseUrl = (result.clean_url || '').split('?')[0];
+              if (cleanBaseUrl.includes('/workspace/')) {
+                cleanBaseUrl = '/workspace/' + cleanBaseUrl.split('/workspace/')[1];
+              }
+              const fullCleanUrl = `${cleanBaseUrl}?t=${Date.now()}`;
+              projectStore.setProcessedUrl(pageIndex, fullCleanUrl);
+              projectStore.setOriginalCleanUrl(pageIndex, cleanBaseUrl);
 
-                const toolState = useToolStore.getState();
+              const toolState = useToolStore.getState();
 
-                const newBubbles = result.data.map((item: any) => {
-                  const origW = item.box_coordinates.x2 - item.box_coordinates.x1;
-                  const origH = item.box_coordinates.y2 - item.box_coordinates.y1;
+              let bubblesData = result.data || [];
 
-                  return {
-                    id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-                    x: item.box_coordinates.x1,
-                    y: item.box_coordinates.y1,
-                    w: origW,
-                    h: origH,
-                    text: item.vietnamese,
-                    japanese: item.japanese,
-                    fontSize: toolState.fontSize,
-                    fontColor: toolState.fontColor,
-                    fontFamily: toolState.fontFamily,
-                    rotation: 0,
-                    sfxClass: "",
-                    rawBox: item.box_coordinates,
-                    boxX: item.box_coordinates.x1,
-                    boxY: item.box_coordinates.y1,
-                    boxW: origW,
-                    boxH: origH,
-                  };
-                });
+              // 🚀 BẢN VÁ QUAN TRỌNG: Nếu OCR chỉ có chữ gốc (chưa có bản dịch Tiếng Việt),
+              // tự động kích hoạt dịch thuật DeepSeek ngay lập tức!
+              const hasJapanese = bubblesData.some((item: any) => (item.japanese || item.text) && (item.japanese || item.text).trim() !== "");
+              const isMissingVietnamese = bubblesData.every((item: any) => !item.vietnamese || item.vietnamese.trim() === "");
 
-                if (pageIndex === useProjectStore.getState().currentIndex) {
-                  const canvasStore = useCanvasStore.getState();
-                  canvasStore.setBubbles(newBubbles);
-                } else {
-                  mangaApi.savePageBubbles(pageId, newBubbles).catch(console.error);
-                }
-
-                // 🚀 LƯU Ý MŨI TIÊM THÔNG MINH TRƯỚC ĐÓ CỦA SẾP (Kiểm tra chữ Lỗi)
-                const hasTranslationError = newBubbles.some((b: any) => (b.text || "").toLowerCase().includes("lỗi"));
-
-                if (hasTranslationError) {
-                  projectStore.setPageStatus(pageIndex, "error"); // Đánh thẻ Đỏ
-                  toast.error(`Trang ${pageIndex + 1} gặp lỗi xử lý dịch thuật!`);
-                } else {
-                  projectStore.setPageStatus(pageIndex, "completed"); // Xanh tuyệt đối!
-                  const posthog = (window as any).posthog;
-                  if (posthog) {
-                    posthog.capture('translation_successful', {
-                      action_type: 'Page_Translate',
-                      status: 'success'
-                    });
+              if (hasJapanese && isMissingVietnamese) {
+                useProjectStore.setState((state: any) => ({
+                  progresses: {
+                    ...state.progresses,
+                    [pageIndex]: { percent: 85, message: "Đang dịch sang Tiếng Việt bằng DeepSeek AI..." }
                   }
+                }));
+
+                try {
+                  const transRes = await mangaApi.retryTextTranslation(pageId);
+                  if (transRes && transRes.bubbles && transRes.bubbles.length > 0) {
+                    bubblesData = transRes.bubbles;
+                  }
+                } catch (transErr) {
+                  console.warn("Auto text translation error, using raw bubbles:", transErr);
+                }
+              }
+
+              const newBubbles = bubblesData.map((item: any) => {
+                let x = item.x;
+                let y = item.y;
+                let w = item.w;
+                let h = item.h;
+
+                if ((x === undefined || y === undefined || w === undefined || h === undefined) && item.box_coordinates) {
+                  x = item.box_coordinates.x1;
+                  y = item.box_coordinates.y1;
+                  w = item.box_coordinates.x2 - item.box_coordinates.x1;
+                  h = item.box_coordinates.y2 - item.box_coordinates.y1;
+                } else if ((x === undefined || y === undefined || w === undefined || h === undefined) && item.rawBox) {
+                  x = item.rawBox.x1;
+                  y = item.rawBox.y1;
+                  w = item.rawBox.x2 - item.rawBox.x1;
+                  h = item.rawBox.y2 - item.rawBox.y1;
                 }
 
-                await mangaApi.savePageResults(pageId, result.clean_url, newBubbles)
-                  .catch(err => console.error("Lỗi lưu kết quả vào DB:", err));
+                x = x !== undefined ? x : 0;
+                y = y !== undefined ? y : 0;
+                w = w !== undefined ? w : 100;
+                h = h !== undefined ? h : 50;
 
-                // 🚀 CHỈ KHI CHỮ ĐÃ ĐƯỢC VẼ LÊN HÌNH THÌ MỚI XÓA THANH TIẾN TRÌNH
-                setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
-                
-                // Đồng bộ Xu từ máy chủ
-                useAuthStore.getState().fetchProfile();
+                const viText = item.vietnamese || item.text || item.japanese || "";
+
+                return {
+                  id: item.id ? String(item.id) : (Date.now().toString() + Math.random().toString(36).substring(2, 9)),
+                  x,
+                  y,
+                  w,
+                  h,
+                  text: viText,
+                  japanese: item.japanese || "",
+                  vietnamese: item.vietnamese || item.text || "",
+                  fontSize: item.fontSize || toolState.fontSize || 20,
+                  fontColor: item.fontColor || toolState.fontColor || "#000000",
+                  fontFamily: item.fontFamily || toolState.fontFamily || "Playpen Sans",
+                  rotation: item.rotation !== undefined ? item.rotation : 0,
+                  sfxClass: item.sfxClass || "",
+                  rawBox: item.box_coordinates || item.rawBox,
+                  boxX: item.boxX !== undefined ? item.boxX : x,
+                  boxY: item.boxY !== undefined ? item.boxY : y,
+                  boxW: item.boxW !== undefined ? item.boxW : w,
+                  boxH: item.boxH !== undefined ? item.boxH : h,
+                };
+              });
+
+              if (pageIndex === useProjectStore.getState().currentIndex) {
+                const canvasStore = useCanvasStore.getState();
+                canvasStore.setBubbles(newBubbles);
+              } else {
+                mangaApi.savePageBubbles(pageId, newBubbles).catch(console.error);
               }
-              resolve();
-            } else if (sseData.state === "FAILURE") {
-              eventSource.close();
-              delete activeTasksRef.current[pageIndex];
-              projectStore.clearProgress(pageIndex);
-              projectStore.setPageStatus(pageIndex, "error");
-              // Đồng bộ Xu (trong trường hợp được hoàn Xu)
+
+              projectStore.setPageStatus(pageIndex, "completed");
+
+              await mangaApi.savePageResults(pageId, result.clean_url, newBubbles)
+                .catch(err => console.error("Lỗi lưu kết quả vào DB:", err));
+
+              setTimeout(() => projectStore.clearProgress(pageIndex), 1000);
               useAuthStore.getState().fetchProfile();
-              resolve();
             }
+            resolve();
           };
 
-          eventSource.onerror = () => {
-            eventSource.close();
+          const finishFailure = (msg?: string) => {
+            if (isDone) return;
+            isDone = true;
+            try {
+              if (activeTasksRef.current[pageIndex]?.eventSource) {
+                activeTasksRef.current[pageIndex].eventSource.close();
+              }
+            } catch (e) {}
             delete activeTasksRef.current[pageIndex];
             projectStore.clearProgress(pageIndex);
             projectStore.setPageStatus(pageIndex, "error");
-            // Đồng bộ Xu (trong trường hợp được hoàn Xu)
+            if (msg) toast.error(msg);
             useAuthStore.getState().fetchProfile();
             resolve();
           };
+
+          // Robust polling fallback
+          let pollTimer: any = null;
+          const startPolling = () => {
+            if (pollTimer || isDone) return;
+            let attempts = 0;
+            const maxAttempts = 120;
+            pollTimer = setInterval(async () => {
+              if (isDone) {
+                clearInterval(pollTimer);
+                return;
+              }
+              attempts++;
+              try {
+                const res = await fetch(`${API_URL}/task/${taskId}`);
+                if (res.ok) {
+                  const tData = await res.json();
+                  if (tData.progress !== undefined) {
+                    useProjectStore.setState((state: any) => ({
+                      progresses: {
+                        ...state.progresses,
+                        [pageIndex]: { percent: tData.progress, message: tData.message || "Đang xử lý..." }
+                      }
+                    }));
+                  }
+                  if (tData.state === "SUCCESS" || tData.status === "SUCCESS") {
+                    clearInterval(pollTimer);
+                    await finishSuccess(tData);
+                    return;
+                  } else if (tData.state === "FAILURE" || tData.status === "FAILURE") {
+                    clearInterval(pollTimer);
+                    finishFailure(tData.message || "Lỗi xử lý dịch thuật!");
+                    return;
+                  }
+                }
+              } catch (err) {
+                console.warn("Polling error:", err);
+              }
+              if (attempts >= maxAttempts) {
+                clearInterval(pollTimer);
+                finishFailure(`Quá thời gian chờ xử lý trang ${pageIndex + 1}!`);
+              }
+            }, 1000);
+          };
+
+          // Thử kết nối SSE trước, nếu lỗi thì tự động fallback qua polling
+          try {
+            const eventSource = new EventSource(`${API_URL}/stream/${taskId}`);
+            activeTasksRef.current[pageIndex] = { taskId, eventSource };
+
+            eventSource.onmessage = async (event) => {
+              if (isDone) return;
+              try {
+                const sseData = JSON.parse(event.data);
+                useProjectStore.setState((state: any) => ({
+                  progresses: {
+                    ...state.progresses,
+                    [pageIndex]: { percent: sseData.progress, message: sseData.message }
+                  }
+                }));
+
+                if (sseData.state === "SUCCESS" || sseData.status === "SUCCESS") {
+                  eventSource.close();
+                  if (sseData.result) {
+                    await finishSuccess(sseData);
+                  } else {
+                    const taskRes = await fetch(`${API_URL}/task/${taskId}`);
+                    const taskData = await taskRes.json();
+                    await finishSuccess(taskData);
+                  }
+                } else if (sseData.state === "FAILURE" || sseData.status === "FAILURE") {
+                  eventSource.close();
+                  finishFailure(sseData.message);
+                }
+              } catch (e) {
+                console.warn("SSE parse error:", e);
+              }
+            };
+
+            eventSource.onerror = () => {
+              // Khi gặp lỗi SSE (ví dụ ERR_QUIC_PROTOCOL_ERROR qua proxy), chuyển sang polling an toàn
+              console.warn(`[SSE notice] Stream dropped for task ${taskId}, switching to polling fallback.`);
+              try { eventSource.close(); } catch (e) {}
+              startPolling();
+            };
+          } catch (sseErr) {
+            console.warn("EventSource init failed, starting polling:", sseErr);
+            startPolling();
+          }
         } else {
           resolve();
         }
@@ -583,6 +740,7 @@ export default function Sidebar() {
   // 🚀 BẢN VÁ TỐI THƯỢNG: Phân luồng Dịch lại cực kỳ thông minh
   // 🚀 BẢN VÁ TỐI THƯỢNG: Phân luồng Dịch lại cực kỳ thông minh và Chống Race Condition
   const handleRetrySinglePage = async (pageIndex: number) => {
+    if (!checkFirstTimeConfig()) return;
     const state = useProjectStore.getState();
     const pageId = state.pageIds[pageIndex];
     if (!pageId) return;
@@ -647,7 +805,7 @@ export default function Sidebar() {
             vietnamese: b.vietnamese || b.text || "",
             fontSize: b.fontSize || toolState.fontSize || 20,
             fontColor: b.fontColor || toolState.fontColor || "#000000",
-            fontFamily: b.fontFamily || toolState.fontFamily || "'Comic Neue', cursive",
+            fontFamily: b.fontFamily || toolState.fontFamily || "Playpen Sans",
             rotation: b.rotation !== undefined ? b.rotation : 0,
             sfxClass: b.sfxClass || "",
             boxX: b.boxX !== undefined ? b.boxX : x,
@@ -682,13 +840,6 @@ export default function Sidebar() {
           useProjectStore.getState().setPageStatus(pageIndex, "error");
         } else {
           useProjectStore.getState().setPageStatus(pageIndex, "completed");
-          const posthog = (window as any).posthog;
-          if (posthog) {
-            posthog.capture('translation_successful', {
-              action_type: 'Page_Retry_Translate',
-              status: 'success'
-            });
-          }
         }
       } catch (err: any) {
         toast.error(err.message, { id: loadId });
@@ -705,101 +856,100 @@ export default function Sidebar() {
     }
   };
 
-  const handleDeletePage = (index: number) => {
-    const file = fileQueue[index];
-    const fileName = file.name;
-    const pageId = projectStore.pageIds[index];
-    const uniqueId = pageId || `temp-${index}-${file.name}`;
+  const handleDeletePage = async (index: number) => {
+    const state = useProjectStore.getState();
+    const file = state.fileQueue[index];
+    if (!file) return;
 
-    if (deleteTimeoutsRef.current[uniqueId]) return;
-
-    if (index === projectStore.currentIndex) {
-      const nextIndex = fileQueue.findIndex((f, i) => {
-        if (i === index) return false;
-        const uid = projectStore.pageIds[i] || `temp-${i}-${f.name}`;
-        return !pendingDeletes.has(uid);
-      });
-      projectStore.setCurrentIndex(nextIndex !== -1 ? nextIndex : -1);
+    if (state.pageStatuses[index] === 'processing' || state.pageStatuses[index] === 'waiting') {
+      handleCancelTask(index);
     }
 
-    const wasActive = index === projectStore.currentIndex;
-
-    setPendingDeletes(prev => new Set(prev).add(uniqueId));
-
-    toast((t) => (
-      <div className="flex items-center gap-3">
-        <span className="text-sm">Đang xóa <b>{fileName}</b>...</span>
-        <button
-          onClick={() => {
-            clearTimeout(deleteTimeoutsRef.current[uniqueId]);
-            delete deleteTimeoutsRef.current[uniqueId];
-
-            setPendingDeletes(prev => {
-              const next = new Set(prev);
-              next.delete(uniqueId);
-              return next;
-            });
-
-            // Định vị lại index thực tế của trang sau khi hoàn tác để tránh bị lệch do kéo thả (reorder)
-            const state = useProjectStore.getState();
-            const realIndex = state.fileQueue.findIndex((f, i) => {
-              const uid = state.pageIds[i] || `temp-${i}-${f.name}`;
-              return uid === uniqueId;
-            });
-
-            if (realIndex !== -1 && (wasActive || state.currentIndex === -1)) {
-              projectStore.setCurrentIndex(realIndex);
-            }
-
-            toast.dismiss(t.id);
-            toast.success("Đã hoàn tác! Giữ lại trang.");
-          }}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
-        >
-          <Undo2 size={13} className="text-white" />
-          <span>Hoàn tác</span>
-        </button>
-      </div>
-    ), { 
-      duration: 5000, 
-      id: `delete-${uniqueId}`, 
-      icon: <Clock size={16} className="text-amber-500 animate-pulse" /> 
-    });
-
-    deleteTimeoutsRef.current[uniqueId] = setTimeout(async () => {
-      const state = useProjectStore.getState();
-      const realIndex = state.fileQueue.findIndex((f, i) => {
-        const uid = state.pageIds[i] || `temp-${i}-${f.name}`;
-        return uid === uniqueId;
-      });
-
-      if (realIndex !== -1) {
-        if (state.pageStatuses[realIndex] === 'processing') {
-          handleCancelTask(realIndex);
-        }
-        await state.removePage(realIndex);
-      }
-      delete deleteTimeoutsRef.current[uniqueId];
-
-      setPendingDeletes(prev => {
-        const next = new Set(prev);
-        next.delete(uniqueId);
-        return next;
-      });
-    }, 5000);
-  }
+    // ⚡ Xóa trang tức thì 0ms, không chờ đếm ngược xác nhận
+    await state.removePage(index);
+  };
 
   // 🚀 FIX: TÌM ẢNH BẰNG UNIQUE ID MỚI TRÁNH CRASH KHI KÉO THẢ
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    if (over && active.id !== over.id) {
-      const oldItem = visibleFiles.find(f => f.uniqueId === active.id);
-      const newItem = visibleFiles.find(f => f.uniqueId === over.id);
+    if (!over || active.id === over.id) return;
 
-      if (oldItem && newItem) {
-        reorderFiles(oldItem.index, newItem.index);
+    const activeKey = active.id as string;
+    const overKey = over.id as string;
+
+    const activeGroup = groupedMap.get(activeKey);
+    const overGroup = groupedMap.get(overKey);
+    if (!activeGroup || !overGroup) return;
+
+    const activeIndices = activeGroup.pages.map(p => p.index);
+    const overIndices = overGroup.pages.map(p => p.index);
+
+    const allIndices = Array.from({ length: fileQueue.length }, (_, i) => i);
+    const remainingIndices = allIndices.filter(i => !activeIndices.includes(i));
+    
+    const overStartIdx = remainingIndices.indexOf(overIndices[0]);
+    const activeWasBefore = activeIndices[0] < overIndices[0];
+    const insertPos = activeWasBefore ? overStartIdx + overIndices.length : overStartIdx;
+
+    remainingIndices.splice(insertPos, 0, ...activeIndices);
+
+    // Update the Zustand store using setState
+    useProjectStore.setState((state) => {
+      const tempArr = state.fileQueue.map((f, i) => ({
+        file: f, url: state.processedUrls[i], status: state.pageStatuses[i],
+        progress: state.progresses[i], pageId: state.pageIds[i], retryCount: state.retryCounts[i],
+        past: state.pastUrls[i], future: state.futureUrls[i]
+      }));
+
+      const reorderedTemp = remainingIndices.map(oldIdx => tempArr[oldIdx]);
+
+      const newQueue = reorderedTemp.map(item => item.file);
+      const newProcessed: Record<number, string> = {};
+      const newStatuses: Record<number, any> = {};
+      const newProgresses: Record<number, any> = {};
+      const newPageIds: Record<number, string> = {};
+      const newRetryCounts: Record<number, number> = {};
+      const newPast: Record<number, string[]> = {};
+      const newFuture: Record<number, string[]> = {};
+
+      reorderedTemp.forEach((item, i) => {
+        if (item.url) newProcessed[i] = item.url;
+        if (item.status) newStatuses[i] = item.status;
+        if (item.progress) newProgresses[i] = item.progress;
+        if (item.pageId) newPageIds[i] = item.pageId;
+        if (item.retryCount !== undefined) newRetryCounts[i] = item.retryCount;
+        if (item.past) newPast[i] = item.past;
+        if (item.future) newFuture[i] = item.future;
+      });
+
+      let newCurrentIndex = state.currentIndex;
+      const oldActiveFile = state.fileQueue[state.currentIndex];
+      const oldActiveUniqueId = oldActiveFile
+        ? (state.pageIds[state.currentIndex] || `temp-${state.currentIndex}-${oldActiveFile.name}`)
+        : null;
+
+      if (oldActiveUniqueId) {
+        const foundIdx = reorderedTemp.findIndex((item, i) => {
+          const uid = item.pageId || `temp-${remainingIndices[i]}-${item.file.name}`;
+          return uid === oldActiveUniqueId;
+        });
+        if (foundIdx !== -1) {
+          newCurrentIndex = foundIdx;
+        }
       }
-    }
+
+      return {
+        fileQueue: newQueue,
+        processedUrls: newProcessed,
+        pageStatuses: newStatuses,
+        progresses: newProgresses,
+        pageIds: newPageIds,
+        retryCounts: newRetryCounts,
+        pastUrls: newPast,
+        futureUrls: newFuture,
+        currentIndex: newCurrentIndex
+      };
+    });
   };
 
   const handlePageClick = (index: number) => {
@@ -828,33 +978,66 @@ export default function Sidebar() {
   };
 
   useEffect(() => {
-    const newPreviews: Record<number, string> = {};
+    setPreviews(prev => {
+      const newPreviews = { ...prev };
+      let changed = false;
 
-    fileQueue.forEach((file, index) => {
-      if (projectStore.processedUrls[index]) {
-        newPreviews[index] = projectStore.processedUrls[index];
-      }
-      else if (file.size === 0) {
-        const pageId = projectStore.pageIds[index];
-        const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
-        newPreviews[index] = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}`;
-      }
-      else {
-        newPreviews[index] = URL.createObjectURL(file);
-      }
-    });
-
-    setPreviews(newPreviews);
-
-    return () => {
-      Object.values(newPreviews).forEach(url => {
-        if (url.startsWith('blob:')) {
-          // 🚀 BẢN VÁ: Trì hoãn việc xóa Blob URL 10 giây để trình duyệt không báo lỗi đỏ lòm
-          setTimeout(() => URL.revokeObjectURL(url), 10000);
+      fileQueue.forEach((file, index) => {
+        if (projectStore.processedUrls[index]) {
+          if (newPreviews[index] !== projectStore.processedUrls[index]) {
+            if (newPreviews[index] && newPreviews[index].startsWith('blob:')) {
+              URL.revokeObjectURL(newPreviews[index]);
+            }
+            newPreviews[index] = projectStore.processedUrls[index];
+            changed = true;
+          }
+        }
+        else if (file.size === 0) {
+          const pageId = projectStore.pageIds[index];
+          const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg';
+          const serverUrl = `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${ext}`;
+          if (newPreviews[index] !== serverUrl) {
+            newPreviews[index] = serverUrl;
+            changed = true;
+          }
+        }
+        else {
+          if (!newPreviews[index] || !newPreviews[index].startsWith('blob:')) {
+            newPreviews[index] = URL.createObjectURL(file);
+            changed = true;
+          }
         }
       });
-    };
-  }, [fileQueue, projectStore.processedUrls]);
+
+      // Clean up deleted items from previews
+      Object.keys(newPreviews).forEach(key => {
+        const idx = parseInt(key, 10);
+        if (idx >= fileQueue.length) {
+          if (newPreviews[idx] && newPreviews[idx].startsWith('blob:')) {
+            URL.revokeObjectURL(newPreviews[idx]);
+          }
+          delete newPreviews[idx];
+          changed = true;
+        }
+      });
+
+      return changed ? newPreviews : prev;
+    });
+  }, [fileQueue, projectStore.processedUrls, projectStore.pageIds, projectStore.projectId]);
+
+  // ── GROUPING DEFINITIONS ──
+  interface GroupedItem {
+    key: string;
+    displayName: string;
+    pages: {
+      file: File;
+      index: number;
+      uniqueId: string;
+    }[];
+  }
+
+  const groupedItems: GroupedItem[] = [];
+  const groupedMap = new Map<string, GroupedItem>();
 
   const allProjectFiles = fileQueue
     .map((file, index) => {
@@ -868,28 +1051,50 @@ export default function Sidebar() {
     })
     .filter(({ uniqueId }) => !pendingDeletes.has(uniqueId));
 
-  const visibleFiles = allProjectFiles.filter(({ file }) => {
-    if (!searchQuery.trim()) return true;
-    return file.name.toLowerCase().includes(searchQuery.trim().toLowerCase());
+  allProjectFiles.forEach(({ file, index, uniqueId }) => {
+    const key = getPageGroupKey(file.name);
+    if (!groupedMap.has(key)) {
+      const ext = file.name.split('.').pop() || '';
+      const displayName = key.includes('.') ? key : `${key}.${ext}`;
+      const newItem: GroupedItem = { key, displayName, pages: [] };
+      groupedItems.push(newItem);
+      groupedMap.set(key, newItem);
+    }
+    groupedMap.get(key)!.pages.push({ file, index, uniqueId });
   });
 
-  const itemIds = visibleFiles.map(f => f.uniqueId);
+  const visibleGroups = groupedItems.filter(group => {
+    if (!searchQuery.trim()) return true;
+    return group.displayName.toLowerCase().includes(searchQuery.trim().toLowerCase());
+  });
+
+  const itemIds = visibleGroups.map(g => g.key);
 
   const totalPages = allProjectFiles.length;
   const completedPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'completed').length;
   const errorPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'error').length;
   const processingPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'processing').length;
   const waitingPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'waiting').length;
+  const uploadingPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'uploading').length;
   const unprocessedPages = allProjectFiles.filter(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating').length;
   const progressPercent = totalPages === 0 ? 0 : ((completedPages + errorPages) / totalPages) * 100;
   const hasUnprocessed = allProjectFiles.some(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error');
   const isAnyProcessingOrWaiting = allProjectFiles.some(({ index }) => pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting');
+  const isAnyUploading = allProjectFiles.some(({ index }) => pageStatuses[index] === 'uploading');
 
-  const isAllVisibleSelected = visibleFiles.length > 0 && visibleFiles.every(f => selectedPages.has(f.uniqueId));
-  const isSomeVisibleSelected = visibleFiles.some(f => selectedPages.has(f.uniqueId)) && !isAllVisibleSelected;
+  const visibleFiles = visibleGroups.flatMap(g => g.pages);
+
+  const isAllVisibleSelected = visibleGroups.length > 0 && visibleGroups.every(g => g.pages.every(p => selectedPages.has(p.uniqueId)));
+  const isSomeVisibleSelected = visibleGroups.some(g => g.pages.some(p => selectedPages.has(p.uniqueId))) && !isAllVisibleSelected;
 
   const handleTranslateAll = async () => {
+    if (!checkFirstTimeConfig()) return;
     if (visibleFiles.length === 0) return;
+    if (currentCredits < 1) {
+      setShowPaywall(true);
+      toast.error("Tài khoản của bạn đã hết điểm năng lượng (⚡0). Vui lòng nạp thêm để tiếp tục!");
+      return;
+    }
 
     // Lọc ra các trang cần dịch
     const pendingIndexes = visibleFiles
@@ -903,8 +1108,8 @@ export default function Sidebar() {
       projectStore.setPageStatus(index, "waiting");
     });
 
-    // Chạy với giới hạn đồng thời tối đa là 3 trang để tránh nghẽn browser connection pool (limit 6)
-    const limit = 3;
+    // Chạy với giới hạn đồng thời tối đa là 4 trang để tận dụng tối ưu GPU Tensor Cores & VRAM
+    const limit = 4;
     let nextIdx = 0;
 
     const runNext = async () => {
@@ -932,7 +1137,32 @@ export default function Sidebar() {
     }
   };
 
+  const handleCancelAll = async () => {
+    let count = 0;
+    const allIndices = allProjectFiles.map(f => f.index);
+    for (const idx of allIndices) {
+      const status = useProjectStore.getState().pageStatuses[idx];
+      if (status === 'waiting' || status === 'processing') {
+        count++;
+        projectStore.clearProgress(idx);
+        projectStore.setPageStatus(idx, "unprocessed");
+        const task = activeTasksRef.current[idx];
+        if (task) {
+          try {
+            task.eventSource.close();
+            mangaApi.cancelTask(task.taskId).catch(console.error);
+          } catch (e) {}
+          delete activeTasksRef.current[idx];
+        }
+      }
+    }
+    if (count > 0) {
+      toast.success(`Đã dừng toàn bộ tiến trình dịch (${count} trang)!`);
+    }
+  };
+
   const handleTranslateSelected = async () => {
+    if (!checkFirstTimeConfig()) return;
     if (selectedPages.size === 0) return;
 
     // Lấy danh sách index của các trang đã chọn và chưa dịch / lỗi
@@ -945,9 +1175,9 @@ export default function Sidebar() {
 
     if (selectedIndexes.length === 0) return;
 
-    const totalCost = selectedIndexes.length * modeCost;
-    if (currentCredits < totalCost) {
-      toast.error(`Không đủ năng lượng! Cần ⚡${totalCost} nhưng bạn chỉ có ⚡${currentCredits}.`);
+    if (currentCredits < 1) {
+      setShowPaywall(true);
+      toast.error("Tài khoản của bạn đã hết điểm năng lượng (⚡0). Vui lòng nạp thêm để tiếp tục!");
       return;
     }
 
@@ -955,7 +1185,7 @@ export default function Sidebar() {
     selectedIndexes.forEach(index => projectStore.setPageStatus(index, 'waiting'));
     clearSelection();
 
-    const limit = 3;
+    const limit = 4;
     let nextIdx = 0;
     const runNext = async () => {
       if (nextIdx >= selectedIndexes.length) return;
@@ -964,6 +1194,127 @@ export default function Sidebar() {
       try { await processSinglePage(index); } catch (err) { console.error('Lỗi dịch selected:', index, err); } finally { runNext(); }
     };
     for (let i = 0; i < Math.min(limit, selectedIndexes.length); i++) { runNext(); }
+  };
+
+  const handleCancelSelected = () => {
+    let count = 0;
+    visibleFiles.forEach(({ uniqueId, index }) => {
+      if (selectedPages.has(uniqueId)) {
+        const status = useProjectStore.getState().pageStatuses[index];
+        if (status === 'waiting' || status === 'processing') {
+          count++;
+          projectStore.clearProgress(index);
+          projectStore.setPageStatus(index, "unprocessed");
+          const task = activeTasksRef.current[index];
+          if (task) {
+            try {
+              task.eventSource.close();
+              mangaApi.cancelTask(task.taskId).catch(console.error);
+            } catch (e) {}
+            delete activeTasksRef.current[index];
+          }
+        }
+      }
+    });
+    if (count > 0) {
+      toast.success(`Đã dừng dịch ${count} trang đã chọn!`);
+    }
+  };
+
+  const handleTranslateGroup = async (group: GroupedItem) => {
+    if (!checkFirstTimeConfig()) return;
+    const pendingIndexes = group.pages
+      .map(p => p.index)
+      .filter(idx => pageStatuses[idx] === 'unprocessed' || pageStatuses[idx] === 'cleaned' || pageStatuses[idx] === 'translating' || pageStatuses[idx] === 'error');
+    
+    if (pendingIndexes.length === 0) return;
+
+    if (currentCredits <= 0) {
+      toast.error("Tài khoản đã hết số dư thời gian! Vui lòng nạp thêm để tiếp tục.");
+      return;
+    }
+
+    pendingIndexes.forEach(idx => projectStore.setPageStatus(idx, 'waiting'));
+
+    const limit = 4;
+    let nextIdx = 0;
+    const runNext = async () => {
+      if (nextIdx >= pendingIndexes.length) return;
+      const idx = pendingIndexes[nextIdx++];
+      if (useProjectStore.getState().pageStatuses[idx] !== 'waiting') { runNext(); return; }
+      try { await processSinglePage(idx); } catch (err) { console.error('Lỗi dịch group:', idx, err); } finally { runNext(); }
+    };
+    for (let i = 0; i < Math.min(limit, pendingIndexes.length); i++) { runNext(); }
+  };
+
+  const handleDeleteGroup = async (group: GroupedItem) => {
+    if (group.pages.length === 1) {
+      handleDeletePage(group.pages[0].index);
+      return;
+    }
+    
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa Webtoon "${group.displayName}"?`)) return;
+    
+    const state = useProjectStore.getState();
+    const pagesToRemove = [...group.pages].sort((a, b) => b.index - a.index);
+    
+    const activePageInGroup = group.pages.find(p => p.index === state.currentIndex);
+    if (activePageInGroup) {
+      const nextIndex = state.fileQueue.findIndex((f, i) => {
+        const isPart = group.pages.some(p => p.index === i);
+        return !isPart;
+      });
+      projectStore.setCurrentIndex(nextIndex);
+    }
+    
+    for (const p of pagesToRemove) {
+      const idx = useProjectStore.getState().fileQueue.findIndex((f, i) => {
+        const pageId = state.pageIds[i];
+        const uniqueId = pageId || `temp-${i}-${f.name}`;
+        return uniqueId === p.uniqueId;
+      });
+      if (idx !== -1) {
+        if (state.pageStatuses[idx] === 'processing') {
+          handleCancelTask(idx);
+        }
+        await state.removePage(idx, true);
+      }
+    }
+    
+    toast.success(`Đã xóa Webtoon "${group.displayName}"`);
+  };
+
+  const handleCancelGroup = (group: GroupedItem) => {
+    group.pages.forEach(p => {
+      const status = pageStatuses[p.index];
+      if (status === 'processing' || status === 'waiting') {
+        handleCancelTask(p.index);
+      }
+    });
+  };
+
+  const handleRetryGroup = (group: GroupedItem) => {
+    group.pages.forEach(p => {
+      const status = pageStatuses[p.index];
+      if (status === 'error' || status === 'completed') {
+        handleRetrySinglePage(p.index);
+      }
+    });
+  };
+
+  const toggleGroupSelection = (group: GroupedItem) => {
+    const allSelected = group.pages.every(p => selectedPages.has(p.uniqueId));
+    setSelectedPages(prev => {
+      const next = new Set(prev);
+      group.pages.forEach(p => {
+        if (allSelected) {
+          next.delete(p.uniqueId);
+        } else {
+          next.add(p.uniqueId);
+        }
+      });
+      return next;
+    });
   };
 
   if (fileQueue.length === 0) return null;
@@ -1036,6 +1387,20 @@ export default function Sidebar() {
                   <Search size={15} />
                 </button>
 
+                {/* NÚT TẠO DỰ ÁN MỚI */}
+                <button
+                  onClick={() => {
+                    if (window.confirm("Bạn có muốn tạo Dự án mới không? Dự án hiện tại vẫn được lưu trữ và có thể mở lại.")) {
+                      useProjectStore.getState().clearProject();
+                      toast.success("Đã mở không gian làm việc mới! Hãy tải ảnh lên để bắt đầu.");
+                    }
+                  }}
+                  className="p-1.5 text-text-muted hover:bg-border/45 hover:text-primary rounded-lg transition-colors cursor-pointer"
+                  title="Tạo dự án mới"
+                >
+                  <Plus size={15} />
+                </button>
+
                 {/* NÚT ĐÓNG THANH BÊN */}
                 <button
                   onClick={() => useToolStore.getState().toggleLeftPanel()}
@@ -1047,6 +1412,27 @@ export default function Sidebar() {
               </div>
             </>
           )}
+        </div>
+
+        {/* ⚡ HIỂN THỊ NĂNG LƯỢNG & NẠP ĐIỂM */}
+        <div className="mx-3 mb-2 px-3 py-2 bg-amber-500/10 border border-amber-500/25 rounded-xl flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-2">
+            <Zap size={16} className="text-amber-400 fill-amber-400 shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-text-main leading-tight">
+                {Math.round(user?.isPro ? 999999 : (user?.credits !== undefined ? user.credits : 30))} Năng lượng
+              </span>
+              <span className="text-[9.5px] text-text-muted leading-tight">
+                {user?.isPro ? "Tài khoản Pro" : "1 trang = 1⚡"}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowPaywall(true)}
+            className="px-2.5 py-1 text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-black rounded-lg transition-all active:scale-95 cursor-pointer shadow-sm"
+          >
+            Nạp thêm
+          </button>
         </div>
 
         {/* ── ZONE 2: COHESIVE PROGRESS & UPLOAD WIDGET ── */}
@@ -1076,8 +1462,8 @@ export default function Sidebar() {
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
                 if (files.length === 0) return;
-                if (files.length > 30) {
-                  toast.error("Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 30 trang mỗi lần!");
+                if (files.length > 500) {
+                  toast.error("Hệ thống hỗ trợ tải lên tối đa 500 trang cho mỗi phiên làm việc!");
                   e.target.value = '';
                   return;
                 }
@@ -1151,13 +1537,40 @@ export default function Sidebar() {
 
           {isSelectionMode && (
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (!window.confirm(`Xóa ${selectedPages.size} trang đã chọn?`)) return;
-                Array.from(selectedPages).forEach((uid) => {
-                  const idx = allProjectFiles.findIndex(f => f.uniqueId === uid);
-                  if (idx !== -1) handleDeletePage(allProjectFiles[idx].index);
-                });
+                
+                const state = useProjectStore.getState();
+                const uids = Array.from(selectedPages);
+                
+                // Get all indexes to remove
+                const indexesToRemove = uids
+                  .map(uid => {
+                    return state.fileQueue.findIndex((f, i) => {
+                      const pageId = state.pageIds[i];
+                      return (pageId || `temp-${i}-${f.name}`) === uid;
+                    });
+                  })
+                  .filter(idx => idx !== -1)
+                  .sort((a, b) => b - a); // Sort descending
+
+                // Determine if active page is being deleted
+                const isActiveDeleted = indexesToRemove.includes(state.currentIndex);
+                if (isActiveDeleted) {
+                  const nextIndex = state.fileQueue.findIndex((f, i) => !indexesToRemove.includes(i));
+                  projectStore.setCurrentIndex(nextIndex);
+                }
+
+                // Batch delete directly
+                for (const idx of indexesToRemove) {
+                  if (state.pageStatuses[idx] === 'processing') {
+                    handleCancelTask(idx);
+                  }
+                  await state.removePage(idx, true);
+                }
+                
                 clearSelection();
+                toast.success(`Đã xóa thành công ${uids.length} trang`);
               }}
               className="flex items-center gap-1 text-[10px] font-semibold text-danger hover:text-red-400 cursor-pointer transition-all duration-150"
               title="Xóa các trang đang chọn"
@@ -1174,29 +1587,71 @@ export default function Sidebar() {
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
               <div className="space-y-1.5">
-                {visibleFiles.map(({ file, index, uniqueId }) => { // 🚀 Lấy uniqueId ra
+                {visibleGroups.map((group) => {
+                  const firstPage = group.pages[0];
+                  const isGroupActive = group.pages.some(p => p.index === currentIndex);
+                  
+                  let overallStatus = 'unprocessed';
+                  const statuses = group.pages.map(p => pageStatuses[p.index] || 'unprocessed');
+                  
+                  if (statuses.some(s => s === 'processing')) {
+                    overallStatus = 'processing';
+                  } else if (statuses.some(s => s === 'uploading')) {
+                    overallStatus = 'uploading';
+                  } else if (statuses.some(s => s === 'waiting')) {
+                    overallStatus = 'waiting';
+                  } else if (statuses.some(s => s === 'error')) {
+                    overallStatus = 'error';
+                  } else if (statuses.every(s => s === 'completed')) {
+                    overallStatus = 'completed';
+                  } else if (statuses.some(s => s === 'translating')) {
+                    overallStatus = 'translating';
+                  } else {
+                    overallStatus = statuses[0];
+                  }
+                  
+                  const firstIndex = firstPage.index;
+                  const displayImg = processedUrls[firstIndex] || previews[firstIndex];
+                  
+                  const totalInGroup = group.pages.length;
+                  const completedInGroup = group.pages.filter(p => pageStatuses[p.index] === 'completed').length;
+                  
+                  let groupProgressMessage = undefined;
+                  if (totalInGroup > 1) {
+                    groupProgressMessage = {
+                      percent: Math.round((completedInGroup / totalInGroup) * 100),
+                      message: "Đang xử lý dịch thuật..."
+                    };
+                  } else {
+                    groupProgressMessage = progresses[firstIndex];
+                  }
+
+                  const isSelected = group.pages.every(p => selectedPages.has(p.uniqueId));
+                  const isProcessingGroup = group.pages.some(p => p.index === currentIndex && isProcessing);
+
                   return (
                     <SortableItem
-                      key={uniqueId}  // 🚀 Dùng ID an toàn
-                      id={uniqueId}   // 🚀 Dùng ID an toàn
-                      file={file}
-                      isActive={index === currentIndex}
-                      status={pageStatuses[index] || 'unprocessed'}
-                      displayImg={processedUrls[index] || previews[index]}
-                      progress={progresses[index]}
-                      onClick={() => handlePageClick(index)}
-                      onTranslate={() => processSinglePage(index)}
-                      onDelete={() => handleDeletePage(index)}
-                      onCancel={() => handleCancelTask(index)}
-                      onRetry={() => handleRetrySinglePage(index)}
-                      isSelected={selectedPages.has(uniqueId)} // 🚀 Dùng ID an toàn
+                      key={group.key}
+                      id={group.key}
+                      file={firstPage.file}
+                      displayName={group.displayName}
+                      pagesCount={totalInGroup}
+                      isActive={isGroupActive}
+                      status={overallStatus}
+                      displayImg={displayImg}
+                      progress={groupProgressMessage}
+                      onClick={() => handlePageClick(firstPage.index)}
+                      onTranslate={() => handleTranslateGroup(group)}
+                      onDelete={() => handleDeleteGroup(group)}
+                      onCancel={() => handleCancelGroup(group)}
+                      onRetry={() => handleRetryGroup(group)}
+                      isSelected={isSelected}
                       isSelectionMode={isSelectionMode}
-                      onToggleSelection={() => toggleSelection(uniqueId)}
-                      hasCleanUrl={!!processedUrls[index]} // 🚀 Dùng ID an toàn
-                      isProcessing={index === currentIndex && isProcessing}
+                      onToggleSelection={() => toggleGroupSelection(group)}
+                      hasCleanUrl={group.pages.some(p => !!processedUrls[p.index])}
+                      isProcessing={isProcessingGroup}
                       disabled={isAnyProcessingOrWaiting}
-                      retryCount={retryCounts[index] || 0} // 🚀 Truyền số lần dịch lại
-                      modeCost={modeCost}
+                      retryCount={Math.max(...group.pages.map(p => retryCounts[p.index] || 0))}
                     />
                   );
                 })}
@@ -1207,37 +1662,47 @@ export default function Sidebar() {
 
         {/* NÚT DỊCH TẤT CẢ (Ẩn đi khi đang chọn ảnh) */}
         <div className={`absolute bottom-0 left-0 w-full p-3 bg-sidebar/95 backdrop-blur-md border-t border-border z-30 transition-transform duration-300 ${isSelectionMode ? 'translate-y-full opacity-0' : 'translate-y-0 opacity-100'}`}>
-          <button
-            onClick={handleTranslateAll}
-            disabled={!hasUnprocessed || isAnyProcessingOrWaiting}
-            className={`w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold
-              ${(hasUnprocessed && !isAnyProcessingOrWaiting)
-                ? 'bg-primary hover:bg-primary-hover text-white shadow-primary/20 hover:scale-[1.02] cursor-pointer pl-4 pr-12'
-                : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 font-medium'
-              }`}
-          >
-            {isAnyProcessingOrWaiting ? (
-              <Loader2 className="animate-spin" size={16} />
-            ) : errorPages > 0 ? (
-              <RefreshCw size={16} />
-            ) : (
-              <Sparkles size={16} />
-            )}
-            <span>
-              {isAnyProcessingOrWaiting
-                ? t('sidebar.batchTranslating')
-                : errorPages > 0
+          {isAnyProcessingOrWaiting ? (
+            <button
+              onClick={handleCancelAll}
+              className="w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-400 hover:text-rose-300 active:scale-95 cursor-pointer shadow-rose-950/20"
+              title="Nhấp để dừng toàn bộ tiến trình dịch hàng loạt"
+            >
+              <Square size={14} fill="currentColor" className="text-rose-400" />
+              <span>Dừng dịch hàng loạt ({processingPages + waitingPages} trang)</span>
+            </button>
+          ) : isAnyUploading ? (
+            <button
+              disabled
+              className="w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-md rounded-xl font-bold bg-blue-500/15 border border-blue-500/30 text-blue-400 cursor-wait select-none"
+            >
+              <Loader2 size={16} className="animate-spin text-blue-400" />
+              <span>Đang tải ảnh lên ({uploadingPages} trang)...</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleTranslateAll}
+              disabled={!hasUnprocessed}
+              className={`w-full relative flex items-center justify-center gap-2 py-2.5 text-sm transition-all shadow-lg rounded-xl font-bold
+                ${hasUnprocessed
+                  ? 'bg-primary hover:bg-primary-hover text-white shadow-lg shadow-indigo-500/20 hover:scale-[1.02] cursor-pointer'
+                  : 'bg-panel text-text-muted cursor-not-allowed border border-border/50 font-medium'
+                }`}
+            >
+              {errorPages > 0 ? (
+                <RefreshCw size={16} />
+              ) : (
+                <Sparkles size={16} />
+              )}
+              <span>
+                {errorPages > 0
                   ? t('sidebar.retryError', { count: errorPages })
                   : hasUnprocessed
                     ? t('sidebar.batchTranslate', 'Dịch Tất Cả (Batch)')
                     : t('sidebar.completedAll')}
-            </span>
-            {hasUnprocessed && !isAnyProcessingOrWaiting && (
-              <span className="absolute right-3 inline-flex items-center bg-black/20 px-1.5 py-0.5 rounded-md text-white/90 text-[10px] font-black whitespace-nowrap">
-                {visibleFiles.filter(({ index }) => pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error').length * modeCost}<Zap size={10} className="fill-white/90 text-white/90 shrink-0 ml-[1px]" />
               </span>
-            )}
-          </button>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1276,38 +1741,45 @@ export default function Sidebar() {
             selectedPages.has(uniqueId) &&
             (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error')
           ).length;
-          const totalCost = selectedUnprocessedCount * modeCost;
-          const hasEnough = currentCredits >= totalCost && totalCost > 0;
+          const selectedProcessingOrWaitingCount = visibleFiles.filter(({ uniqueId, index }) =>
+            selectedPages.has(uniqueId) &&
+            (pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting')
+          ).length;
+          const hasEnough = currentCredits > 0;
           const nothingToTranslate = selectedUnprocessedCount === 0;
 
           return (
-            <button
-              onClick={handleTranslateSelected}
-              disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
-              title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? `Cần ⚡${totalCost}, bạn có ⚡${currentCredits}` : `Dịch ${selectedUnprocessedCount} trang`}
-              className={`relative flex items-center justify-center gap-2 py-2.5 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
-                ${totalCost > 0 && hasEnough && !nothingToTranslate && !isAnyProcessingOrWaiting ? 'pl-4 pr-12' : 'px-4'}
-                ${nothingToTranslate || isAnyProcessingOrWaiting
-                  ? 'bg-border/30 text-text-muted cursor-not-allowed'
-                  : !hasEnough
-                    ? 'bg-danger/10 border border-danger/30 text-danger cursor-not-allowed'
-                    : 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/25 cursor-pointer'
-                }`}
-            >
-              <Sparkles size={15} strokeWidth={2.5} />
-              {!hasEnough && !nothingToTranslate ? (
-                <span>Không đủ ⚡</span>
-              ) : (
-                <>
-                  <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size}</span>
-                  {totalCost > 0 && (
-                    <span className="absolute right-3 inline-flex items-center bg-black/10 px-1.5 py-0.5 rounded-md text-black text-[10px] font-black whitespace-nowrap">
-                      {totalCost}<Zap size={10} className="fill-black text-black shrink-0 ml-[1px]" />
-                    </span>
-                  )}
-                </>
+            <div className="flex items-center gap-2">
+              {selectedProcessingOrWaitingCount > 0 && (
+                <button
+                  onClick={handleCancelSelected}
+                  className="flex items-center gap-1.5 py-2 px-3 text-xs font-bold rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 transition-all cursor-pointer"
+                  title="Dừng dịch các trang đã chọn đang xử lý"
+                >
+                  <Square size={13} fill="currentColor" />
+                  <span>Dừng ({selectedProcessingOrWaitingCount})</span>
+                </button>
               )}
-            </button>
+              <button
+                onClick={handleTranslateSelected}
+                disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
+                title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết năng lượng (⚡0)' : `Dịch ${selectedUnprocessedCount} trang`}
+                className={`relative flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
+                  ${nothingToTranslate || isAnyProcessingOrWaiting
+                    ? 'bg-border/30 text-text-muted cursor-not-allowed border border-transparent'
+                    : !hasEnough
+                      ? 'bg-danger/10 border border-danger/30 text-danger cursor-not-allowed'
+                      : 'bg-amber-500 hover:bg-amber-400 text-black border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] cursor-pointer'
+                  }`}
+              >
+                <Sparkles size={15} strokeWidth={2.5} />
+                {!hasEnough && !nothingToTranslate ? (
+                  <span>Hết năng lượng (0⚡)</span>
+                ) : (
+                  <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size} trang</span>
+                )}
+              </button>
+            </div>
           );
         })()}
 
@@ -1366,6 +1838,12 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
+
+      {/* 🚀 MODAL NẠP TIỀN / NĂNG LƯỢNG */}
+      <PaywallDrawer
+        isOpen={showPaywall}
+        onClose={() => setShowPaywall(false)}
+      />
     </>
   );
 }

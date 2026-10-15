@@ -4,8 +4,32 @@ import httpx
 import os
 import boto3
 import asyncio
+import ipaddress
+from urllib.parse import urlparse
 from botocore.config import Config
 from fastapi import HTTPException
+
+def is_safe_url(url: str) -> bool:
+    """Chống SSRF: Đảm bảo URL hợp lệ và không trỏ tới loopback, private IP hoặc cloud metadata"""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        host_lower = hostname.lower()
+        if host_lower in ("localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254"):
+            return False
+        try:
+            ip = ipaddress.ip_address(host_lower)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
+        except ValueError:
+            pass
+        return True
+    except Exception:
+        return False
 
 async def fetch_image_from_url(url: str, flags: int = cv2.IMREAD_COLOR) -> np.ndarray:
     """
@@ -13,6 +37,9 @@ async def fetch_image_from_url(url: str, flags: int = cv2.IMREAD_COLOR) -> np.nd
     and decodes it into an OpenCV image matrix in RAM.
     No local disk I/O is performed.
     """
+    if not is_safe_url(url):
+        raise HTTPException(status_code=400, detail="URL không an toàn hoặc không được phép truy cập (SSRF Protection)!")
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url, follow_redirects=True)
@@ -124,3 +151,44 @@ async def delete_from_r2(filename: str) -> None:
     Asynchronously deletes file from Cloudflare R2 in a worker thread.
     """
     await asyncio.to_thread(delete_from_r2_sync, filename)
+
+def get_presigned_put_url_sync(filename: str, content_type: str, expiration: int = 3600) -> str:
+    """
+    Synchronously generates a presigned PUT URL for Cloudflare R2.
+    """
+    access_key = os.getenv("R2_ACCESS_KEY")
+    secret_key = os.getenv("R2_SECRET_KEY")
+    endpoint_url = os.getenv("R2_ENDPOINT_URL")
+    bucket_name = os.getenv("R2_BUCKET_NAME")
+    
+    if not all([access_key, secret_key, endpoint_url, bucket_name]):
+        raise ValueError("Missing Cloudflare R2 configurations in environment variables")
+        
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(
+            signature_version="s3v4",
+            s3={'addressing_style': 'path'}
+        ),
+    )
+    
+    presigned_url = s3_client.generate_presigned_url(
+        ClientMethod='put_object',
+        Params={
+            'Bucket': bucket_name,
+            'Key': filename,
+            'ContentType': content_type
+        },
+        ExpiresIn=expiration
+    )
+    return presigned_url
+
+async def get_presigned_put_url(filename: str, content_type: str, expiration: int = 3600) -> str:
+    """
+    Asynchronously generates a presigned PUT URL for Cloudflare R2 in a worker thread.
+    """
+    return await asyncio.to_thread(get_presigned_put_url_sync, filename, content_type, expiration)
+

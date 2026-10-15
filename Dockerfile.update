@@ -1,0 +1,3 @@
+FROM thuandaose/ai-manga-translator:latest
+WORKDIR /app/manga-backend
+COPY manga-backend/ ./

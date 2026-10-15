@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useToolStore } from '../store/useToolStore';
 import { useCanvasStore } from '../store/useCanvasStore';
+import { useAuthStore } from '../store/useAuthStore';
+import toast from 'react-hot-toast';
+import { Lock } from 'lucide-react';
+import { notify } from '../utils/toast';
 export const useGlobalShortcuts = () => {
   const previousToolRef = useRef<string | null>(null);
   const pressedKeyRef = useRef<string | null>(null);
@@ -55,7 +59,8 @@ export const useGlobalShortcuts = () => {
       }
 
       const keyToToolMap: Record<string, any> = {
-        'v': 'none', 'e': 'erase', 'b': 'restore', 's': 'scan', 'r': 'redraw', ' ': 'pan',
+        'v': 'none', 'e': 'erase', 'y': 'restore', 'w': 'scan',
+        's': 'clone', 'b': 'speedline',
       };
 
       if (keyToToolMap[key] && currentTool !== keyToToolMap[key]) {

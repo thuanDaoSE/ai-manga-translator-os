@@ -9,7 +9,6 @@ import {
   Download,
   CheckCircle2,
   FileStack,
-  Zap,
   Layers,
   ArrowRight,
 } from 'lucide-react';
@@ -124,7 +123,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
       desc: 'Thuật toán chống tràn chữ anti-overflow. Tự động co giãn kích thước, ngắt dòng theo âm tiết và căn lề chuyên nghiệp trong từng ô thoại.',
     },
     {
-      icon: Zap,
+      icon: Cpu,
       color: 'emerald',
       tag: 'Tốc độ',
       title: '10 Giây Cho Mỗi Trang',
@@ -169,7 +168,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
       <nav className="sticky top-0 z-50 w-full border-b border-white/[0.06] bg-[#080810]/80 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           {/* Logo */}
-          <div className="flex items-center gap-3 group cursor-pointer select-none">
+          <div className="flex items-center gap-3 group cursor-pointer select-none notranslate" translate="no">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center font-black text-white text-sm shadow-lg shadow-indigo-500/30 group-hover:shadow-indigo-500/50 transition-shadow">
               DK
             </div>
@@ -284,7 +283,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
               </div>
               <div>
                 <div className="flex justify-between text-[10.5px] mb-1.5">
-                  <span className="text-indigo-400 font-bold flex items-center gap-1"><Zap className="w-3 h-3" /> DeepKoma AI</span>
+                  <span className="text-indigo-400 font-bold flex items-center gap-1 notranslate" translate="no"><Cpu className="w-3 h-3" /> DeepKoma AI</span>
                   <span className="text-emerald-400 font-bold">10 giây</span>
                 </div>
                 <div className="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
@@ -344,7 +343,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
               className="text-base md:text-lg text-neutral-400 max-w-2xl leading-relaxed mb-10"
             >
               Mệt mỏi với <span className="text-neutral-200 font-medium">Redraw thủ công</span> và copy-paste từng dòng thoại vào Photoshop?{' '}
-              DeepKoma tẩy chữ bằng{' '}
+              <span className="notranslate" translate="no">DeepKoma</span> tẩy chữ bằng{' '}
               <span className="text-pink-300 font-medium">AI chuyên sâu</span>, dịch ngữ cảnh bằng{' '}
               <span className="text-indigo-300 font-medium">Trí tuệ nhân tạo</span> và xuất thẳng{' '}
               <span className="text-violet-300 font-medium">PSD layer chữ chỉnh sửa được</span>.
@@ -623,7 +622,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
               Tăng Tốc Dự Án Của Bạn<br />Ngay Hôm Nay
             </h2>
             <p className="text-neutral-500 text-base md:text-lg mb-10 max-w-xl mx-auto leading-relaxed">
-              Tham gia cùng hàng trăm nhóm dịch tự do và dịch giả độc lập đang tối ưu hóa quy trình bằng DeepKoma.
+              Tham gia cùng hàng trăm nhóm dịch tự do và dịch giả độc lập đang tối ưu hóa quy trình bằng <span className="notranslate" translate="no">DeepKoma</span>.
             </p>
             <PulsatingButton text="Bắt Đầu Miễn Phí — Nhận 30 Credits" onClick={onOpenAuth} />
           </div>
@@ -634,7 +633,7 @@ export default function LandingPage({ onOpenAuth }: LandingPageProps) {
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-[12px] text-neutral-600">
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center font-black text-white text-[11px]">DK</div>
-              <span>© 2026 DeepKoma Inc. Bảo lưu mọi quyền.</span>
+              <span>© 2026 <span className="notranslate" translate="no">DeepKoma</span> Inc. Bảo lưu mọi quyền.</span>
             </div>
             <div className="flex items-center gap-6 font-medium">
               <a href="#" onClick={(e) => { e.preventDefault(); setIsPolicyOpen(true); }} className="hover:text-white transition-colors cursor-pointer">Điều khoản dịch vụ</a>

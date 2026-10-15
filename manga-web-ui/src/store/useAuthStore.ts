@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../services/supabaseClient';
 import { mangaApi } from '../services/api'; // 🚀 Import API để gọi Backend
+import { useProjectStore } from './useProjectStore';
 
 interface AuthState {
   user: any | null;
@@ -52,7 +53,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  // 🚀 Hàm trừ tiền tạm trên UI cho mượt
+  // 🚀 Hàm trừ tiền tạm trên UI cho mượt (BỊ BÃI BỎ trong mô hình tính giây thực tế)
   deductLocalCredits: (amount: number) => {
     set((state) => {
       if (!state.user || state.user.isPro) return state; // Tài khoản Pro thì miễn phí
@@ -70,6 +71,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     set({ user: null, session: null, loading: false });
+
+    // 🚀 Xóa dự án đang hoạt động khi đăng xuất
+    useProjectStore.getState().clearProject();
 
     try {
       const keysToRemove: string[] = [];

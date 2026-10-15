@@ -1,16 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { toJpeg } from "html-to-image";
-import {
-  CloudCheck, Download, Zap, User, Settings, LogOut, ChevronDown,
-  Palette, ImageDown, Save, CreditCard, HelpCircle, Settings2, Wand2, Languages,
-  FileText, Globe, Image as ImageIcon
+import { 
+  Download, ChevronDown, Palette, ImageDown, FileText, Image as ImageIcon,
+  User, CreditCard, HelpCircle, LogOut, Zap
 } from "lucide-react";
-import toast from 'react-hot-toast';
-import { useConfigStore } from "../../store/useConfigStore";
-import TranslationConfigModal from "../Modals/TranslationConfigModal";
-import PaymentHistoryModal from "../Modals/PaymentHistoryModal";
 import { saveAs } from 'file-saver';
 import { useTranslation } from "react-i18next";
+import toast from "react-hot-toast";
 
 // Import Stores & API
 import { useToolStore } from "../../store/useToolStore";
@@ -19,39 +14,54 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { useCanvasStore } from "../../store/useCanvasStore";
 import { exportTranslationToText } from "../Editor/ExportTextButton";
 import { mangaApi } from "../../services/api";
-import { PaywallDrawer } from "../Modals/PaywallDrawer";
-import SupportModal from "../Modals/SupportModal";
 import DeepKomaLogo from "../ui/DeepKomaLogo";
+import { PaywallDrawer } from "../Drawers/PaywallDrawer";
+import PaymentHistoryModal from "../Modals/PaymentHistoryModal";
+import SupportModal from "../Modals/SupportModal";
+
+function getPageGroupKey(filename: string): string {
+  const match = filename.match(/^(.*)_part_\d+\.[^.]+$/i);
+  return match ? match[1] : filename.split('.')[0] || filename;
+}
 
 export default function Topbar() {
-  const { t, i18n } = useTranslation();
-  const { isComparing, setIsComparing, showLeftPanel, toggleLeftPanel } = useToolStore();
+  const { t } = useTranslation();
+  const { isComparing, setIsComparing } = useToolStore();
   const { user, signOut } = useAuthStore();
   const projectStore = useProjectStore();
+  const { fileQueue, currentIndex } = projectStore;
+  const activeFile = fileQueue[currentIndex];
+  const activeGroupKey = activeFile ? getPageGroupKey(activeFile.name) : "";
+  const activeGroupPages = fileQueue
+    .map((file, idx) => ({ file, idx }))
+    .filter(({ file }) => getPageGroupKey(file.name) === activeGroupKey)
+    .sort((a, b) => {
+      const matchA = a.file.name.match(/_part_(\d+)/i);
+      const matchB = b.file.name.match(/_part_(\d+)/i);
+      if (matchA && matchB) {
+        return parseInt(matchA[1], 10) - parseInt(matchB[1], 10);
+      }
+      return a.file.name.localeCompare(b.file.name);
+    });
+  const isSlicedWebtoon = activeGroupPages.length > 1;
 
-  const storeProjectName = (projectStore as any).projectName || "";
-  const [localProjectName, setLocalProjectName] = useState(storeProjectName);
-
-  useEffect(() => {
-    setLocalProjectName(storeProjectName);
-  }, [storeProjectName]);
-
-  const { isModalOpen, setModalOpen, unrestrictedMode } = useConfigStore();
-
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [isPaywallOpen, setIsPaywallOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
-  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) setIsExportMenuOpen(false);
-      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) setIsAccountMenuOpen(false);
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+        setIsAccountMenuOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -60,26 +70,6 @@ export default function Topbar() {
   const handleLogoClick = () => {
     if (window.confirm(t('topbar.confirmCloseProject', 'Bạn có muốn đóng dự án hiện tại và quay về màn hình chính không?'))) {
       projectStore.clearProject();
-    }
-  };
-
-  const handleExportManga = async () => {
-    const pageId = projectStore.pageIds[projectStore.currentIndex];
-    if (!pageId) return toast.error("Chưa có trang truyện nào được chọn!");
-    setIsExporting(true);
-    setIsExportMenuOpen(false);
-    const loadId = toast.loading("Đang đóng gói file backup .manga...");
-    try {
-      const token = useAuthStore.getState().session?.access_token || "";
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/export-manga?token=${token}`);
-      if (!response.ok) throw new Error("Lỗi máy chủ khi đóng gói backup");
-      const blob = await response.blob();
-      saveAs(blob, `backup-${pageId}.manga`);
-      toast.success("Xuất file backup thành công!", { id: loadId });
-    } catch (error: any) {
-      toast.error(error.message || "Lỗi khi xuất file backup!", { id: loadId });
-    } finally {
-      setIsExporting(false);
     }
   };
 
@@ -124,18 +114,6 @@ export default function Topbar() {
     setIsExportMenuOpen(false);
     const loadId = toast.loading("Đang xuất ảnh JPG...");
     try {
-      // Lấy ảnh display (clean/processed)
-      const projectStore = useProjectStore.getState();
-      const idx = projectStore.currentIndex;
-      const pageId = projectStore.pageIds[idx];
-      const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
-      const serverRawUrl = pageId
-        ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
-        : null;
-      const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
-      if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
-
-      // Tải ảnh chính vào Image
       const loadImg = (src: string): Promise<HTMLImageElement> =>
         new Promise((res, rej) => {
           const img = new Image();
@@ -145,38 +123,86 @@ export default function Topbar() {
           img.src = src;
         });
 
-      const baseImg = await loadImg(displayUrl);
-      const w = baseImg.naturalWidth;
-      const h = baseImg.naturalHeight;
+      if (isSlicedWebtoon) {
+        const pageUrls = activeGroupPages.map(({ file, idx }) => {
+          const pageId = projectStore.pageIds[idx];
+          const fileExt = file.name.split('.').pop() || 'jpg';
+          const serverRawUrl = pageId
+            ? `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+            : null;
+          return projectStore.processedUrls?.[idx] || serverRawUrl;
+        });
 
-      // Tạo canvas tổng hợp
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = w;
-      exportCanvas.height = h;
-      const ctx = exportCanvas.getContext('2d')!;
+        if (pageUrls.some(u => !u)) throw new Error("Có trang chưa tải xong, vui lòng thử lại.");
 
-      // Layer 1: vẽ ảnh nền
-      ctx.drawImage(baseImg, 0, 0, w, h);
+        const imgs = await Promise.all(pageUrls.map(url => loadImg(url!)));
+        const w = Math.max(...imgs.map(img => img.naturalWidth));
+        const totalH = imgs.reduce((sum, img) => sum + img.naturalHeight, 0);
 
-      // Layer 2: vẽ Fabric canvas (text layer) nếu có
-      const fabricCanvasEl = document.querySelector('#workspace-container canvas.lower-canvas') as HTMLCanvasElement
-        || document.querySelector('#workspace-container canvas') as HTMLCanvasElement;
-      if (fabricCanvasEl) {
-        ctx.drawImage(fabricCanvasEl, 0, 0, w, h);
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = w;
+        exportCanvas.height = totalH;
+        const ctx = exportCanvas.getContext('2d')!;
+
+        let currentY = 0;
+        imgs.forEach((img, sliceIdx) => {
+          const sliceH = img.naturalHeight;
+          ctx.drawImage(img, 0, currentY, w, sliceH);
+
+          if (activeGroupPages[sliceIdx].idx === projectStore.currentIndex) {
+            const fabricCanvasEl = document.querySelector('#workspace-container canvas.lower-canvas') as HTMLCanvasElement
+              || document.querySelector('#workspace-container canvas') as HTMLCanvasElement;
+            if (fabricCanvasEl) {
+              ctx.drawImage(fabricCanvasEl, 0, currentY, w, sliceH);
+            }
+          }
+          currentY += sliceH;
+        });
+
+        exportCanvas.toBlob((blob) => {
+          if (!blob) throw new Error('Không tạo được file ảnh.');
+          saveAs(blob, `deepkoma-${Date.now()}.jpg`);
+          toast.success('Xuất ảnh thành công!', { id: loadId });
+          setIsExporting(false);
+        }, 'image/jpeg', 0.95);
+
+      } else {
+        const idx = projectStore.currentIndex;
+        const pageId = projectStore.pageIds[idx];
+        const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
+        const serverRawUrl = pageId
+          ? `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+          : null;
+        const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
+        if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
+
+        const baseImg = await loadImg(displayUrl);
+        const w = baseImg.naturalWidth;
+        const h = baseImg.naturalHeight;
+
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = w;
+        exportCanvas.height = h;
+        const ctx = exportCanvas.getContext('2d')!;
+
+        ctx.drawImage(baseImg, 0, 0, w, h);
+
+        const fabricCanvasEl = document.querySelector('#workspace-container canvas.lower-canvas') as HTMLCanvasElement
+          || document.querySelector('#workspace-container canvas') as HTMLCanvasElement;
+        if (fabricCanvasEl) {
+          ctx.drawImage(fabricCanvasEl, 0, 0, w, h);
+        }
+
+        exportCanvas.toBlob((blob) => {
+          if (!blob) throw new Error('Không tạo được file ảnh.');
+          saveAs(blob, `deepkoma-${Date.now()}.jpg`);
+          toast.success('Xuất ảnh thành công!', { id: loadId });
+          setIsExporting(false);
+        }, 'image/jpeg', 0.95);
       }
-
-      // Xuất JPEG
-      exportCanvas.toBlob((blob) => {
-        if (!blob) throw new Error('Không tạo được file ảnh.');
-        saveAs(blob, `deepkoma-${Date.now()}.jpg`);
-        toast.success('Xuất ảnh thành công!', { id: loadId });
-        setIsExporting(false);
-      }, 'image/jpeg', 0.95);
-      return; // early return, setIsExporting handled inside toBlob
+      return;
     } catch (e: any) {
       toast.error(e.message || 'Lỗi khi xuất ảnh!', { id: loadId });
-    } finally {
-      // chỉ set false nếu chưa được set bởi toBlob
     }
     setIsExporting(false);
   };
@@ -189,15 +215,6 @@ export default function Topbar() {
     const loadId = toast.loading("Đang xuất ảnh Clean...");
 
     try {
-      const pageId = projectStore.pageIds[idx];
-      const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
-      const serverRawUrl = pageId
-        ? `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
-        : null;
-      const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
-      if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
-
-      // Tải ảnh chính vào Image
       const loadImg = (src: string): Promise<HTMLImageElement> =>
         new Promise((res, rej) => {
           const img = new Image();
@@ -207,26 +224,68 @@ export default function Topbar() {
           img.src = src;
         });
 
-      const baseImg = await loadImg(displayUrl);
-      const w = baseImg.naturalWidth;
-      const h = baseImg.naturalHeight;
+      if (isSlicedWebtoon) {
+        const pageUrls = activeGroupPages.map(({ file, idx }) => {
+          const pageId = projectStore.pageIds[idx];
+          const fileExt = file.name.split('.').pop() || 'jpg';
+          const serverRawUrl = pageId
+            ? `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+            : null;
+          return projectStore.processedUrls?.[idx] || serverRawUrl;
+        });
 
-      // Tạo canvas tổng hợp
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = w;
-      exportCanvas.height = h;
-      const ctx = exportCanvas.getContext('2d')!;
+        if (pageUrls.some(u => !u)) throw new Error("Có trang chưa tải xong, vui lòng thử lại.");
 
-      // Chỉ vẽ ảnh nền (đây là ảnh đã inpaint/sạch chữ)
-      ctx.drawImage(baseImg, 0, 0, w, h);
+        const imgs = await Promise.all(pageUrls.map(url => loadImg(url!)));
+        const w = Math.max(...imgs.map(img => img.naturalWidth));
+        const totalH = imgs.reduce((sum, img) => sum + img.naturalHeight, 0);
 
-      // Xuất JPEG
-      exportCanvas.toBlob((blob) => {
-        if (!blob) throw new Error('Không tạo được file ảnh.');
-        saveAs(blob, `deepkoma-clean-${Date.now()}.jpg`);
-        toast.success('Xuất ảnh sạch thành công!', { id: loadId });
-        setIsExporting(false);
-      }, 'image/jpeg', 0.95);
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = w;
+        exportCanvas.height = totalH;
+        const ctx = exportCanvas.getContext('2d')!;
+
+        let currentY = 0;
+        imgs.forEach((img) => {
+          const sliceH = img.naturalHeight;
+          ctx.drawImage(img, 0, currentY, w, sliceH);
+          currentY += sliceH;
+        });
+
+        exportCanvas.toBlob((blob) => {
+          if (!blob) throw new Error('Không tạo được file ảnh.');
+          saveAs(blob, `deepkoma-clean-${Date.now()}.jpg`);
+          toast.success('Xuất ảnh sạch thành công!', { id: loadId });
+          setIsExporting(false);
+        }, 'image/jpeg', 0.95);
+
+      } else {
+        const pageId = projectStore.pageIds[idx];
+        const fileExt = projectStore.fileQueue[idx]?.name?.split('.').pop() || 'jpg';
+        const serverRawUrl = pageId
+          ? `${import.meta.env.VITE_API_URL || ''}/workspace/${projectStore.projectId}/raw/${pageId}.${fileExt}`
+          : null;
+        const displayUrl = projectStore.processedUrls?.[idx] || serverRawUrl;
+        if (!displayUrl) throw new Error("Ảnh hiện tại chưa tải xong, vui lòng thử lại.");
+
+        const baseImg = await loadImg(displayUrl);
+        const w = baseImg.naturalWidth;
+        const h = baseImg.naturalHeight;
+
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = w;
+        exportCanvas.height = h;
+        const ctx = exportCanvas.getContext('2d')!;
+
+        ctx.drawImage(baseImg, 0, 0, w, h);
+
+        exportCanvas.toBlob((blob) => {
+          if (!blob) throw new Error('Không tạo được file ảnh.');
+          saveAs(blob, `deepkoma-clean-${Date.now()}.jpg`);
+          toast.success('Xuất ảnh sạch thành công!', { id: loadId });
+          setIsExporting(false);
+        }, 'image/jpeg', 0.95);
+      }
       return;
     } catch (e: any) {
       toast.error(e.message || 'Lỗi khi xuất ảnh!', { id: loadId });
@@ -242,17 +301,17 @@ export default function Topbar() {
     const loadId = toast.loading("Đang tạo file PSD...");
     try {
       const token = useAuthStore.getState().session?.access_token || "";
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/pages/${pageId}/download-psd?token=${token}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/pages/${pageId}/download-psd?token=${token}`);
       if (!response.ok) throw new Error("Lỗi máy chủ khi tạo file PSD");
       const blob = await response.blob();
       saveAs(blob, `MangaAI_${pageId}.psd`);
       
       toast.dismiss(loadId);
-      toast.success((t) => (
+      toast.success((tObj) => (
         <div className="flex flex-col gap-2">
           <span className="font-bold">Đã tạo file PSD thành công!</span>
           <div className="text-[11px] opacity-90">Nếu file PSD bị lỗi font tiếng Việt, hãy tải và cài đặt bộ Font chuẩn:</div>
-          <button onClick={() => { toast.dismiss(t.id); mangaApi.downloadFontPack(); }} className="px-3 py-1.5 text-[11px] font-bold bg-primary text-white rounded-lg flex items-center justify-center gap-1.5">
+          <button onClick={() => { toast.dismiss(tObj.id); mangaApi.downloadFontPack(); }} className="px-3 py-1.5 text-[11px] font-bold bg-primary text-white rounded-lg flex items-center justify-center gap-1.5">
             <Download size={14} /> Tải Bộ Font
           </button>
         </div>
@@ -264,71 +323,48 @@ export default function Topbar() {
     }
   };
 
-
-
   return (
-    <header className="h-14 border-b border-border bg-panel px-4 flex items-center justify-between select-none shrink-0 relative" style={{ zIndex: 99 }}>
+    <header className="h-14 border-b border-border bg-panel px-3 md:px-4 flex items-center justify-between select-none shrink-0 relative" style={{ zIndex: 99 }}>
 
-      {/* 1. LEFT ZONE: LOGO & PROJECT */}
-      <div className="flex items-center gap-4 flex-1">
+      {/* 1. LEFT ZONE: LOGO */}
+      <div className="flex items-center gap-3 flex-1">
         <DeepKomaLogo onClick={handleLogoClick} className="cursor-pointer transition-opacity hover:opacity-80" iconSize={32} showSubtitle={false} />
-
-        {/* <div className="w-px h-8 bg-border mx-2 hidden sm:block" /> */}
-
-
-        {/* Project name + sync status — ẩn tạm thời (tính năng .manga sẽ phát triển sau) */}
-        {/* <div className="flex flex-col justify-center min-w-0 max-w-[300px]">
-          <input
-            type="text"
-            value={localProjectName}
-            onChange={(e) => setLocalProjectName(e.target.value)}
-            className="bg-transparent font-bold text-[13px] text-text-main focus:outline-none focus:border-b border-[#8A2BE2] w-full truncate transition-all placeholder-text-muted/50"
-            placeholder={t('topbar.projectNamePlaceholder')}
-          />
-          <div className="flex items-center text-[10px] text-text-muted font-medium mt-0.5">
-            <CloudCheck size={12} className="mr-1 text-[#06B6D4]" />
-            <span>{t('topbar.synced')}</span>
-          </div>
-        </div> */}
-
       </div>
 
-      {/* 2. CENTER ZONE: CHỈ CÒN ĐÚNG VIEW MODE (Tập trung tối đa) */}
-      <div className="flex items-center justify-center flex-1">
-        <div className="flex items-center bg-background p-1 rounded-lg border border-border shadow-inner">
-          <button onClick={() => setIsComparing(false)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${!isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeAi')}</button>
-          <button onClick={() => setIsComparing(true)} className={`px-5 py-1.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'}`}>{t('topbar.viewModeRaw')}</button>
+      {/* 2. CENTER ZONE: VIEW MODE ONLY */}
+      <div className="hidden md:flex items-center justify-center flex-1">
+        {/* Toggle Raw/Clean View Mode */}
+        <div className="flex items-center bg-slate-900/50 border border-slate-700/60 p-0.5 rounded-lg">
+          <button 
+            onClick={() => setIsComparing(false)} 
+            className={`px-4 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+              !isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'
+            }`}
+          >
+            {t('topbar.viewModeAi')}
+          </button>
+          <button 
+            onClick={() => setIsComparing(true)} 
+            className={`px-4 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+              isComparing ? 'bg-primary text-white shadow-sm' : 'text-text-muted hover:text-text-main'
+            }`}
+          >
+            {t('topbar.viewModeRaw')}
+          </button>
         </div>
       </div>
 
-      {/* 3. RIGHT ZONE: CONFIG, CREDITS, EXPORT, ACCOUNT */}
-      <div className="flex items-center justify-end gap-3 flex-1 relative">
-
-        {/* Nút Cài đặt dự án chung (Cấu hình dịch) */}
+      {/* 3. RIGHT ZONE: ENERGY, EXPORT & USER PROFILE */}
+      <div className="flex items-center justify-end gap-2.5 flex-1 relative">
+        {/* Nút Năng Lượng (Energy Badge) - Dùng icon Zap tia sét, không dùng icon AI */}
         <button
-          onClick={() => setModalOpen(true)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-colors cursor-pointer shadow-sm group whitespace-nowrap shrink-0 text-[12px] font-bold ${
-            unrestrictedMode 
-              ? 'border-red-500/30 bg-red-500/5 text-red-400 hover:bg-red-500/10' 
-              : 'border-border bg-background hover:bg-border/40 text-text-muted hover:text-text-main'
-          }`}
-          title="Cài đặt từ điển & Xưng hô AI"
+          onClick={() => setIsPaywallOpen(true)}
+          className="h-9 flex items-center gap-1.5 px-3 rounded-xl border border-amber-500/25 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 transition-all group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-xs font-bold active:scale-95"
+          title="Nạp thêm năng lượng"
         >
-          <Languages size={14} className={`group-hover:scale-110 transition-transform ${unrestrictedMode ? 'text-red-500' : 'text-primary'}`} />
-          <span>{t('topbar.configBtn')}</span>
-          {unrestrictedMode && (
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse ml-0.5" />
-          )}
-        </button>
-
-        {/* ĐƯỜNG PHÂN CÁCH DỌC */}
-        <div className="w-px h-5 bg-border mx-1 shrink-0" />
-
-        {/* Nút Credits */}
-        <button onClick={() => setIsPaywallOpen(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-[12px] font-bold ${user?.isPro ? 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20' : 'bg-background hover:bg-border/40 border-border'}`}>
-          <Zap size={14} className={user?.isPro ? "text-indigo-400 animate-pulse" : "text-amber-500 fill-amber-500 group-hover:scale-110 transition-transform"} />
-          <span className={user?.isPro ? 'text-indigo-400' : 'text-text-main'}>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span>
-          {!user?.isPro && <span className="text-[9px] font-black uppercase text-amber-500/80 ml-1 hidden sm:inline">{t('topbar.recharge')}</span>}
+          <Zap size={14} className="text-amber-400 fill-amber-400 group-hover:scale-110 transition-transform" />
+          <span>{user?.isPro ? "Pro" : `${Math.round(user?.credits !== undefined ? user.credits : 30).toLocaleString()} ⚡`}</span>
+          {!user?.isPro && <span className="text-[10px] font-extrabold uppercase text-amber-500/90 ml-0.5 hidden sm:inline">Nạp thêm</span>}
         </button>
 
         {/* Menu Export */}
@@ -338,7 +374,7 @@ export default function Topbar() {
             onClick={() => {
               if (isExporting) return;
               setIsExportMenuOpen(!isExportMenuOpen); 
-              setIsAccountMenuOpen(false); 
+              setIsAccountMenuOpen(false);
             }} 
             className={`flex items-center gap-1.5 bg-primary hover:bg-primary-hover px-4 py-1.5 rounded-lg text-[12px] font-bold text-white shadow-md transition-colors active:scale-95 shrink-0 ${isExporting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
           >
@@ -367,56 +403,72 @@ export default function Topbar() {
           )}
         </div>
 
-        {/* Menu Account */}
+        {/* Menu Account / Profile */}
         <div className="relative shrink-0" ref={accountMenuRef}>
-          <button onClick={() => { setIsAccountMenuOpen(!isAccountMenuOpen); setIsExportMenuOpen(false); }} className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 focus:ring-2 focus:ring-amber-500/50 transition-transform active:scale-95 cursor-pointer shadow-sm shrink-0">
+          <button 
+            onClick={() => { 
+              setIsAccountMenuOpen(!isAccountMenuOpen); 
+              setIsExportMenuOpen(false); 
+            }} 
+            className="flex items-center justify-center w-9 h-9 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 hover:brightness-110 focus:ring-2 focus:ring-amber-500/50 transition-all active:scale-95 cursor-pointer shadow-sm shrink-0"
+            title={user?.email || "Tài khoản của bạn"}
+          >
             <User size={16} className="text-amber-950" strokeWidth={2.5} />
           </button>
 
           {isAccountMenuOpen && (
-            <div className="absolute top-[calc(100%+12px)] right-0 w-64 bg-panel border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 origin-top-right" style={{ zIndex: 99999 }}>
+            <div className="absolute top-[calc(100%+12px)] right-0 w-64 bg-panel border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 origin-top-right z-[99999]" style={{ zIndex: 99999 }}>
               <div className="px-4 py-3 border-b border-border bg-background/50">
-                <p className="text-[13px] font-bold text-text-main truncate">{t('topbar.welcomeUser')}</p>
+                <p className="text-[13px] font-bold text-text-main truncate">{t('topbar.welcomeUser', 'Xin chào!')}</p>
                 <p className="text-[11px] text-text-muted truncate mt-0.5">{user?.email || "Chưa đăng nhập"}</p>
               </div>
+
               <div className="px-2 py-2 border-b border-border">
-                <div className="flex items-center justify-between px-3 py-2.5 mb-1 bg-background rounded-lg border border-border/50">
-                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main"><Zap size={14} className="text-amber-500 fill-amber-500" /><span>{user?.isPro ? t('topbar.proPlan') : `${(user?.credits || 0).toLocaleString()} ${t('topbar.credits')}`}</span></div>
-                  <button onClick={() => { setIsAccountMenuOpen(false); setIsPaywallOpen(true); }} className="text-[10px] font-black uppercase text-primary hover:text-primary-hover transition-colors cursor-pointer">{t('topbar.rechargeMore')}</button>
-                </div>
-                <button
-                  onClick={() => { setIsAccountMenuOpen(false); setIsHistoryOpen(true); }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer"
-                >
-                  <CreditCard size={14} /> {t('topbar.transactionHistory')}
-                </button>
-                <button
-                  onClick={() => { setIsSupportOpen(true); setIsAccountMenuOpen(false); }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer mt-0.5"
-                >
-                  <HelpCircle size={14} /> {t('topbar.supportRequest')}
-                </button>
-                {/* Lựa chọn Ngôn ngữ (Language Switcher) */}
-                <button
-                  onClick={() => {
-                    const nextLang = i18n.language === 'vi' ? 'en' : 'vi';
-                    i18n.changeLanguage(nextLang);
-                    localStorage.setItem('lang', nextLang);
-                    localStorage.setItem('ui_language', nextLang);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-md transition-colors cursor-pointer mt-0.5"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Globe size={14} className="text-text-muted" />
-                    <span>{i18n.language === 'vi' ? 'Ngôn ngữ: Tiếng Việt' : 'Language: English'}</span>
+                {/* Dòng hiển thị số dư năng lượng với icon Zap (KHÔNG DÙNG ICON AI) */}
+                <div className="flex items-center justify-between px-3 py-2.5 mb-1 bg-background rounded-xl border border-border/50">
+                  <div className="flex items-center gap-2 text-[12px] font-bold text-text-main">
+                    <Zap size={14} className="text-amber-400 fill-amber-400" />
+                    <span>{user?.isPro ? t('topbar.proPlan', 'Tài khoản Pro') : `${Math.round(user?.credits !== undefined ? user.credits : 30).toLocaleString()} Năng lượng`}</span>
                   </div>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-black uppercase">
-                    {i18n.language === 'vi' ? 'VN' : 'EN'}
-                  </span>
+                  <button 
+                    onClick={() => { 
+                      setIsAccountMenuOpen(false); 
+                      setIsPaywallOpen(true); 
+                    }} 
+                    className="text-[10px] font-black uppercase text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                  >
+                    {t('topbar.rechargeMore', 'Nạp thêm')}
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => { 
+                    setIsAccountMenuOpen(false); 
+                    setIsHistoryOpen(true); 
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-lg transition-colors cursor-pointer"
+                >
+                  <CreditCard size={14} /> {t('topbar.transactionHistory', 'Lịch sử giao dịch')}
+                </button>
+
+                <button
+                  onClick={() => { 
+                    setIsSupportOpen(true); 
+                    setIsAccountMenuOpen(false); 
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-lg transition-colors cursor-pointer mt-0.5"
+                >
+                  <HelpCircle size={14} /> {t('topbar.supportRequest', 'Yêu cầu hỗ trợ')}
                 </button>
               </div>
+
               <div className="px-2 py-2 bg-background/30">
-                <button onClick={signOut} className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-bold text-danger/80 hover:bg-danger/10 hover:text-danger rounded-md transition-colors cursor-pointer"><LogOut size={14} strokeWidth={2.5} /> {t('topbar.logout')}</button>
+                <button 
+                  onClick={signOut} 
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-bold text-danger/80 hover:bg-danger/10 hover:text-danger rounded-lg transition-colors cursor-pointer"
+                >
+                  <LogOut size={14} strokeWidth={2.5} /> {t('topbar.logout', 'Đăng xuất')}
+                </button>
               </div>
             </div>
           )}
@@ -427,8 +479,6 @@ export default function Topbar() {
       <PaywallDrawer isOpen={isPaywallOpen} onClose={() => setIsPaywallOpen(false)} />
       <PaymentHistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
       <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
-
-      {/* 🚀 Bảng cấu hình dịch thuật sẽ hiện lên khi isModalOpen = true */}
 
     </header>
   );

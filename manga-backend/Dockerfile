@@ -1,5 +1,5 @@
-# Use official Python 3.10 slim image based on Debian Bookworm
-FROM python:3.10-slim-bookworm
+# Use official PyTorch image with CUDA and cuDNN runtime
+FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime
 
 # Prevent Python from writing .pyc files and buffer outputs, non-interactive apt
 ENV PYTHONDONTWRITEBYTECODE=1 \

@@ -15,7 +15,8 @@ export interface UseMangaUploadReturn {
 export function useMangaUpload(): UseMangaUploadReturn {
   const projectStore = useProjectStore();
   const [isAgreed, setIsAgreedState] = useState<boolean>(() => {
-    return localStorage.getItem('manga_policy_agreed') === 'true';
+    const saved = localStorage.getItem('manga_policy_agreed');
+    return saved !== null ? saved === 'true' : true;
   });
 
   const setIsAgreed = (agreed: boolean) => {
@@ -38,13 +39,16 @@ export function useMangaUpload(): UseMangaUploadReturn {
       return;
     }
 
+    localStorage.setItem('manga_policy_agreed', 'true');
+    setIsAgreedState(true);
+
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files).sort((a, b) =>
         a.name.localeCompare(b.name)
       );
 
-      if (files.length > 30) {
-        toast.error('Để đảm bảo tốc độ, chỉ hỗ trợ tải lên tối đa 30 trang mỗi lần!');
+      if (files.length > 500) {
+        toast.error('Hệ thống hỗ trợ tải lên tối đa 500 trang cho mỗi phiên làm việc!');
         e.target.value = '';
         return;
       }

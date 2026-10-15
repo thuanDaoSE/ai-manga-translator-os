@@ -1,13 +1,15 @@
 import { create } from 'zustand';
 
 export const VALID_LANGUAGES = [
-  'Tiếng Việt',
-  'English',
-  'Bahasa Indonesia',
-  'ภาษาไทย (Thai)',
-  'Français (French)',
-  'Español (Spanish)',
-  'Русский (Russian)'
+  'Tiếng Việt'
+];
+
+export const SOURCE_LANGUAGES = [
+  { code: 'auto', flag: '✨', label: 'Tự động (AI)', iso: 'AUTO' },
+  { code: 'ja', flag: '🇯🇵', label: 'Tiếng Nhật', iso: 'JA' },
+  { code: 'en', flag: '🇬🇧', label: 'Tiếng Anh', iso: 'EN' },
+  { code: 'zh', flag: '🇨🇳', label: 'Tiếng Trung', iso: 'ZH' },
+  { code: 'ko', flag: '🇰🇷', label: 'Tiếng Hàn', iso: 'KO' }
 ];
 
 interface ConfigState {
@@ -24,8 +26,11 @@ interface ConfigState {
   customPronoun: string;
   glossary: string;
   targetLanguage: string;
-  translationMode: 'fast' | 'studio' | 'grok' | 'openai';
-  setTranslationMode: (mode: 'fast' | 'studio' | 'grok' | 'openai') => void;
+  sourceLanguage: string;
+  useGpu: boolean;
+  setUseGpu: (useGpu: boolean) => void;
+  translationMode: 'fast' | 'studio' | 'grok' | 'openai' | 'anytext';
+  setTranslationMode: (mode: 'fast' | 'studio' | 'grok' | 'openai' | 'anytext') => void;
   grokSubModel: 'grok-2' | 'grok-imagine';
   setGrokSubModel: (model: 'grok-2' | 'grok-imagine') => void;
   openaiSubModel: 'gpt-4o';
@@ -58,7 +63,10 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   customPronoun: '',
   glossary: '',
   targetLanguage: 'Tiếng Việt',
-  translationMode: 'studio' as 'fast' | 'studio' | 'grok' | 'openai',
+  sourceLanguage: 'auto',
+  useGpu: true,
+  setUseGpu: (useGpu) => set({ useGpu }),
+  translationMode: 'studio' as 'fast' | 'studio' | 'grok' | 'openai' | 'anytext',
   setTranslationMode: (mode) => set({ translationMode: mode }),
   grokSubModel: 'grok-imagine' as 'grok-2' | 'grok-imagine',
   setGrokSubModel: (model) => set({ grokSubModel: model }),
@@ -90,7 +98,14 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         if (parsed.studioSubModel === 'nano-banana-v1' || parsed.studioSubModel === 'nano-banana-v2') {
           parsed.studioSubModel = 'nano-banana-2';
         }
+        if (!parsed.sourceLanguage) {
+          parsed.sourceLanguage = 'auto';
+        }
+        if (parsed.useGpu === undefined) {
+          parsed.useGpu = true;
+        }
         set({ ...parsed });
+        localStorage.setItem('has_configured_translation', 'true');
       } catch (err) {
         console.error("Lỗi parse config từ local storage:", err);
       }
@@ -105,6 +120,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       pronoun: state.pronoun, customPronoun: state.customPronoun,
       glossary: state.glossary,
       targetLanguage: state.targetLanguage,
+      sourceLanguage: state.sourceLanguage,
+      useGpu: state.useGpu,
       translationMode: state.translationMode,
       grokSubModel: state.grokSubModel,
       openaiSubModel: state.openaiSubModel,

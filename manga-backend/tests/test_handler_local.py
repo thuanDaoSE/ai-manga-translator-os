@@ -4,16 +4,16 @@ import json
 
 def main():
     image_path = "test_image.png"
+    if not os.path.exists(image_path) and os.path.exists("tests/dummy_test_page.png"):
+        image_path = "tests/dummy_test_page.png"
     if not os.path.exists(image_path):
-        print(f"Error: {image_path} not found. Please place a test image in this directory or update the script path.")
-        print("Using a blank mock image placeholder for testing...")
-        # A tiny 1x1 black png base64
+        print(f"Error: {image_path} not found. Using mock image...")
         base64_string = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
     else:
         with open(image_path, "rb") as f:
             base64_string = base64.b64encode(f.read()).decode("utf-8")
 
-    mock_event = {"input": {"image": base64_string, "action": "detect_and_ocr_only"}}
+    mock_event = {"input": {"image_base64": base64_string, "action": "translate", "task_type": "clean_only"}}
 
     try:
         print("Importing handler from handler.py...")

@@ -1,0 +1,47 @@
+# ==============================================================================
+# AI Manga Translator Docker Build Context Ignore (.dockerignore)
+# ==============================================================================
+
+# VCS & IDE Metadata
+.git
+.github
+.agents
+.cursor
+.idea
+.vscode
+
+# Frontend Dev & Build Source (Already compiled into manga-backend/static)
+manga-web-ui
+crawData
+userData
+test
+testInputImage
+manga-inpainting-poc
+runpod-cpu-worker
+
+# Backend Runtime Workspace & Cache
+manga-backend/workspace
+manga-backend/venv
+manga-backend/node_modules
+manga-backend/models
+manga-backend/.env
+manga-backend/__pycache__
+manga-backend/**/__pycache__
+manga-backend/*.db
+manga-backend/*.sqlite3
+manga-backend/backup_temp
+manga-backend/local_manga.db
+
+# Documentation & Large Static Files
+*.pdf
+*.log
+*.md
+*.tar.gz
+*.bat
+*.sh
+!start.sh
+backend_changes.patch
+ComicApp_Architecture_Report.md
+Essential Guide to Comic Book Lettering.pdf
+output_test.png
+

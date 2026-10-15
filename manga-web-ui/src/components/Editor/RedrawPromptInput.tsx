@@ -1,14 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { X, Sparkles, ChevronDown, Check, Loader2 } from 'lucide-react';
+import { X, Sparkles, ChevronDown, Check, Loader2, Download, HardDrive } from 'lucide-react';
 import { mangaApi } from '../../services/api';
 import toast from 'react-hot-toast';
+import { notify } from '../../utils/toast';
 import { useDynamicLoadingText } from '../../hooks/useDynamicLoadingText';
 import { useTranslation } from 'react-i18next';
 import { useToolStore } from '../../store/useToolStore';
+import { FluxDownloadModal } from './FluxDownloadModal';
 
-const BoltIcon = ({ className = "w-3 h-3 text-amber-500 fill-current" }: { className?: string }) => (
-  <svg className={`${className} inline-block align-middle`} viewBox="-11 0 32 32" xmlns="http://www.w3.org/2000/svg">
-    <path d="M1.84 26.24c-0.080 0-0.16 0-0.24-0.040-0.4-0.12-0.64-0.52-0.56-0.92l1.32-9.16h-1.52c-0.24 0-0.52-0.12-0.68-0.32s-0.2-0.48-0.16-0.72l2.32-8.68c0.080-0.36 0.44-0.64 0.8-0.64h5.56c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-2.6 5.12h1.24c0.28 0 0.56 0.16 0.72 0.4s0.16 0.56 0.040 0.8l-6.24 12.48c-0.12 0.28-0.44 0.48-0.76 0.48zM1.92 14.44h1.4c0.24 0 0.48 0.12 0.64 0.28 0.16 0.2 0.24 0.44 0.2 0.68l-0.72 4.92 3.28-6.56h-1.24c-0.28 0-0.56-0.16-0.72-0.4s-0.16-0.56-0.040-0.8l2.6-5.12h-3.56l-1.84 7z"></path>
+const GpuIcon = ({ size = 14, className = "" }: { size?: number; className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width={size} 
+    height={size} 
+    fill="currentColor" 
+    className={`inline-block align-middle ${className}`} 
+    viewBox="0 0 16 16"
+  >
+    <path d="M4 8a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0m7.5-1.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3"/>
+    <path d="M0 1.5A.5.5 0 0 1 .5 1h1a.5.5 0 0 1 .5.5V4h13.5a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H2v2.5a.5.5 0 0 1-1 0V2H.5a.5.5 0 0 1-.5-.5m5.5 4a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5M9 8a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0"/>
+    <path d="M3 12.5h3.5v1a.5.5 0 0 1-.5.5H3.5a.5.5 0 0 1-.5-.5zm4 1v-1h4v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5"/>
   </svg>
 );
 
@@ -100,7 +111,19 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   const [isOpenFlyout, setIsOpenFlyout] = useState(false);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [fluxReady, setFluxReady] = useState<boolean | null>(null);
+  const [isFluxModalOpen, setIsFluxModalOpen] = useState(false);
   const dynamicLoadingText = useDynamicLoadingText(isProcessing);
+
+  useEffect(() => {
+    let active = true;
+    mangaApi.getFluxStatus().then((res) => {
+      if (active) setFluxReady(!!res.is_ready);
+    }).catch(() => {
+      if (active) setFluxReady(false);
+    });
+    return () => { active = false; };
+  }, [isFluxModalOpen]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -127,6 +150,15 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     if (e) e.preventDefault();
     if (isTranslating || isProcessing) return;
+
+    if (fluxReady === false) {
+      notify.warning(
+        'Mô hình chưa sẵn sàng',
+        'Mô hình FLUX.1-Fill cần được tải về trước khi thực hiện vẽ lại!'
+      );
+      setIsFluxModalOpen(true);
+      return;
+    }
 
     setIsTranslating(true);
     let promptResult = null;
@@ -166,6 +198,22 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             <Sparkles size={16} />
             <span>{t('redrawInput.redrawAi')}</span>
             <span className="bg-blue-500/20 text-blue-400 text-[9px] px-1.5 py-0.5 rounded uppercase font-bold ml-1">BETA</span>
+            {fluxReady === true ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 ml-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                FLUX Sẵn sàng
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsFluxModalOpen(true)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 transition-all cursor-pointer ml-1"
+                title="Bấm để tải mô hình FLUX về GPU"
+              >
+                <Download size={10} />
+                <span>Tải FLUX</span>
+              </button>
+            )}
           </div>
           <button 
             type="button"
@@ -309,12 +357,17 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
               </span>
               {!isTranslating && !isProcessing && (
                 <span className="absolute right-3 inline-flex items-center bg-black/25 px-1.5 py-0.5 rounded-md text-white text-[10px] font-black whitespace-nowrap">
-                  3<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
+                  3<GpuIcon className="w-2.5 h-2.5 -ml-[1px] text-white shrink-0" />
                 </span>
               )}
             </button>
           </div>
         </form>
+        <FluxDownloadModal
+          isOpen={isFluxModalOpen}
+          onClose={() => setIsFluxModalOpen(false)}
+          onReady={() => setFluxReady(true)}
+        />
       </div>
     );
   }
@@ -322,11 +375,29 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
   return (
     <div className="flex flex-col gap-3.5 p-4 bg-[#1a1a1a]/95 backdrop-blur-xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.7)] rounded-2xl w-[380px] animate-in slide-in-from-bottom-5 fade-in duration-300 pointer-events-auto text-white">
       
-      {/* Header with BETA Badge */}
-      <div className="flex items-center gap-1.5 border-b border-white/5 pb-2 select-none">
-        <Sparkles size={14} className="text-indigo-400" />
-        <span className="text-xs font-bold text-neutral-200">{t('redrawInput.redrawAi')}</span>
-        <span className="bg-blue-500/20 text-blue-400 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ml-2">BETA</span>
+      {/* Header with BETA Badge and FLUX Status */}
+      <div className="flex items-center justify-between border-b border-white/5 pb-2 select-none">
+        <div className="flex items-center gap-1.5">
+          <Sparkles size={14} className="text-indigo-400" />
+          <span className="text-xs font-bold text-neutral-200">{t('redrawInput.redrawAi')}</span>
+          <span className="bg-blue-500/20 text-blue-400 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ml-1">BETA</span>
+        </div>
+        {fluxReady === true ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            FLUX Sẵn sàng
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsFluxModalOpen(true)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 transition-all cursor-pointer"
+            title="Bấm để tải mô hình FLUX về GPU"
+          >
+            <Download size={10} />
+            <span>Tải FLUX</span>
+          </button>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -383,7 +454,7 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
             </span>
             {!isTranslating && !isProcessing && (
               <span className="absolute right-3 inline-flex items-center bg-black/25 px-1.5 py-0.5 rounded-md text-white text-[10px] font-black whitespace-nowrap">
-                3<BoltIcon className="w-2.5 h-2.5 -ml-[1px] text-white fill-white shrink-0" />
+                3<GpuIcon className="w-2.5 h-2.5 -ml-[1px] text-white shrink-0" />
               </span>
             )}
           </button>
@@ -470,6 +541,12 @@ export const RedrawPromptInput: React.FC<RedrawPromptInputProps> = ({
           </div>
         )}
       </div>
+
+      <FluxDownloadModal
+        isOpen={isFluxModalOpen}
+        onClose={() => setIsFluxModalOpen(false)}
+        onReady={() => setFluxReady(true)}
+      />
     </div>
   );
 };
