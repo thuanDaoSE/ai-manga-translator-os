@@ -7,8 +7,8 @@ import requests
 import cv2
 import numpy as np
 
-API_KEY = "your_runpod_api_key_here"
-ENDPOINT_ID = "9aifh69gzg4gh5"
+API_KEY = os.getenv("RUNPOD_API_KEY", "your_runpod_api_key_here")
+ENDPOINT_ID = os.getenv("RUNPOD_TRANSLATE_ENDPOINT_ID", "9aifh69gzg4gh5")
 RUNPOD_URL = f"https://api.runpod.ai/v2/{ENDPOINT_ID}/run"
 STATUS_URL_TEMPLATE = f"https://api.runpod.ai/v2/{ENDPOINT_ID}/status/{{job_id}}"
 

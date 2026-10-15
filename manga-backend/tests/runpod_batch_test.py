@@ -5,8 +5,8 @@ import requests
 import json
 
 def test_runpod_endpoints():
-    api_key = 'your_runpod_api_key_here'
-    endpoint_id = '9aifh69gzg4gh5'
+    api_key = os.getenv('RUNPOD_API_KEY', 'your_runpod_api_key_here')
+    endpoint_id = os.getenv('RUNPOD_TRANSLATE_ENDPOINT_ID', '9aifh69gzg4gh5')
     headers = {
         'Authorization': f'Bearer {api_key}',
         'Content-Type': 'application/json'
