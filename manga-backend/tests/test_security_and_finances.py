@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 
 # Đảm bảo cờ DEV MOCK tắt để test bảo mật thật
 os.environ["ALLOW_DEV_MOCK_AUTH"] = "false"
-os.environ["SUPABASE_JWT_SECRET"] = "your_supabase_jwt_secret_here"
+os.environ["SUPABASE_JWT_SECRET"] = os.getenv("SUPABASE_JWT_SECRET", "mock_dummy_supabase_jwt_secret_for_unit_tests_only_32bytes")
 
 from s3_utils import is_safe_url
 
