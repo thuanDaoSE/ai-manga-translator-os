@@ -30,9 +30,8 @@ async def translate_page(
     from dependencies import get_current_user_id
     from system_quota import global_quota
     user_id = await get_current_user_id(request)
-    if not global_quota.can_consume(1):
-        raise HTTPException(status_code=402, detail="Hệ thống đã đạt giới hạn 300 trang miễn phí! Vui lòng liên hệ admin để reset.")
-    global_quota.consume(1)
+    global_quota.check_quota(1)  # Raises HTTP 402 nếu hết quota
+    global_quota.consume_quota(1)
     
     config = await request.json()
     task_id = str(uuid.uuid4())

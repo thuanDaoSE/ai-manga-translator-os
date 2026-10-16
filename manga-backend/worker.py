@@ -524,12 +524,6 @@ def process_manga_page(task_id: str, page_id: str, config: dict):
         # 6. Cập nhật SQLite CSDL
         sync_update_page_db(page_id, clean_url, extracted_data)
         
-        try:
-            from system_quota import global_quota
-            global_quota.consume_quota(1)
-        except Exception as qe:
-            print(f"⚠️ [QUOTA CONSUME NOTICE] {qe}")
-
         broadcast_progress(task_id, 100, "Hoàn tất!", state="SUCCESS", result=result_payload)
         return result_payload
         
