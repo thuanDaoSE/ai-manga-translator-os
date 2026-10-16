@@ -242,14 +242,11 @@ async def process_page_on_runpod(task_id: str, page_id: str, config: dict, user_
                             page.status = "completed"
                             await db.commit()
 
-                    if user_id:
-                        try:
-                            from main import deduct_balance
-                            async with AsyncSessionLocal() as deduct_db:
-                                await deduct_balance(deduct_db, user_id, 1.0, f"Dịch trang truyện {page_id}")
-                                await deduct_db.commit()
-                        except Exception as de:
-                            print(f"⚠️ [DEDUCT NOTICE] {de}")
+                    try:
+                        from system_quota import global_quota
+                        global_quota.consume_quota(1)
+                    except Exception as qe:
+                        print(f"⚠️ [QUOTA CONSUME NOTICE] {qe}")
 
                     result_payload = {
                         "clean_url": clean_url,

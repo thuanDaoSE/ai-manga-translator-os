@@ -61,6 +61,7 @@ from s3_utils import fetch_image_from_url, upload_to_r2, delete_from_r2, get_pre
 
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+from system_quota import global_quota
 
 # 1. KHỞI TẠO APP TRƯỚC
 app = FastAPI(title="Manga AI Backend API", version="2.0.0")
@@ -3415,6 +3416,9 @@ async def translate_page(
     if not page:
         raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện")
 
+    # 🔒 Kiểm tra hạn mức 300 trang miễn phí toàn hệ thống
+    global_quota.check_quota(1)
+
     if not page.raw_url:
         raise HTTPException(status_code=400, detail="Không tìm thấy URL ảnh gốc")
     
@@ -3815,57 +3819,23 @@ async def log_time_transaction(
 
 async def check_balance_before_task(db: AsyncSession, user_id: str, min_balance: float = 1.0) -> User:
     """
-    Kiểm tra số dư năng lượng của user. Nếu credits < min_balance, chặn ngay lập tức.
+    Hệ thống chuyển sang chế độ miễn phí 300 trang toàn hệ thống.
+    Kiểm tra hạn mức trang thử nghiệm miễn phí toàn hệ thống thay vì thu phí cá nhân.
     """
+    global_quota.check_quota(1)
     stmt = select(User).where(User.id == user_id)
     res = await db.execute(stmt)
     user = res.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
-        
-    if user.is_pro:
-        return user
-        
-    current_credits = getattr(user, "credits", getattr(user, "balance_seconds", 0.0))
-    if current_credits < min_balance:
-        raise HTTPException(
-            status_code=402,
-            detail=f"Tài khoản không đủ năng lượng ({current_credits:.0f} năng lượng còn lại, yêu cầu {min_balance:.0f}). Vui lòng nạp thêm để tiếp tục!"
-        )
     return user
 
 async def deduct_balance(db: AsyncSession, user_id: str, execution_time_seconds: float, description: str) -> User:
     """
-    Khấu trừ điểm năng lượng của User.
-    🛡️ BẢO MẬT TÀI CHÍNH: Chặn đứng exploit nạp tiền miễn phí bằng số âm hoặc 0.
+    Hệ thống chuyển sang chế độ miễn phí: không trừ điểm cá nhân của người dùng.
     """
-    if execution_time_seconds <= 0:
-        stmt = select(User).where(User.id == user_id)
-        res = await db.execute(stmt)
-        return res.scalar_one_or_none()
-
-    stmt = select(User).where(User.id == user_id).with_for_update()
+    stmt = select(User).where(User.id == user_id)
     res = await db.execute(stmt)
     user = res.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
-        
-    if user.is_pro:
-        return user
-        
-    current_cred = getattr(user, "credits", getattr(user, "balance_seconds", 0.0))
-    new_cred = max(0.0, current_cred - execution_time_seconds)
-    user.credits = new_cred
-    user.balance_seconds = new_cred
-    
-    # Ghi nhận lịch sử giao dịch
-    new_txn = UserTransaction(
-        user_id=user.id,
-        amount=-execution_time_seconds,
-        type="DEDUCT",
-        description=description
-    )
-    db.add(new_txn)
+    return user
     
     # Ghi nhận lịch sử biến động số dư (CreditLog)
     desc_upper = description.upper()
@@ -4373,14 +4343,16 @@ async def get_user_profile(request: Request, user_id: str = Depends(get_current_
             lens_count = 0
         lens_free_remaining = max(0, LENS_FREE_LIMIT - lens_count)
             
-        balance = getattr(user, "balance_seconds", 900.0)
+        balance = 999999.0
+        quota_status = global_quota.get_status()
         return {
             "id": getattr(user, "id", user_id),
             "balance_seconds": balance,
             "credits": balance,
-            "is_pro": getattr(user, "is_pro", False),
+            "is_pro": True,
             "pro_until": getattr(user, "pro_until", None),
-            "lens_free_remaining": lens_free_remaining
+            "lens_free_remaining": 9999,
+            "system_quota": quota_status
         }
     except Exception as e:
         logger.error(f"Error in get_user_profile: {e}", exc_info=True)
@@ -4399,12 +4371,28 @@ async def get_user_profile(request: Request, user_id: str = Depends(get_current_
 
 @app.post("/api/users/me/deduct")
 async def deduct_credits(amount: float = 1.0, user_id: str = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)):
-    """API trừ tiền mỗi khi dùng AI (trừ giây)"""
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="Số lượng khấu trừ phải lớn hơn 0")
-    user = await deduct_balance(db, user_id, amount, "Trực tiếp trừ giây qua API")
-    await db.commit()
-    return {"status": "success", "balance_seconds": user.balance_seconds, "credits": user.balance_seconds, "is_pro": user.is_pro}
+    """API trừ tiền mỗi khi dùng AI (Bypass sang chế độ miễn phí)"""
+    return {"status": "success", "balance_seconds": 999999.0, "credits": 999999.0, "is_pro": True}
+
+class QuotaResetPayload(BaseModel):
+    secret: Optional[str] = None
+    new_limit: Optional[int] = 300
+
+@app.get("/api/system/quota")
+async def get_system_quota_api():
+    """Lấy thông tin hạn mức trang miễn phí toàn hệ thống"""
+    return global_quota.get_status()
+
+@app.post("/api/system/quota/reset")
+async def reset_system_quota_api(
+    payload: Optional[QuotaResetPayload] = None,
+    request: Request = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Đặt lại hạn mức 300 trang miễn phí"""
+    limit = (payload.new_limit if payload and payload.new_limit else 300)
+    res = global_quota.reset_quota(new_limit=limit)
+    return {"status": "success", "message": f"Đã đặt lại thành công {limit} trang miễn phí!", "quota": res}
 
 # ==========================================
 # SYSTEM CỦA ZERO-FRICTION PROMPTING (AI REDRAW)

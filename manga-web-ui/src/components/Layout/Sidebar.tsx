@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Lock, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search, Settings2, Globe, Plus, Zap } from 'lucide-react';
+import { MoreVertical, Trash2, Wand2, RefreshCw, XCircle, CheckCircle2, Clock, Image as ImageIcon, Loader2, Lock, Upload, GripVertical, Sparkles, AlertTriangle, PanelLeftClose, X, Square, Check, Layers, FileImage, Download, Package, ChevronDown, Undo2, Search, Settings2, Globe, Plus, Zap, Gift } from 'lucide-react';
 import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
@@ -11,7 +11,6 @@ import { useAuthStore } from '../../store/useAuthStore';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { mangaApi } from '../../services/api';
-import { PaywallDrawer } from '../Drawers/PaywallDrawer';
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 
@@ -295,8 +294,9 @@ export default function Sidebar() {
   const isProcessing = useToolStore((state) => state.isProcessing);
   const { t } = useTranslation();
   const user = useAuthStore((state) => state.user);
-  const currentCredits = user?.isPro ? 999999 : (user?.credits !== undefined ? user.credits : 30);
-  const [showPaywall, setShowPaywall] = useState(false);
+  const systemQuota = useAuthStore((state) => state.systemQuota);
+  const hasQuota = (systemQuota?.remaining_pages ?? 300) > 0;
+  const currentCredits = user?.isPro ? 999999 : (user?.credits !== undefined ? user.credits : 999999);
   const useGpu = useConfigStore((state) => state.useGpu);
   const checkFirstTimeConfig = () => {
     return true;
@@ -475,9 +475,8 @@ export default function Sidebar() {
   };
 
   const processSinglePage = (pageIndex: number) => {
-    if (currentCredits < 1) {
-      setShowPaywall(true);
-      toast.error("Tài khoản của bạn đã hết điểm năng lượng (⚡0). Vui lòng nạp thêm để tiếp tục!");
+    if (!hasQuota) {
+      toast.error("Hệ thống đã đạt giới hạn 300 trang miễn phí. Vui lòng chờ admin reset!");
       return Promise.resolve();
     }
     return new Promise<void>(async (resolve) => {
@@ -1090,9 +1089,8 @@ export default function Sidebar() {
   const handleTranslateAll = async () => {
     if (!checkFirstTimeConfig()) return;
     if (visibleFiles.length === 0) return;
-    if (currentCredits < 1) {
-      setShowPaywall(true);
-      toast.error("Tài khoản của bạn đã hết điểm năng lượng (⚡0). Vui lòng nạp thêm để tiếp tục!");
+    if (!hasQuota) {
+      toast.error("Hệ thống đã đạt giới hạn 300 trang miễn phí. Vui lòng chờ admin reset!");
       return;
     }
 
@@ -1175,9 +1173,8 @@ export default function Sidebar() {
 
     if (selectedIndexes.length === 0) return;
 
-    if (currentCredits < 1) {
-      setShowPaywall(true);
-      toast.error("Tài khoản của bạn đã hết điểm năng lượng (⚡0). Vui lòng nạp thêm để tiếp tục!");
+    if (!hasQuota) {
+      toast.error("Hệ thống đã đạt giới hạn 300 trang miễn phí. Vui lòng chờ admin reset!");
       return;
     }
 
@@ -1414,25 +1411,30 @@ export default function Sidebar() {
           )}
         </div>
 
-        {/* ⚡ HIỂN THỊ NĂNG LƯỢNG & NẠP ĐIỂM */}
-        <div className="mx-3 mb-2 px-3 py-2 bg-amber-500/10 border border-amber-500/25 rounded-xl flex items-center justify-between shadow-sm">
+        {/* 🎁 HIỂN THỊ HẠN MỨC 300 TRANG MIỄN PHÍ */}
+        <div className={`mx-3 mb-2 px-3 py-2 rounded-xl flex items-center justify-between shadow-sm border ${
+          hasQuota
+            ? "bg-emerald-500/10 border-emerald-500/25"
+            : "bg-rose-500/10 border-rose-500/25"
+        }`}>
           <div className="flex items-center gap-2">
-            <Zap size={16} className="text-amber-400 fill-amber-400 shrink-0" />
+            <Gift size={16} className={hasQuota ? "text-emerald-400 shrink-0" : "text-rose-400 shrink-0"} />
             <div className="flex flex-col">
               <span className="text-xs font-bold text-text-main leading-tight">
-                {Math.round(user?.isPro ? 999999 : (user?.credits !== undefined ? user.credits : 30))} Năng lượng
+                {hasQuota
+                  ? `${systemQuota?.remaining_pages ?? 300}/${systemQuota?.total_limit ?? 300} trang`
+                  : "0 trang còn lại"}
               </span>
               <span className="text-[9.5px] text-text-muted leading-tight">
-                {user?.isPro ? "Tài khoản Pro" : "1 trang = 1⚡"}
+                {hasQuota ? "Dùng thử miễn phí 100%" : "Đã hết hạn mức 300 trang"}
               </span>
             </div>
           </div>
-          <button
-            onClick={() => setShowPaywall(true)}
-            className="px-2.5 py-1 text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-black rounded-lg transition-all active:scale-95 cursor-pointer shadow-sm"
-          >
-            Nạp thêm
-          </button>
+          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+            hasQuota ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+          }`}>
+            {hasQuota ? "FREE" : "EXHAUSTED"}
+          </span>
         </div>
 
         {/* ── ZONE 2: COHESIVE PROGRESS & UPLOAD WIDGET ── */}
@@ -1745,7 +1747,7 @@ export default function Sidebar() {
             selectedPages.has(uniqueId) &&
             (pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting')
           ).length;
-          const hasEnough = currentCredits > 0;
+          const hasEnough = hasQuota;
           const nothingToTranslate = selectedUnprocessedCount === 0;
 
           return (
@@ -1763,7 +1765,7 @@ export default function Sidebar() {
               <button
                 onClick={handleTranslateSelected}
                 disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
-                title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Tài khoản đã hết năng lượng (⚡0)' : `Dịch ${selectedUnprocessedCount} trang`}
+                title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Hệ thống đã đạt giới hạn 300 trang miễn phí. Vui lòng chờ admin reset!' : `Dịch ${selectedUnprocessedCount} trang`}
                 className={`relative flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
                   ${nothingToTranslate || isAnyProcessingOrWaiting
                     ? 'bg-border/30 text-text-muted cursor-not-allowed border border-transparent'
@@ -1774,7 +1776,7 @@ export default function Sidebar() {
               >
                 <Sparkles size={15} strokeWidth={2.5} />
                 {!hasEnough && !nothingToTranslate ? (
-                  <span>Hết năng lượng (0⚡)</span>
+                  <span>Hết lượt miễn phí (0/300)</span>
                 ) : (
                   <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size} trang</span>
                 )}
@@ -1838,12 +1840,6 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
-
-      {/* 🚀 MODAL NẠP TIỀN / NĂNG LƯỢNG */}
-      <PaywallDrawer
-        isOpen={showPaywall}
-        onClose={() => setShowPaywall(false)}
-      />
     </>
   );
 }

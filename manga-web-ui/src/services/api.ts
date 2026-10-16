@@ -492,14 +492,41 @@ export const mangaApi = {
     }
   },
 
-  // @deprecated - BỊ BÃI BỎ trong mô hình tính giây thực tế (Không gọi trừ xu trước nữa)
-  deductCredits: async (amount: number) => {
-    const response = await fetch(`${API_URL}/users/me/deduct?amount=${amount}`, {
+  // System Quota (300 Free Pages)
+  getSystemQuota: async () => {
+    try {
+      const response = await fetch(`${API_URL}/system/quota`);
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch (e) {
+      console.warn("⚠️ Không thể tải thông tin system quota:", e);
+    }
+    return {
+      total_limit: 300,
+      used_pages: 0,
+      remaining_pages: 300,
+      is_exhausted: false,
+      last_reset_at: null
+    };
+  },
+
+  resetSystemQuota: async (newLimit: number = 300, secret?: string) => {
+    const response = await fetch(`${API_URL}/system/quota/reset`, {
       method: "POST",
-      headers: await getAuthHeaders()
+      headers: {
+        "Content-Type": "application/json",
+        ...(await getAuthHeaders())
+      },
+      body: JSON.stringify({ new_limit: newLimit, secret })
     });
-    await handleApiError(response, "Lỗi trừ credits");
+    await handleApiError(response, "Lỗi đặt lại hạn mức miễn phí");
     return await response.json();
+  },
+
+  // @deprecated - BÃI BỎ trong mô hình miễn phí 300 trang
+  deductCredits: async (amount: number) => {
+    return { status: "success", balance_seconds: 999999, credits: 999999, is_pro: true };
   },
 
   getPaymentHistory: async () => {

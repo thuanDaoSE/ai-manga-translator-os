@@ -3,15 +3,25 @@ import { supabase } from '../services/supabaseClient';
 import { mangaApi } from '../services/api'; // 🚀 Import API để gọi Backend
 import { useProjectStore } from './useProjectStore';
 
+export interface SystemQuota {
+  total_limit: number;
+  used_pages: number;
+  remaining_pages: number;
+  is_exhausted: boolean;
+  last_reset_at?: string | null;
+}
+
 interface AuthState {
   user: any | null;
   session: any | null;
   loading: boolean;
+  systemQuota: SystemQuota;
   setUser: (session: any) => void;
   signOut: () => Promise<void>;
 
-  // 🚀 Bổ sung 2 hàm quản lý tiền
   fetchProfile: () => Promise<void>;
+  fetchQuota: () => Promise<void>;
+  resetQuota: (newLimit?: number) => Promise<void>;
   deductLocalCredits: (amount: number) => void;
 }
 
@@ -19,6 +29,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   session: null,
   loading: true,
+  systemQuota: {
+    total_limit: 300,
+    used_pages: 0,
+    remaining_pages: 300,
+    is_exhausted: false,
+    last_reset_at: null
+  },
 
   setUser: (session) => {
     const currentUser = get().user;
@@ -30,37 +47,59 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       session,
       // Ép giữ lại số tiền cũ khi Supabase cập nhật Token để không bị mất hiển thị trên UI
       user: session?.user
-        ? { ...session.user, credits: currentUser?.credits, isPro: currentUser?.isPro, lensFreeRemaining: currentUser?.lensFreeRemaining }
+        ? { ...session.user, credits: currentUser?.credits ?? 999999, isPro: true, lensFreeRemaining: currentUser?.lensFreeRemaining ?? 9999 }
         : null,
       loading: false
     });
 
-    // 🚀 BẢN VÁ: Chỉ gọi API móc túi Backend nếu là lần đầu đăng nhập
+    get().fetchQuota();
     if (isFirstLogin) {
       get().fetchProfile();
     }
   },
 
-  // 🚀 Hàm móc túi Backend lấy số dư
+  // 🚀 Hàm móc túi Backend lấy thông tin người dùng và quota
   fetchProfile: async () => {
     try {
       const data = await mangaApi.getUserProfile();
       set((state) => ({
-        user: state.user ? { ...state.user, credits: data.credits, isPro: data.is_pro, lensFreeRemaining: data.lens_free_remaining } : null
+        user: state.user ? { ...state.user, credits: data.credits ?? 999999, isPro: true, lensFreeRemaining: data.lens_free_remaining ?? 9999 } : null,
+        systemQuota: data.system_quota ? data.system_quota : state.systemQuota
       }));
     } catch (error) {
       console.error("Lỗi lấy thông tin ví tiền:", error);
     }
   },
 
-  // 🚀 Hàm trừ tiền tạm trên UI cho mượt (BỊ BÃI BỎ trong mô hình tính giây thực tế)
-  deductLocalCredits: (amount: number) => {
-    set((state) => {
-      if (!state.user || state.user.isPro) return state; // Tài khoản Pro thì miễn phí
-      return {
-        user: { ...state.user, credits: Math.max(0, (state.user.credits || 0) - amount) }
-      };
-    });
+  // 🚀 Tải trạng thái 300 trang miễn phí của hệ thống
+  fetchQuota: async () => {
+    try {
+      const quota = await mangaApi.getSystemQuota();
+      if (quota) {
+        set({ systemQuota: quota });
+      }
+    } catch (error) {
+      console.error("Lỗi lấy thông tin system quota:", error);
+    }
+  },
+
+  // 🔄 Đặt lại 300 trang miễn phí (Dành cho Admin)
+  resetQuota: async (newLimit: number = 300) => {
+    try {
+      const res = await mangaApi.resetSystemQuota(newLimit);
+      if (res?.quota) {
+        set({ systemQuota: res.quota });
+      } else {
+        await get().fetchQuota();
+      }
+    } catch (error) {
+      console.error("Lỗi đặt lại system quota:", error);
+      throw error;
+    }
+  },
+
+  deductLocalCredits: (_amount: number) => {
+    // Miễn phí toàn bộ: không trừ tiền người dùng
   },
 
   signOut: async () => {

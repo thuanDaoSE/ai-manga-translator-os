@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect } from "react";
 import { 
   Download, ChevronDown, Palette, ImageDown, FileText, Image as ImageIcon,
-  User, CreditCard, HelpCircle, LogOut, Zap
+  User, CreditCard, HelpCircle, LogOut, Zap, Gift, RotateCcw
 } from "lucide-react";
 import { saveAs } from 'file-saver';
 import { useTranslation } from "react-i18next";
@@ -15,8 +14,6 @@ import { useCanvasStore } from "../../store/useCanvasStore";
 import { exportTranslationToText } from "../Editor/ExportTextButton";
 import { mangaApi } from "../../services/api";
 import DeepKomaLogo from "../ui/DeepKomaLogo";
-import { PaywallDrawer } from "../Drawers/PaywallDrawer";
-import PaymentHistoryModal from "../Modals/PaymentHistoryModal";
 import SupportModal from "../Modals/SupportModal";
 
 function getPageGroupKey(filename: string): string {
@@ -27,7 +24,7 @@ function getPageGroupKey(filename: string): string {
 export default function Topbar() {
   const { t } = useTranslation();
   const { isComparing, setIsComparing } = useToolStore();
-  const { user, signOut } = useAuthStore();
+  const { user, signOut, systemQuota, resetQuota } = useAuthStore();
   const projectStore = useProjectStore();
   const { fileQueue, currentIndex } = projectStore;
   const activeFile = fileQueue[currentIndex];
@@ -48,8 +45,6 @@ export default function Topbar() {
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
-  const [isPaywallOpen, setIsPaywallOpen] = useState(false);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
@@ -356,16 +351,24 @@ export default function Topbar() {
 
       {/* 3. RIGHT ZONE: ENERGY, EXPORT & USER PROFILE */}
       <div className="flex items-center justify-end gap-2.5 flex-1 relative">
-        {/* Nút Năng Lượng (Energy Badge) - Dùng icon Zap tia sét, không dùng icon AI */}
-        <button
-          onClick={() => setIsPaywallOpen(true)}
-          className="h-9 flex items-center gap-1.5 px-3 rounded-xl border border-amber-500/25 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 transition-all group cursor-pointer shadow-sm whitespace-nowrap shrink-0 text-xs font-bold active:scale-95"
-          title="Nạp thêm năng lượng"
+        {/* Badge Hạn Mức Miễn Phí 300 Trang */}
+        <div
+          className={`h-9 flex items-center gap-1.5 px-3 rounded-xl border transition-all shadow-sm whitespace-nowrap shrink-0 text-xs font-bold ${
+            (systemQuota?.remaining_pages ?? 300) > 0
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+              : 'border-rose-500/40 bg-rose-500/10 text-rose-400'
+          }`}
+          title={(systemQuota?.remaining_pages ?? 300) > 0 
+            ? `Hệ thống phục vụ miễn phí: còn ${systemQuota?.remaining_pages ?? 300}/${systemQuota?.total_limit ?? 300} trang`
+            : "Hệ thống đã đạt giới hạn 300 trang miễn phí. Vui lòng chờ admin reset!"}
         >
-          <Zap size={14} className="text-amber-400 fill-amber-400 group-hover:scale-110 transition-transform" />
-          <span>{user?.isPro ? "Pro" : `${Math.round(user?.credits !== undefined ? user.credits : 30).toLocaleString()} ⚡`}</span>
-          {!user?.isPro && <span className="text-[10px] font-extrabold uppercase text-amber-500/90 ml-0.5 hidden sm:inline">Nạp thêm</span>}
-        </button>
+          <Gift size={14} className={(systemQuota?.remaining_pages ?? 300) > 0 ? "text-emerald-400 fill-emerald-400/20" : "text-rose-400"} />
+          <span>
+            {(systemQuota?.remaining_pages ?? 300) > 0
+              ? `Miễn phí: ${systemQuota?.remaining_pages ?? 300}/${systemQuota?.total_limit ?? 300} trang`
+              : "Hết lượt miễn phí (0/300)"}
+          </span>
+        </div>
 
         {/* Menu Export */}
         <div className="relative shrink-0" ref={exportMenuRef}>
@@ -424,31 +427,33 @@ export default function Topbar() {
               </div>
 
               <div className="px-2 py-2 border-b border-border">
-                {/* Dòng hiển thị số dư năng lượng với icon Zap (KHÔNG DÙNG ICON AI) */}
-                <div className="flex items-center justify-between px-3 py-2.5 mb-1 bg-background rounded-xl border border-border/50">
+                {/* Dòng hiển thị số trang miễn phí */}
+                <div className="flex items-center justify-between px-3 py-2.5 mb-1.5 bg-background rounded-xl border border-border/50">
                   <div className="flex items-center gap-2 text-[12px] font-bold text-text-main">
-                    <Zap size={14} className="text-amber-400 fill-amber-400" />
-                    <span>{user?.isPro ? t('topbar.proPlan', 'Tài khoản Pro') : `${Math.round(user?.credits !== undefined ? user.credits : 30).toLocaleString()} Năng lượng`}</span>
+                    <Gift size={14} className="text-emerald-400" />
+                    <span>Miễn phí: {systemQuota?.remaining_pages ?? 300}/{systemQuota?.total_limit ?? 300} trang</span>
                   </div>
-                  <button 
-                    onClick={() => { 
-                      setIsAccountMenuOpen(false); 
-                      setIsPaywallOpen(true); 
-                    }} 
-                    className="text-[10px] font-black uppercase text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
-                  >
-                    {t('topbar.rechargeMore', 'Nạp thêm')}
-                  </button>
+                  <span className="text-[10px] font-black uppercase text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-500/20">
+                    Free
+                  </span>
                 </div>
 
+                {/* Nút Admin Reset 300 trang */}
                 <button
-                  onClick={() => { 
-                    setIsAccountMenuOpen(false); 
-                    setIsHistoryOpen(true); 
+                  onClick={async () => {
+                    if (window.confirm("Sếp có muốn đặt lại 300 trang miễn phí cho toàn hệ thống không?")) {
+                      try {
+                        await resetQuota(300);
+                        toast.success("Đã đặt lại 300 trang miễn phí thành công!");
+                      } catch (err: any) {
+                        toast.error(err?.message || "Lỗi khi reset hạn mức!");
+                      }
+                    }
                   }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] font-medium text-text-muted hover:bg-background hover:text-text-main rounded-lg transition-colors cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 text-[11px] font-bold text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors cursor-pointer mb-1 border border-amber-500/20"
+                  title="Đặt lại số trang miễn phí về 300"
                 >
-                  <CreditCard size={14} /> {t('topbar.transactionHistory', 'Lịch sử giao dịch')}
+                  <RotateCcw size={13} /> Đặt lại 300 trang (Admin Reset)
                 </button>
 
                 <button
@@ -476,8 +481,6 @@ export default function Topbar() {
 
       </div>
 
-      <PaywallDrawer isOpen={isPaywallOpen} onClose={() => setIsPaywallOpen(false)} />
-      <PaymentHistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
       <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
 
     </header>
