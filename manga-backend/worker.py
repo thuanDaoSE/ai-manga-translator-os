@@ -311,7 +311,7 @@ def sync_update_page_db(page_id: str, clean_url: str, bubbles: list):
             db.commit()
             print(f"✅ [WORKER DB] Đã cập nhật kết quả dịch cho trang {page_id} vào SQLite!")
 
-def process_manga_page(task_id: str, page_id: str, config: dict):
+def process_manga_page(task_id: str, page_id: str, config: dict, user_id: str = None, **kwargs):
     """
     Hàm xử lý dịch trang truyện tranh (Single-tenant local mode)
     100% Native Python AI (comic-text-detector + LaMa ONNX + Hayai-OCR v2 + DeepSeek)
