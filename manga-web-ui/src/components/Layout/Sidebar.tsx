@@ -19,270 +19,10 @@ export function getPageGroupKey(filename: string): string {
   return match ? match[1] : filename.split('.')[0] || filename;
 }
 
-// =========================================
-// 1. COMPONENT CON: THẺ TRANG TRUYỆN (UI NÂNG CẤP)
-// =========================================
-function SortableItem({
-  id, file, displayName, pagesCount, isActive, status, displayImg, progress,
-  onClick, onTranslate, onDelete, onCancel, onRetry,
-  isSelected, isSelectionMode, onToggleSelection, hasCleanUrl,
-  isProcessing, disabled, retryCount
-}: any) {
-
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
-    id: id,
-    disabled: isSelectionMode
-  });
-
-  const { t } = useTranslation();
-  const useGpu = useConfigStore((state) => state.useGpu);
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : 1,
-  };
-
-  return (
-    <div ref={setNodeRef} style={style} {...attributes} {...(!isSelectionMode ? listeners : {})}>
-      <div
-        onClick={(e) => {
-          if (isSelectionMode) {
-            e.stopPropagation();
-            onToggleSelection();
-          } else {
-            onClick(e);
-          }
-        }}
-        className={`w-full text-left rounded-xl flex items-center p-2.5 transition-colors border group relative outline-none min-h-[5.5rem] ${isSelectionMode ? 'cursor-pointer' : 'cursor-grab'} ${isDragging ? 'opacity-50 shadow-2xl scale-105 border-primary bg-primary/20' :
-          isSelected ? 'bg-primary/15 border-primary/50 shadow-md ring-1 ring-primary/50' :
-            isActive ? 'bg-primary/10 border-primary/40 shadow-lg' :
-              status === 'error' ? 'bg-danger/5 border-danger/30 hover:bg-danger/10' :
-                status === 'waiting' ? 'bg-amber-500/5 border-amber-500/20 hover:border-amber-500/40 hover:bg-amber-500/10' :
-                  'bg-panel/40 border-transparent hover:border-border hover:bg-panel/60'
-          }`}
-      >
-        {/* DRAG HANDLE */}
-        {!isSelectionMode && (
-          <div ref={setActivatorNodeRef} className="flex shrink-0 w-5 h-full items-center justify-center opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity text-text-muted">
-            <GripVertical size={16} />
-          </div>
-        )}
-
-        {/* CHECKBOX (SELECTION MODE) */}
-        <div
-          onClick={(e) => { e.stopPropagation(); onToggleSelection(); }}
-          className={`absolute left-2.5 z-20 w-5 h-5 rounded-md flex items-center justify-center transition-all cursor-pointer shadow-sm border ${isSelected
-            ? 'bg-primary border-primary text-white opacity-100 scale-100'
-            : 'bg-background/90 border-border text-transparent hover:border-primary opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100'
-            } ${isSelectionMode && !isSelected ? 'opacity-100' : ''}`}
-        >
-          <Check size={14} strokeWidth={3} className={isSelected ? 'opacity-100' : 'opacity-0'} />
-        </div>
-
-        {/* 🚀 BẢN VÁ UI 1: PHÓNG TO THUMBNAIL (w-14 h-20) */}
-        <div className={`relative w-14 h-20 shrink-0 rounded-lg overflow-hidden border border-border bg-black/40 transition-transform shadow-sm ${isSelectionMode && !isSelected ? 'ml-6' : isSelected ? 'ml-6' : (!isSelectionMode ? 'ml-1' : '')}`}>
-          {displayImg ? (
-            <img src={displayImg} className={`w-full h-full object-cover ${(status === 'processing' || isProcessing || status === 'error') ? 'blur-[2px] opacity-50 scale-110' : ''} ph-no-capture`} alt="thumb" crossOrigin="anonymous" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gray-800"><Loader2 className="animate-spin text-gray-600" size={16} /></div>
-          )}
-
-          {(status === 'processing' || status === 'uploading' || isProcessing) && <div className="absolute inset-0 flex items-center justify-center bg-primary/20"><Loader2 className="animate-spin text-white" size={20} /></div>}
-          {status === 'completed' && <div className="absolute top-1 right-1 bg-emerald-500 rounded-full p-0.5 shadow-sm"><CheckCircle2 size={10} className="text-white" /></div>}
-        </div>
-
-        {/* ============================================================== */}
-        {/* 🚀 BẢN VÁ UI 2: CHIA LẠI KHÔNG GIAN (PADDING ĐỘNG) VÀ FIX BỊ ÉP CHỮ */}
-        {/* ============================================================== */}
-        <div className={`flex flex-col gap-1 overflow-hidden flex-1 min-w-0 pl-3 justify-center transition-all duration-300 ${
-          (status === 'processing' || status === 'waiting' || status === 'uploading') 
-            ? 'pr-12' 
-            : 'pr-[80px]'
-        }`}>
-          <span className={`text-xs font-bold truncate block w-full ${isActive || isSelected ? 'text-primary' : status === 'error' ? 'text-danger' : 'text-text-main'}`}>
-            {displayName || file.name}
-          </span>
-          {pagesCount > 1 && (
-            <span className="text-[9px] text-primary font-black uppercase mt-0.5 bg-primary/10 px-1.5 py-0.5 rounded-md inline-block w-fit">
-              Webtoon
-            </span>
-          )}
-          
-          {status === 'uploading' && (
-            <span className="flex items-center gap-1.5 text-[10px] text-blue-400 font-bold uppercase truncate animate-pulse">
-              <Upload size={12} className="animate-bounce" /> Đang tải ảnh lên...
-            </span>
-          )}
-          {(status === 'unprocessed' || status === 'cleaned' || status === 'translating') && <span className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold uppercase truncate"><Clock size={12} /> {t('sidebar.waiting')}</span>}
-          {status === 'waiting' && <span className="flex items-center gap-1.5 text-[10px] text-amber-500 font-bold uppercase truncate animate-pulse"><Clock size={12} /> {t('sidebar.waitingQueue')}</span>}
-          
-          {status === 'processing' && (
-            <div className="flex flex-col gap-1.5 mt-0.5 w-full">
-              {/* 🚀 FIX 1: Bỏ truncate, dùng line-clamp-2 để chữ được phép rớt 2 dòng mà không bị cắt cụt */}
-              <span className="text-[9.5px] text-amber-400 font-bold uppercase line-clamp-2 leading-snug w-full tracking-wide">
-                {progress ? `${Math.round(progress.percent)}% - ${progress.message}` : t('sidebar.startingAi')}
-              </span>
-              
-              {/* 🚀 FIX 2: Thanh tiến trình được làm nổi bật với hiệu ứng 3D và Gradient */}
-              <div className="w-full bg-black/40 rounded-full h-1.5 border border-border/40 overflow-hidden shrink-0 shadow-inner">
-                <div 
-                  className="bg-gradient-to-r from-amber-500 to-amber-300 h-full rounded-full transition-all duration-300 ease-out relative" 
-                  style={{ width: `${progress ? progress.percent : 0}%` }}
-                >
-                  <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {status === 'completed' && <span className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-black uppercase truncate"><CheckCircle2 size={12} /> {t('sidebar.completed')}</span>}
-          {status === 'error' && <span className="flex items-center gap-1.5 text-[10px] text-danger font-bold uppercase truncate"><AlertTriangle size={12} className="shrink-0" /> {t('sidebar.transError', 'Lỗi Dịch')}</span>}
-          {retryCount >= 3 && (
-            <span className="flex items-center gap-1 text-[9.5px] text-orange-400 font-bold uppercase truncate mt-0.5" title="AI đã đạt giới hạn dịch tự động cho đoạn này. Vui lòng chỉnh sửa bản dịch thủ công để có kết quả tốt nhất.">
-              <AlertTriangle size={11} className="shrink-0 text-orange-400 animate-pulse" /> Đạt giới hạn AI
-            </span>
-          )}
-        </div>
-
-        {/* ============================================================== */}
-        {/* 🚀 BẢN VÁ UI 3: TĂNG KÍCH THƯỚC CÁC NÚT BẤM DỄ THAO TÁC HƠN */}
-        {/* ============================================================== */}
-        {!isSelectionMode && status !== 'processing' && status !== 'waiting' && status !== 'uploading' && (
-          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex flex-col items-end gap-2 
-            opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20"
-          >
-            {/* NÚT XÓA (To hơn một chút: p-2, icon 14) */}
-            <button 
-              disabled={disabled}
-              onClick={(e) => { e.stopPropagation(); if (disabled) return; onDelete(); }} 
-              className={`p-2 text-text-muted hover:bg-danger hover:text-white rounded-lg transition-colors bg-background/80 backdrop-blur-md border border-border/50 shadow-sm shrink-0 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`} 
-              title={t('sidebar.deletePage')}
-            >
-              <Trash2 size={14} />
-            </button>
-
-            {/* CÁC NÚT HÀNH ĐỘNG (Cải tiến bố cục giá xu ở góc dưới bên phải tránh chồng chữ) */}
-            {(status === 'unprocessed' || status === 'cleaned' || status === 'translating') && (
-              <button
-                disabled={disabled}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (disabled) return;
-                  if (!useGpu) {
-                    useConfigStore.getState().setUseGpu(true);
-                    setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
-                    toast.success("Đã mở khóa GPU Premium ⚡");
-                    return;
-                  }
-                  onTranslate();
-                }}
-                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-white rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer 
-                  ${disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''} 
-                  ${useGpu 
-                    ? 'bg-primary hover:bg-primary-hover border border-purple-400/80 shadow-[0_0_10px_rgba(168,85,247,0.55)]' 
-                    : 'bg-neutral-800 hover:bg-neutral-700 text-text-muted border border-border/40 opacity-70 grayscale'
-                  }`}
-              >
-                {useGpu ? <Wand2 size={11} className="shrink-0" /> : <Lock size={11} className="shrink-0" />}
-                <span>{t('canvas.translateAction', 'Dịch')}</span>
-              </button>
-            )}
-
-            {status === 'error' && (
-              <button
-                disabled={disabled || (hasCleanUrl && retryCount >= 3)}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (disabled || (hasCleanUrl && retryCount >= 3)) return;
-                  if (!useGpu) {
-                    useConfigStore.getState().setUseGpu(true);
-                    setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
-                    toast.success("Đã mở khóa GPU Premium ⚡");
-                    return;
-                  }
-                  hasCleanUrl ? onRetry() : onTranslate();
-                }}
-                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-white rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer 
-                  ${(disabled || (hasCleanUrl && retryCount >= 3)) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}
-                  ${useGpu 
-                    ? 'bg-danger hover:bg-red-600 border border-purple-400/80 shadow-[0_0_10px_rgba(168,85,247,0.55)]' 
-                    : 'bg-neutral-800 hover:bg-neutral-700 text-text-muted border border-border/40 opacity-70 grayscale'
-                  }`}
-              >
-                {useGpu ? (
-                  hasCleanUrl ? (
-                    <>
-                      <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} />
-                      <span>Dịch lại</span>
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw size={12} />
-                      <span>{t('sidebar.retrySingle')}</span>
-                    </>
-                  )
-                ) : (
-                  <>
-                    <Lock size={11} />
-                    <span>Dịch lại</span>
-                  </>
-                )}
-              </button>
-            )}
-
-            {status === 'completed' && (
-              <div className="relative shrink-0">
-                <button 
-                  disabled={disabled || retryCount >= 3}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (disabled || retryCount >= 3) return;
-                    if (!useGpu) {
-                      useConfigStore.getState().setUseGpu(true);
-                      setTimeout(() => { useConfigStore.getState().saveToLocal(); }, 50);
-                      toast.success("Đã mở khóa GPU Premium ⚡");
-                      return;
-                    }
-                    onRetry();
-                  }} 
-                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm transition-all cursor-pointer 
-                    ${(disabled || retryCount >= 3) ? 'opacity-50 cursor-not-allowed pointer-events-none grayscale' : ''}
-                    ${useGpu 
-                      ? 'bg-background/95 backdrop-blur-md border border-purple-400/80 text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.45)]' 
-                      : 'bg-neutral-800/80 backdrop-blur-md border border-border/40 text-text-muted hover:bg-neutral-700 opacity-70'
-                    }`} 
-                  title={t('sidebar.retranslate')}
-                >
-                  {useGpu ? <Sparkles size={11} className={retryCount >= 3 ? "" : "animate-pulse"} /> : <Lock size={11} />}
-                  <span>Dịch lại</span>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* NÚT DỪNG (To hơn: w-8 h-8, icon 14) */}
-        {!isSelectionMode && (status === 'processing' || status === 'waiting') && (
-          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 z-20" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onCancel(); }}>
-            <button className="flex items-center justify-center w-8 h-8 bg-background/90 backdrop-blur-md hover:bg-danger text-danger hover:text-white border border-danger/30 hover:border-danger rounded-lg shadow-sm transition-all cursor-pointer group" title={status === 'waiting' ? t('sidebar.cancelQueue') : t('sidebar.stop')}>
-              <Square size={14} className="fill-current group-hover:scale-90 transition-transform" />
-            </button>
-          </div>
-        )}
-
-      </div>
-    </div>
-  );
-}
+import { PageCard } from './Sidebar/PageCard';
+import { QuotaWidget } from './Sidebar/QuotaWidget';
+import { UploadCard } from './Sidebar/UploadCard';
+import { BatchActionBar } from './Sidebar/BatchActionBar';
 
 
 // ==========================================
@@ -1411,84 +1151,11 @@ export default function Sidebar() {
           )}
         </div>
 
-        {/* 🎁 HIỂN THỊ HẠN MỨC 300 TRANG MIỄN PHÍ */}
-        <div className={`mx-3 mb-2 px-3 py-2 rounded-xl flex items-center justify-between shadow-sm border ${
-          hasQuota
-            ? "bg-emerald-500/10 border-emerald-500/25"
-            : "bg-rose-500/10 border-rose-500/25"
-        }`}>
-          <div className="flex items-center gap-2">
-            <Gift size={16} className={hasQuota ? "text-emerald-400 shrink-0" : "text-rose-400 shrink-0"} />
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-text-main leading-tight">
-                {hasQuota
-                  ? `${systemQuota?.remaining_pages ?? 300}/${systemQuota?.total_limit ?? 300} trang`
-                  : "0 trang còn lại"}
-              </span>
-              <span className="text-[9.5px] text-text-muted leading-tight">
-                {hasQuota ? "Dùng thử miễn phí 100%" : "Đã hết hạn mức 300 trang"}
-              </span>
-            </div>
-          </div>
-          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
-            hasQuota ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
-          }`}>
-            {hasQuota ? "FREE" : "EXHAUSTED"}
-          </span>
-        </div>
+        {/* 🎁 HẠN MỨC 300 TRANG MIỄN PHÍ */}
+        <QuotaWidget systemQuota={systemQuota} />
 
-        {/* ── ZONE 2: COHESIVE PROGRESS & UPLOAD WIDGET ── */}
-        <div className="px-3 pb-2 shrink-0 flex flex-col gap-2.5">
-          {/* DEDICATED UPLOAD ZONE CARD - Tách biệt và làm to rõ ràng, tránh click nhầm */}
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            className="group relative flex flex-col items-center justify-center gap-1.5 py-4 bg-primary/5 hover:bg-primary/10 border border-dashed border-primary/30 hover:border-primary/60 rounded-2xl transition-all duration-300 cursor-pointer text-center select-none shadow-sm"
-            title="Nhấp để chọn ảnh truyện hoặc kéo thả file vào đây"
-          >
-            <div className="p-2.5 bg-primary/10 rounded-xl group-hover:bg-primary/20 text-primary transition-colors duration-300">
-              <Upload size={16} className="group-hover:scale-110 transition-transform duration-300" />
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs font-bold text-text-main group-hover:text-primary transition-colors">Tải ảnh truyện lên</span>
-              <span className="text-[10px] text-text-muted/70">Kéo thả ảnh hoặc click để chọn</span>
-            </div>
-            
-            {/* HIDDEN FILE INPUT */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              accept="image/jpeg, image/png, image/webp"
-              onClick={(e) => { (e.target as HTMLInputElement).value = ''; }}
-              onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                if (files.length === 0) return;
-                if (files.length > 500) {
-                  toast.error("Hệ thống hỗ trợ tải lên tối đa 500 trang cho mỗi phiên làm việc!");
-                  e.target.value = '';
-                  return;
-                }
-                uploadProjectFiles(files.sort((a, b) => a.name.localeCompare(b.name)));
-                e.target.value = '';
-              }}
-            />
-          </div>
-
-          {/* Hộp Tiến trình */}
-          <div className="flex items-center justify-between gap-2.5 px-2 py-0.5 select-none">
-            <span className="text-[10px] font-bold text-text-muted shrink-0">Tiến độ:</span>
-            <div className="flex-1 h-1.5 bg-black/45 rounded-full overflow-hidden border border-border/10 shadow-inner">
-              <div 
-                className="h-full bg-gradient-to-r from-primary to-indigo-500 transition-all duration-500 rounded-full" 
-                style={{ width: `${progressPercent}%` }} 
-              />
-            </div>
-            <span className="text-primary text-[10.5px] font-black shrink-0">
-              {Math.round(progressPercent)}%
-            </span>
-          </div>
-        </div>
+        {/* ── ZONE 2: UPLOAD WIDGET & PROGRESS ── */}
+        <UploadCard progressPercent={progressPercent} onFilesSelected={uploadProjectFiles} />
 
         {/* ── SEPARATOR ──────────────────────────────────── */}
         <div className="h-px bg-border/50 mx-3 mb-1" />
@@ -1632,14 +1299,14 @@ export default function Sidebar() {
                   const isProcessingGroup = group.pages.some(p => p.index === currentIndex && isProcessing);
 
                   return (
-                    <SortableItem
+                    <PageCard
                       key={group.key}
                       id={group.key}
                       file={firstPage.file}
                       displayName={group.displayName}
                       pagesCount={totalInGroup}
                       isActive={isGroupActive}
-                      status={overallStatus}
+                      status={overallStatus as any}
                       displayImg={displayImg}
                       progress={groupProgressMessage}
                       onClick={() => handlePageClick(firstPage.index)}
@@ -1708,138 +1375,27 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* 🚀 LỚP MÀN PHỦ KHI MỞ DROPDOWN (Click outside to close) */}
-      {isExportMenuOpen && (
-        <div className="fixed inset-0 z-[9998]" onClick={() => setIsExportMenuOpen(false)}></div>
-      )}
-
-      {/* 🚀 CONTEXTUAL FLOATING ACTION BAR (FAB) - ĐƯA LÊN TOP CENTER */}
-      <div
-        className={`fixed top-20 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-4 p-2 pl-4 
-          bg-panel/95 backdrop-blur-md border border-border shadow-2xl rounded-2xl transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]
-          ${isSelectionMode ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-16 opacity-0 scale-95 pointer-events-none'}
-        `}
-      >
-        <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-primary/20 text-primary text-xs font-bold transition-all">
-            <span>{selectedPages.size}</span>
-          </div>
-          <span className="text-sm font-semibold text-text-main select-none">{t('sidebar.selectedPages')}</span>
-        </div>
-
-        <div className="w-px h-6 bg-border mx-1" />
-
-        <button
-          onClick={clearSelection}
-          className="p-2 rounded-xl text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
-          title={t('sidebar.cancelSelection')}
-        >
-          <X size={18} strokeWidth={2.5} />
-        </button>
-
-        {/* NÚT DỊCH CÁC TRANG ĐÃ CHỌN */}
-        {(() => {
-          const selectedUnprocessedCount = visibleFiles.filter(({ uniqueId, index }) =>
-            selectedPages.has(uniqueId) &&
-            (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error')
-          ).length;
-          const selectedProcessingOrWaitingCount = visibleFiles.filter(({ uniqueId, index }) =>
-            selectedPages.has(uniqueId) &&
-            (pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting')
-          ).length;
-          const hasEnough = hasQuota;
-          const nothingToTranslate = selectedUnprocessedCount === 0;
-
-          return (
-            <div className="flex items-center gap-2">
-              {selectedProcessingOrWaitingCount > 0 && (
-                <button
-                  onClick={handleCancelSelected}
-                  className="flex items-center gap-1.5 py-2 px-3 text-xs font-bold rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 transition-all cursor-pointer"
-                  title="Dừng dịch các trang đã chọn đang xử lý"
-                >
-                  <Square size={13} fill="currentColor" />
-                  <span>Dừng ({selectedProcessingOrWaitingCount})</span>
-                </button>
-              )}
-              <button
-                onClick={handleTranslateSelected}
-                disabled={nothingToTranslate || !hasEnough || isAnyProcessingOrWaiting}
-                title={nothingToTranslate ? 'Không có trang nào cần dịch' : !hasEnough ? 'Hệ thống đã đạt giới hạn 300 trang miễn phí. Vui lòng chờ admin reset!' : `Dịch ${selectedUnprocessedCount} trang`}
-                className={`relative flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-xl transition-all active:scale-95 shadow-md
-                  ${nothingToTranslate || isAnyProcessingOrWaiting
-                    ? 'bg-border/30 text-text-muted cursor-not-allowed border border-transparent'
-                    : !hasEnough
-                      ? 'bg-danger/10 border border-danger/30 text-danger cursor-not-allowed'
-                      : 'bg-amber-500 hover:bg-amber-400 text-black border border-purple-400/80 shadow-[0_0_15px_rgba(168,85,247,0.55)] cursor-pointer'
-                  }`}
-              >
-                <Sparkles size={15} strokeWidth={2.5} />
-                {!hasEnough && !nothingToTranslate ? (
-                  <span>Hết lượt miễn phí (0/300)</span>
-                ) : (
-                  <span>Dịch {selectedUnprocessedCount > 0 ? selectedUnprocessedCount : selectedPages.size} trang</span>
-                )}
-              </button>
-            </div>
-          );
-        })()}
-
-        {/* NÚT EXPORT VÀ DROPDOWN POPOVER */}
-
-        <div className="relative">
-          <button
-            onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
-            className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold bg-primary hover:bg-primary-hover active:scale-95 text-white rounded-xl shadow-lg shadow-primary/20 transition-all"
-          >
-            <Download size={16} strokeWidth={2.5} />
-            {t('sidebar.downloadDropdown')}
-          </button>
-
-          {/* DROPDOWN MENU TẢI XUỐNG (Thả xuống dưới) */}
-          <div
-            className={`absolute top-[calc(100%+12px)] right-0 w-72 bg-panel border border-border shadow-2xl rounded-2xl p-1.5 transition-all origin-top-right duration-200 ease-out z-[101]
-              ${isExportMenuOpen ? 'opacity-100 scale-100 pointer-events-auto translate-y-0' : 'opacity-0 scale-95 pointer-events-none -translate-y-2'}
-            `}
-          >
-            <div className="px-3 pt-2.5 pb-2 mb-1 border-b border-border">
-              <span className="text-[11px] font-bold text-text-muted uppercase tracking-widest">
-                {t('sidebar.exportFormat')}
-              </span>
-            </div>
-
-            <button onClick={() => handleExportBatch('psd')} className="w-full flex items-center gap-3 px-3 py-3 text-sm text-text-main hover:bg-background/80 rounded-xl transition-colors text-left group">
-              <div className="p-2 bg-blue-500/10 rounded-lg group-hover:bg-blue-500/20 transition-colors">
-                <Layers size={18} className="text-blue-500" />
-              </div>
-              <div className="flex flex-col">
-                <span className="font-bold">File PSD (Photoshop)</span>
-                <span className="text-[11px] text-text-muted font-medium">{t('sidebar.layeredTrans')}</span>
-              </div>
-            </button>
-
-            <button onClick={() => handleExportBatch('clean')} className="w-full flex items-center gap-3 px-3 py-3 text-sm text-text-main hover:bg-background/80 rounded-xl transition-colors text-left group">
-              <div className="p-2 bg-emerald-500/10 rounded-lg group-hover:bg-emerald-500/20 transition-colors">
-                <ImageIcon size={18} className="text-emerald-500" />
-              </div>
-              <div className="flex flex-col">
-                <span className="font-bold">{t('sidebar.transJpg')}</span>
-                <span className="text-[11px] text-text-muted font-medium">Ảnh đã xóa nền và ghép chữ</span>
-              </div>
-            </button>
-
-            <button onClick={() => handleExportBatch('raw')} className="w-full flex items-center gap-3 px-3 py-3 text-sm text-text-main hover:bg-background/80 rounded-xl transition-colors text-left group">
-              <div className="p-2 bg-border/40 rounded-lg group-hover:bg-border/60 transition-colors">
-                <FileImage size={18} className="text-text-muted" />
-              </div>
-              <div className="flex flex-col">
-                <span className="font-bold">Ảnh Gốc (RAW)</span>
-                <span className="text-[11px] text-text-muted font-medium">Bản scan chưa qua xử lý</span>
-              </div>
-            </button>
-          </div>
-        </div>
-      </div>
+      <BatchActionBar
+        isSelectionMode={isSelectionMode}
+        selectedCount={selectedPages.size}
+        onClearSelection={clearSelection}
+        selectedProcessingCount={visibleFiles.filter(({ uniqueId, index }) =>
+          selectedPages.has(uniqueId) &&
+          (pageStatuses[index] === 'processing' || pageStatuses[index] === 'waiting')
+        ).length}
+        onCancelSelected={handleCancelSelected}
+        selectedUnprocessedCount={visibleFiles.filter(({ uniqueId, index }) =>
+          selectedPages.has(uniqueId) &&
+          (pageStatuses[index] === 'unprocessed' || pageStatuses[index] === 'cleaned' || pageStatuses[index] === 'translating' || pageStatuses[index] === 'error')
+        ).length}
+        hasQuota={hasQuota}
+        isAnyProcessingOrWaiting={isAnyProcessingOrWaiting}
+        onTranslateSelected={handleTranslateSelected}
+        isExportMenuOpen={isExportMenuOpen}
+        onToggleExportMenu={() => setIsExportMenuOpen(!isExportMenuOpen)}
+        onExportBatch={handleExportBatch}
+        t={t}
+      />
     </>
   );
 }

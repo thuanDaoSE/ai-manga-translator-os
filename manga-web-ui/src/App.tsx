@@ -48,7 +48,6 @@ const darkToastOptions = {
   },
 };
 
-import TestFabric from './components/TestFabric';
 import { mangaApi } from './services/api';
 
 // 🚀 BẢN VÁ: Import hàm quản lý Font cá nhân

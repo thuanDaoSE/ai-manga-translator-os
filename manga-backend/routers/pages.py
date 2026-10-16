@@ -146,3 +146,112 @@ async def download_psd(page_id: str, db: AsyncSession = Depends(get_db)):
         media_type="application/octet-stream"
     )
 
+import zipfile
+import io
+from fastapi.responses import StreamingResponse
+from dependencies import get_local_path_from_url
+
+@router.get("/{page_id}/export-manga")
+async def export_manga(page_id: str, db: AsyncSession = Depends(get_db)):
+    """Đóng gói Ảnh và Chữ thành file .manga (ZIP) để tải về"""
+    result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+    page = result.scalars().first()
+    if not page:
+        raise HTTPException(status_code=404, detail="Trang không tồn tại hoặc đã bị xóa!")
+
+    img_path_url = page.clean_url if page.clean_url else page.raw_url
+    local_img_path = get_local_path_from_url(img_path_url)
+
+    if not os.path.exists(local_img_path):
+        raise HTTPException(status_code=404, detail="File ảnh gốc đã bị xóa!")
+
+    bubbles_json = page.bubbles_data or "[]"
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+        img_ext = local_img_path.split('.')[-1]
+        zipf.write(local_img_path, arcname=f"image.{img_ext}")
+        zipf.writestr("bubbles.json", bubbles_json)
+
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={page.filename}.manga"}
+    )
+
+@router.get("/{page_id}/jsx")
+async def download_jsx(page_id: str, db: AsyncSession = Depends(get_db)):
+    """Tạo và tải file script JSX Photoshop để tự động hóa typesetting"""
+    result = await db.execute(select(models.Page).where(models.Page.id == page_id))
+    page = result.scalars().first()
+    if not page:
+        raise HTTPException(status_code=404, detail="Trang không tồn tại hoặc đã bị xóa!")
+
+    bubbles = []
+    if page.bubbles_data:
+        try:
+            bubbles = json.loads(page.bubbles_data)
+        except Exception:
+            bubbles = []
+
+    if not bubbles:
+        raise HTTPException(status_code=404, detail="Trang này chưa có chữ nào!")
+
+    js_data = []
+    for b in bubbles:
+        text = (b.get("text") or "").strip()
+        if not text:
+            continue
+        js_data.append({
+            "text": text,
+            "x": b.get("x", 0),
+            "y": b.get("y", 0),
+            "w": b.get("w", 100),
+            "h": b.get("h", 100)
+        })
+
+    if not js_data:
+        raise HTTPException(status_code=404, detail="Tất cả các hộp thoại đều đang để trống chữ tiếng Việt!")
+
+    js_array_str = json.dumps(js_data, ensure_ascii=False)
+    jsx_content = f"""// Script Tu Dong Hoa Typesetting
+if (app.documents.length > 0) {{
+    var doc = app.activeDocument;
+    app.preferences.rulerUnits = Units.PIXELS;
+    
+    var mangaData = {js_array_str};
+    var textGroup = doc.layerSets.add();
+    textGroup.name = "[3] Text (Tu Dong)";
+    
+    for (var i = 0; i < mangaData.length; i++) {{
+        var item = mangaData[i];
+        var textLayer = textGroup.artLayers.add();
+        textLayer.kind = LayerKind.TEXT;
+        var ti = textLayer.textItem;
+        ti.kind = TextType.PARAGRAPHTEXT;
+        ti.width = item.w;
+        ti.height = item.h;
+        ti.position = [item.x, item.y];
+        ti.contents = item.text;
+        try {{
+            ti.size = new UnitValue(16, "px");
+            ti.justification = Justification.CENTER;
+        }} catch(e) {{}}
+    }}
+    alert("Thành công! Đã chèn xong " + mangaData.length + " bong bóng thoại!");
+}} else {{
+    alert("Vui lòng mở file PSD lên trước khi chạy script!");
+}}
+"""
+    clean_dir = f"workspace/{page.project_id}/clean"
+    os.makedirs(clean_dir, exist_ok=True)
+    jsx_path = f"{clean_dir}/{page_id}_Text.jsx"
+    with open(jsx_path, 'w', encoding='utf-8') as f:
+        f.write(jsx_content)
+
+    return FileResponse(
+        path=jsx_path,
+        filename=f"Auto_Text_Script.jsx",
+        media_type="text/plain"
+    )
+

@@ -308,4 +308,141 @@ async def stream_joycaption_progress():
         }
     )
 
+import shutil
+import uuid
+import re
+from fastapi import UploadFile, File, Request
+from dependencies import get_current_user_id
+
+@router.post("/upload-raw")
+async def upload_raw(
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id)
+):
+    """Upload raw image directly to workspace for editing"""
+    safe_name = os.path.basename(file.filename or "upload.png").replace("..", "").replace("/", "").replace("\\", "")
+    os.makedirs("workspace", exist_ok=True)
+    save_path = os.path.join("workspace", f"Clean_{uuid.uuid4().hex}_{safe_name}")
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return {"status": "success", "filename": safe_name}
+
+@router.put("/upload-file")
+async def upload_file(path: str, request: Request):
+    """Worker direct file sync endpoint"""
+    try:
+        clean_path = os.path.normpath(path).replace("\\", "/")
+        if not clean_path.startswith("workspace/"):
+            raise HTTPException(status_code=400, detail="Invalid path destination")
+        
+        full_path = os.path.abspath(clean_path)
+        base_dir = os.path.abspath("workspace")
+        if os.path.commonpath([full_path, base_dir]) != base_dir:
+            raise HTTPException(status_code=403, detail="Access Denied: Path Traversal detected")
+
+        body = await request.body()
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "wb") as f:
+            f.write(body)
+        return {"status": "success", "path": clean_path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
+
+class RedrawPromptPayload(BaseModel):
+    vietnameseText: str
+    selectedTags: Optional[list] = []
+    mode: Optional[str] = "manga"
+
+UNIVERSAL_APPEND_MANGA = ", (masterpiece, best quality, highres:1.2), monochrome, greyscale, screentones, precise lineart, heavy hatching, high contrast, manga style, traditional media, ink"
+UNIVERSAL_APPEND_WEBTOON = ", (masterpiece, best quality, highres:1.2), webtoon style, manhwa style, cel shading, flat colors, vibrant palette, dynamic lighting, clean crisp lines, highly detailed"
+UNIVERSAL_NEGATIVE = "(text, signature, watermark, logo, speech bubble:1.4), (worst quality, low quality, bad quality, draft:1.4), (bad anatomy, deformed, disfigured, mutated hands, missing fingers, extra digits, fused fingers:1.3), blurry, out of focus, jpeg artifacts, realistic, photorealistic, 3d, cg, 2.5d, depth of field, noisy lines, messy sketch, simple background"
+
+@router.post("/redraw-prompt")
+async def process_redraw_prompt(
+    payload: RedrawPromptPayload,
+    request: Request,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Chuyển đổi prompt tiếng Việt thành prompt vẽ lại tiếng Anh tối ưu"""
+    val = (payload.vietnameseText or "").strip()
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    translated_tags = val
+    if api_key and val:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+            resp = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": "You are a specialized translation assistant. Translate natural descriptions of illustration elements into clean comma-separated English anime/danbooru tags. Return ONLY the English tags."},
+                    {"role": "user", "content": val}
+                ],
+                max_tokens=60,
+                temperature=0.3
+            )
+            translated_tags = resp.choices[0].message.content.strip()
+        except Exception:
+            pass
+
+    positive_components = []
+    if translated_tags:
+        positive_components.append(translated_tags)
+    if payload.selectedTags:
+        positive_components.append(", ".join(payload.selectedTags))
+
+    style_suffix = UNIVERSAL_APPEND_MANGA if payload.mode == 'manga' else UNIVERSAL_APPEND_WEBTOON
+    final_positive = ", ".join(positive_components) + style_suffix if positive_components else style_suffix.lstrip(", ")
+    final_positive = re.sub(r',\s*,', ',', final_positive).strip(" ,")
+
+    return {
+        "finalPositivePrompt": final_positive,
+        "finalNegativePrompt": UNIVERSAL_NEGATIVE
+    }
+
+class CopilotRequest(BaseModel):
+    japanese: str
+    text: str
+    action: str
+    custom_prompt: Optional[str] = ""
+
+@router.post("/copilot/chat")
+async def copilot_chat(
+    req: CopilotRequest,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Trợ lý AI dịch thuật ngữ cảnh theo phong cách giao tiếp"""
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    if not api_key:
+        return {"result": req.text}
+
+    system_prompt = "Bạn là chuyên gia dịch thuật Manga. Tuân thủ TUYỆT ĐỐI: 1. Chỉ trả về kết quả dịch cuối cùng. 2. KHÔNG giải thích. 3. KHÔNG dùng ngoặc kép."
+    if req.action == "aggressive":
+        user_prompt = f"Viết lại câu sau cho thật cục cằn, hầm hố, giang hồ (giữ nguyên nghĩa). Tiếng Nhật: {req.japanese}. Bản dịch cũ: {req.text}"
+    elif req.action == "natural":
+        user_prompt = f"Viết lại câu sau cho mượt mà, tự nhiên, giống văn phong giao tiếp GenZ Việt Nam. Tiếng Nhật: {req.japanese}. Bản dịch cũ: {req.text}"
+    elif req.action == "shorten":
+        user_prompt = f"Rút gọn câu sau cho ngắn nhất có thể để nhét vừa khung thoại nhỏ (không làm mất nghĩa). Tiếng Nhật: {req.japanese}. Bản dịch cũ: {req.text}"
+    elif req.action == "explain":
+        system_prompt = "Bạn là từ điển sống về văn hóa Nhật Bản. Giải thích cực kỳ ngắn gọn (dưới 40 từ)."
+        user_prompt = f"Giải thích ý nghĩa, sắc thái hoặc chơi chữ (nếu có) của câu tiếng Nhật này: {req.japanese}"
+    else:
+        user_prompt = f"Tiếng Nhật: {req.japanese}. Bản dịch: {req.text}. Yêu cầu riêng: {req.custom_prompt}"
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=150,
+            temperature=0.3
+        )
+        return {"result": resp.choices[0].message.content.strip()}
+    except Exception as e:
+        return {"result": req.text, "error": str(e)}
+
+
 

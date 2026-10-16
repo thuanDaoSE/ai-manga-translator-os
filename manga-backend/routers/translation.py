@@ -26,10 +26,13 @@ async def translate_page(
     if not page:
         raise HTTPException(status_code=404, detail="Không tìm thấy trang truyện")
         
-    # Kiểm tra số dư năng lượng (Tối thiểu 1 điểm năng lượng / trang)
-    from main import get_current_user_id, check_balance_before_task
+    # Kiểm tra hạn mức 300 trang miễn phí toàn hệ thống
+    from dependencies import get_current_user_id
+    from system_quota import global_quota
     user_id = await get_current_user_id(request)
-    await check_balance_before_task(db, user_id, min_balance=1.0)
+    if not global_quota.can_consume(1):
+        raise HTTPException(status_code=402, detail="Hệ thống đã đạt giới hạn 300 trang miễn phí! Vui lòng liên hệ admin để reset.")
+    global_quota.consume(1)
     
     config = await request.json()
     task_id = str(uuid.uuid4())

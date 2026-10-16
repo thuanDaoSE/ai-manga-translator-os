@@ -19,7 +19,7 @@
 
 *An end-to-end production platform for automated comic localization: from deep-learning text segmentation to context-aware translation and multi-layer Photoshop (.PSD) export.*
 
-[🌐 Live Platform](https://manga.ufospace.cloud) • [📑 Architecture Docs](ComicApp_Architecture_Report.md) • [🚀 Quickstart](#-quickstart)
+[🌐 Live Platform](https://deepkoma.pro) • [📑 Architecture Docs](ComicApp_Architecture_Report.md) • [🚀 Quickstart](#-quickstart)
 
 ---
 
@@ -30,10 +30,11 @@
 - **🎯 Comic Text Detector (CTD / YOLOv5)**: High-precision neural detector tailored for vertical text, irregular speech bubbles, and embedded sound effects (SFX).
 - **🔍 Multilingual OCR Engine (Hayai-OCR)**: Zero-redundancy character extraction pipeline supporting Japanese (Kanji/Kana), Korean (Hangul), Chinese (Hanzi), and English.
 - **🎨 Deep Inpainting (LaMa)**: Intelligent text erasure that restores complex background screentones, lineart, and color gradients without artifacts.
-- **🌐 Context-Aware Translation**: Dynamic prompt routing across modern LLMs to capture dialect, character tone, and comic nuances accurately.
+- **🌐 Context-Aware Translation**: Dynamic prompt routing across modern LLMs (DeepSeek AI) to capture dialect, character tone, and comic nuances accurately.
 - **🖌️ Interactive Canvas Studio (React 19)**: In-browser editor enabling real-time bubble repositioning, typography styling, and custom font mapping.
 - **💾 Layered Photoshop (.PSD) Export**: Generates production-ready, editable PSD files with separated text layers, saving scanlation teams over 80% manual typesetting time.
 - **⚡ Cost-Optimized Cloud GPU Orchestration**: Deployed on RunPod serverless GPU pods with Network Storage (Network Volume) mounting, eliminating cold-start latency while reducing cloud compute overhead by ~75% compared to dedicated VMs.
+- **🎁 Free-Tier System Quota Engine**: Transparent server-side quota tracking (300 free pages) with admin reset controls and real-time frontend indicators.
 
 ---
 
@@ -41,53 +42,65 @@
 
 ```mermaid
 graph TD
-    Client([Web Client / Scanlator]) <--> UI[React 19 Interactive Canvas]
-    UI <--> Gateway[FastAPI Gateway / Reverse Proxy]
+    Client([Web Client / Scanlator]) <--> UI[React 19 Interactive Studio]
+    UI <--> Gateway[FastAPI Modular Gateway]
     
     subgraph Data & State Layer
-        Gateway <--> DB[(PostgreSQL / SQLite)]
-        Gateway <--> Cache[(Redis Cache & Telemetry)]
+        Gateway <--> DB[(SQLite / PostgreSQL)]
+        Gateway <--> Quota[(System Quota Engine)]
     end
     
-    Gateway --> Queue[Celery Task Queue]
-    Queue --> Worker[Asynchronous Worker Nodes]
+    Gateway --> TaskMgr[In-Memory Task Dispatcher]
+    TaskMgr --> Worker[Asynchronous Worker Threadpool]
     
-    subgraph Distributed AI Inference [RunPod Serverless GPU]
+    subgraph Distributed AI Inference [RunPod Serverless GPU / Local Fallback]
         Worker <--> CTD[YOLOv5 Speech Bubble Detection]
         CTD --> OCR[Hayai-OCR Multilingual Extraction]
-        OCR --> LLM[LLM Contextual Translation]
+        OCR --> LLM[DeepSeek-V3 Contextual Translation]
         LLM --> Inpaint[LaMa Neural Text Removal]
-        Inpaint --> VisionAPI[Generative Infill APIs / FLUX]
+        Inpaint --> VisionAPI[FLUX.1-Fill Inpainting]
     end
     
-    Worker --> Storage[Cloudflare R2 Object Storage]
     Worker --> PSDGen[Multi-layer Photoshop PSD Exporter]
     PSDGen --> Client
 ```
 
 ---
 
-## 📂 Project Structure
+## 📂 Project Structure (Clean Code Architecture)
 
 ```bash
 AI_Manga_Translator/
-├── manga-web-ui/               # Frontend Studio (React 19, TypeScript, Tailwind, Vite)
-│   ├── src/components/Editor/  # Interactive canvas & bubble node controllers
-│   ├── src/store/              # Zustand global state (Canvas, Project, Auth)
-│   └── src/utils/typography.ts # Font measurement & text formatting logic
+├── manga-web-ui/                   # Frontend Studio (React 19, TypeScript, Vite)
+│   ├── src/components/
+│   │   ├── Layout/Sidebar/         # Modular Sidebar Subcomponents
+│   │   │   ├── PageCard.tsx        # DnD sortable page item with status badges
+│   │   │   ├── QuotaWidget.tsx     # 300 free pages quota monitor
+│   │   │   ├── UploadCard.tsx      # Drag-and-drop batch upload with progress
+│   │   │   └── BatchActionBar.tsx  # Contextual floating action & export bar
+│   │   ├── Editor/                 # Canvas engine & bubble node controllers
+│   │   └── Modals/                 # Export, settings, and shortcut modals
+│   ├── src/store/                  # Zustand stores (useCanvasStore, useProjectStore, useAuthStore)
+│   └── src/services/api.ts         # Centralized API service with auth token refresh
 │
-├── manga-backend/              # Core API & Worker Services (Python, FastAPI)
-│   ├── comic_text_detector/    # Custom YOLOv5 text & bubble detection models
-│   ├── ocr_router.py           # Unified Multilingual OCR router (Hayai-OCR)
-│   ├── task_manager.py         # Asynchronous task dispatch & progress tracking
-│   ├── psd_utils.py            # High-performance multi-layer PSD generator
-│   └── runpod_service.py       # Serverless GPU compute dispatcher
+├── manga-backend/                  # Core API & Worker Services (Python, FastAPI)
+│   ├── main.py                     # Clean Gateway Entrypoint (<200 LOC)
+│   ├── dependencies.py             # Shared auth, path normalization & security guards
+│   ├── system_quota.py             # 300 free pages quota management engine
+│   ├── routers/                    # Clean Domain-Driven FastAPI Routers
+│   │   ├── projects.py             # Project CRUD, batch export (ZIP/PSD), .manga import
+│   │   ├── pages.py                # Page bubbles, PSD export, JSX ExtendScript generation
+│   │   ├── translation.py          # Translation triggers, SSE progress streaming, task polling
+│   │   ├── editor.py               # Inpainting (LaMa), CTD erase, AI redraw (FLUX), OCR scan
+│   │   ├── system.py               # Telemetry, hardware GPU monitor, quota status/reset
+│   │   └── fonts.py                # Typography management & web font serving
+│   ├── comic_text_detector/        # Custom YOLOv5 text & bubble detection models
+│   ├── psd_utils.py                # Multi-layer Photoshop PSD generator
+│   └── worker.py                   # Local GPU/CPU inference pipeline
 │
-├── infra/                      # Infrastructure & Deployment manifests
-│   ├── docker-compose.yml      # Multi-container local/production orchestration
-│   └── deepkoma.nginx.conf     # Nginx reverse proxy & rate-limiting configs
-│
-└── deepkoma.env.example        # Environment variables template
+└── infra/                          # Infrastructure & Deployment manifests
+    ├── Dockerfile                  # Container definition for DeepKoma backend
+    └── nginx.conf                  # Production reverse proxy & SSL termination
 ```
 
 ---

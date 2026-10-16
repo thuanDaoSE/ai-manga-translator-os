@@ -79,3 +79,22 @@ async def dummy_deduct():
         "status": "success",
         "balance_seconds": 999999
     }
+
+from pydantic import BaseModel
+from typing import Optional
+from system_quota import global_quota
+
+class QuotaResetPayload(BaseModel):
+    new_limit: Optional[int] = 300
+
+@router.get("/system/quota")
+async def get_system_quota_api():
+    """Lấy thông tin hạn mức trang miễn phí toàn hệ thống"""
+    return global_quota.get_status()
+
+@router.post("/system/quota/reset")
+async def reset_system_quota_api(payload: Optional[QuotaResetPayload] = None):
+    """Đặt lại hạn mức 300 trang miễn phí"""
+    limit = (payload.new_limit if payload and payload.new_limit else 300)
+    res = global_quota.reset_quota(new_limit=limit)
+    return {"status": "success", "message": f"Đã đặt lại thành công {limit} trang miễn phí!", "quota": res}
