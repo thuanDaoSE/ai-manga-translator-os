@@ -1,3 +1,4 @@
+import React, { useState, useRef, useEffect } from "react";
 import { 
   Download, ChevronDown, Palette, ImageDown, FileText, Image as ImageIcon,
   User, CreditCard, HelpCircle, LogOut, Zap, Gift, RotateCcw
