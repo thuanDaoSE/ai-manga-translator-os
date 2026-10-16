@@ -175,7 +175,23 @@ export const useProjectStore = create<ProjectState>((set) => ({
                 break;
               }
 
-              // 🚀 2. XỬ LÝ KHI BỊ RATE LIMIT 429 (Too Many Requests) -> CHỜ VÀ THỬ LẠI
+              // 🚀 2. XỬ LÝ KHI DỰ ÁN CŨ ĐÃ BỊ XÓA (404) -> TỰ TẠO DỰ ÁN MỚI
+              if (errorText.includes("404") || errorText.includes("Không tìm thấy")) {
+                try {
+                  localStorage.removeItem('active_manga_project_id');
+                  const newProj = await mangaApi.createProject("Dự án AI Manga");
+                  currentProjectId = newProj.project_id || newProj.id;
+                  if (currentProjectId) {
+                    localStorage.setItem('active_manga_project_id', currentProjectId);
+                    set({ projectId: currentProjectId });
+                  }
+                  continue;
+                } catch (e) {
+                  console.error("Lỗi tự tạo lại dự án:", e);
+                }
+              }
+
+              // 🚀 3. XỬ LÝ KHI BỊ RATE LIMIT 429 (Too Many Requests) -> CHỜ VÀ THỬ LẠI
               if (errorText.includes("429") || errorText.includes("Too Many Requests")) {
                 await new Promise((res) => setTimeout(res, 2000 * attempts));
                 continue;

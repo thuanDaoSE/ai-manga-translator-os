@@ -45,13 +45,20 @@ async def create_project(payload: dict, db: AsyncSession = Depends(get_db)):
 
 @router.get("/{project_id}")
 async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
-    """Lấy chi tiết dự án"""
+    """Lấy chi tiết dự án (Tự động khởi tạo nếu chưa tồn tại)"""
     result = await db.execute(
         select(models.Project).where(models.Project.id == project_id)
     )
     project = result.scalars().first()
     if not project:
-        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+        project = models.Project(
+            id=project_id,
+            name="Dự án AI Manga",
+            user_id=LOCAL_USER_ID
+        )
+        db.add(project)
+        await db.commit()
+        await db.refresh(project)
     return project
 
 @router.delete("/{project_id}")
@@ -62,7 +69,7 @@ async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
     )
     project = result.scalars().first()
     if not project:
-        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+        return {"status": "success", "message": "Dự án không tồn tại hoặc đã được xóa"}
         
     await db.delete(project)
     await db.commit()
@@ -90,13 +97,20 @@ async def upload_page(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db)
 ):
-    """Tải lên ảnh trang truyện vào dự án"""
+    """Tải lên ảnh trang truyện vào dự án (Tự động phục hồi dự án nếu cần)"""
     result = await db.execute(
         select(models.Project).where(models.Project.id == project_id)
     )
     project = result.scalars().first()
     if not project:
-        raise HTTPException(status_code=404, detail="Không tìm thấy dự án")
+        project = models.Project(
+            id=project_id,
+            name="Dự án AI Manga",
+            user_id=LOCAL_USER_ID
+        )
+        db.add(project)
+        await db.commit()
+        await db.refresh(project)
 
     page_id = str(uuid.uuid4())
     ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
