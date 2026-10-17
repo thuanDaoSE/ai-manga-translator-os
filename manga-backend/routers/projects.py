@@ -87,6 +87,7 @@ async def get_project_pages(project_id: str, db: AsyncSession = Depends(get_db))
     result = await db.execute(
         select(models.Page)
         .where(models.Page.project_id == project_id)
+        .order_by(models.Page.filename.asc())
     )
     pages = result.scalars().all()
     return {"pages": pages}

@@ -8,6 +8,7 @@ import { useCanvasStore } from '../../store/useCanvasStore';
 import { useToolStore } from '../../store/useToolStore';
 import { useConfigStore, VALID_LANGUAGES } from '../../store/useConfigStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useServerStatusStore } from '../../store/useServerStatusStore';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { mangaApi } from '../../services/api';
@@ -466,7 +467,9 @@ export default function Sidebar() {
         } else {
           resolve();
         }
-      } catch (error) {
+      } catch (error: any) {
+        console.error(`[Sidebar] Lỗi dịch trang ${pageIndex}:`, error);
+        toast.error(`Lỗi dịch trang ${pageIndex + 1}: ${error?.message || "Lỗi không xác định"}`);
         projectStore.clearProgress(pageIndex);
         projectStore.setPageStatus(pageIndex, "error");
         // Đồng bộ Xu khi gặp lỗi ném ra từ API dịch
@@ -574,7 +577,10 @@ export default function Sidebar() {
         projectStore.setRetryCount(pageIndex, apiRetryCount);
 
         // Cập nhật thẻ Xanh/Đỏ
-        const hasTranslationError = updatedBubbles.some((b: any) => (b.text || "").toLowerCase().includes("lỗi"));
+        const hasTranslationError = updatedBubbles.some((b: any) => {
+          const txt = (b.text || "").toLowerCase().trim();
+          return txt.startsWith("[lỗi") || txt.includes("[lỗi dịch") || txt.startsWith("[error");
+        });
         if (hasTranslationError) {
           useProjectStore.getState().setPageStatus(pageIndex, "error");
         } else {
@@ -966,8 +972,8 @@ export default function Sidebar() {
     
     if (pendingIndexes.length === 0) return;
 
-    if (currentCredits <= 0) {
-      toast.error("Tài khoản đã hết số dư thời gian! Vui lòng nạp thêm để tiếp tục.");
+    if (!hasQuota) {
+      toast.error("Hệ thống đã đạt giới hạn 300 trang miễn phí. Vui lòng chờ admin reset!");
       return;
     }
 

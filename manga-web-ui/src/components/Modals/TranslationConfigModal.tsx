@@ -376,7 +376,6 @@ export default function TranslationConfigModal() {
                 <X size={18} />
               </button>
             </div>
-          </div>
 
           <div className="flex items-center justify-between px-6 bg-background border-t border-border/50">
             <div className="flex gap-4">

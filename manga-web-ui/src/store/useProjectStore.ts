@@ -479,7 +479,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
       newQueue.push(new File([""], page.filename, { type: "image/jpeg" }));
     });
 
-    set({
+    const firstProjectId = pages.length > 0 ? pages[0].project_id : null;
+    if (firstProjectId) {
+      localStorage.setItem('active_manga_project_id', firstProjectId);
+    }
+
+    set((state) => ({
+      projectId: firstProjectId || state.projectId,
       pageIds: newPageIds,
       pageStatuses: newPageStatuses,
       processedUrls: newProcessedUrls,
@@ -487,7 +493,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       retryCounts: newRetryCounts,
       fileQueue: newQueue,
       currentIndex: pages.length > 0 ? 0 : -1
-    });
+    }));
   },
   verifyAndRemovePage: async (index) => {
     const currentState = useProjectStore.getState();

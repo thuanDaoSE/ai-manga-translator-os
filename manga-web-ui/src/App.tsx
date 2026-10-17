@@ -117,15 +117,19 @@ export default function App() {
   }, [setUser]);
 
   useEffect(() => {
-    const savedProjectId = localStorage.getItem('active_manga_project_id');
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlProjectId = urlParams.get('project') || urlParams.get('project_id');
+    const targetProjectId = urlProjectId || localStorage.getItem('active_manga_project_id');
 
     // Nếu có đăng nhập, có ID dự án, VÀ CHƯA TỪNG KHÔI PHỤC TRONG PHIÊN NÀY
-    if (session?.user?.id && savedProjectId && !hasRestored.current) {
-      console.log("🔄 Đang khôi phục phiên làm việc cho Dự án:", savedProjectId);
+    if (session?.user?.id && targetProjectId && !hasRestored.current) {
+      console.log("🔄 Đang khôi phục phiên làm việc cho Dự án:", targetProjectId);
 
       hasRestored.current = true; // 🚀 Kéo cờ lên ngay lập tức để chặn ngắt vòng lặp!
+      localStorage.setItem('active_manga_project_id', targetProjectId);
+      useProjectStore.setState({ projectId: targetProjectId });
 
-      mangaApi.getProjectPages(savedProjectId)
+      mangaApi.getProjectPages(targetProjectId)
         .then((data) => {
           if (data && data.pages && data.pages.length > 0) {
             useProjectStore.getState().restoreProject(data.pages);

@@ -33,7 +33,10 @@ async def translate_page(
     global_quota.check_quota(1)  # Raises HTTP 402 nếu hết quota
     global_quota.consume_quota(1)
     
-    config = await request.json()
+    try:
+        config = await request.json()
+    except Exception:
+        config = {}
     task_id = str(uuid.uuid4())
     
     # Đăng ký task vào in-memory task manager

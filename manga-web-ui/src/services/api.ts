@@ -444,15 +444,7 @@ export const mangaApi = {
     return await response.json();
   },
 
-  // 🚀 KHAI BÁO HÀM DỊCH LẠI CHỮ MỚI
-  retryTextTranslation: async (pageId: string) => {
-    const response = await fetch(`${API_URL}/pages/${pageId}/retry-text-translation`, {
-      method: "POST",
-      headers: await getAuthHeaders() // Tự động gắn Token bảo mật của sếp
-    });
-    await handleApiError(response, "Lỗi khi gọi lệnh dịch lại chữ");
-    return await response.json();
-  },
+
   getUserProfile: async () => {
     try {
       const response = await fetch(`${API_URL}/users/me`, {
